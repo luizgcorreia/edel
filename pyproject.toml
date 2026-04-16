@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edel"
+version = "0.1.0"
+description = "Modular embedding-driven epistemic landscapes pipeline"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "plotly",
+]
+
+[tool.setuptools.packages.find]
+include = ["edel*"]

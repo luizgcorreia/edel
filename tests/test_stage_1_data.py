@@ -1,6 +1,8 @@
 import pytest
 import pandas as pd
 from edel.providers.lexicon_null import generate_dataset as generate_lexicon_null
+from edel.providers.syntax_null import generate_dataset as generate_syntax_null
+from edel.providers.scigen_null import generate_dataset as generate_scigen_null
 from edel.pipeline.data import run_data_stage
 from edel.providers.base import REQUIRED_COLUMNS
 
@@ -71,3 +73,66 @@ def test_run_data_stage_lexicon_null(base_run_config, tmp_path):
     from edel.io.artifact import load_artifact
     df = load_artifact(art)
     assert len(df) == 3
+
+
+def test_syntax_null_provider_direct():
+    """Test the syntax_null provider directly."""
+    config = {
+        "provider": {
+            "type": "syntax_null",
+            "params": {
+                "n_documents": 5,
+                "seed": 42
+            }
+        }
+    }
+    
+    df = generate_syntax_null(config)
+    
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 5
+    for col in REQUIRED_COLUMNS:
+        assert col in df.columns
+    
+    assert all(isinstance(val, str) for val in df["abstract"])
+    assert all(len(val) > 0 for val in df["abstract"])
+
+
+def test_syntax_null_determinism():
+    """Test that syntax_null is deterministic with a seed."""
+    config = {
+        "provider": {
+            "type": "syntax_null",
+            "params": {
+                "n_documents": 3,
+                "seed": 123
+            }
+        }
+    }
+    
+    df1 = generate_syntax_null(config)
+    df2 = generate_syntax_null(config)
+    
+    pd.testing.assert_frame_equal(df1, df2)
+
+
+def test_scigen_null_provider_direct():
+    """Test the scigen_null provider (clones repo if needed)."""
+    config = {
+        "provider": {
+            "type": "scigen_null",
+            "params": {
+                "n_documents": 5
+            }
+        }
+    }
+    
+    df = generate_scigen_null(config)
+    
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 5
+    for col in REQUIRED_COLUMNS:
+        assert col in df.columns
+    
+    assert "abstract" in df.columns
+    assert "title" in df.columns

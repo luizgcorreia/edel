@@ -60,3 +60,39 @@ def ensure_schema(df: pd.DataFrame, provider_name: str) -> pd.DataFrame:
         out["source_provider"] = out["source_provider"].fillna(provider_name)
 
     return out[REQUIRED_COLUMNS]
+
+
+def sample_abstract_length(mu: float, sigma: float) -> int:
+    """Sample abstract length from lognormal distribution."""
+    import numpy as np
+
+    return int(max(200, min(np.random.lognormal(mu, sigma), 4000)))
+
+
+def load_lexicon(lexicon_file: str | None = None) -> list[str]:
+    """Load or generate common English lexicon."""
+    if lexicon_file:
+        with open(lexicon_file, "r") as f:
+            return f.read().splitlines()
+
+    from wordfreq import top_n_list, zipf_frequency
+
+    vocab = [w for w in top_n_list("en", n=100000) if zipf_frequency(w, "en") > 3]
+
+    # basic cleanup
+    vocab = [w for w in vocab if w.isalpha() and len(w) > 2]
+
+    return vocab
+
+
+def generate_random_sentence(avg_length: int, lexicon: list[str], join: bool = True) -> Any:
+    """Generate a random sentence by sampling tokens from lexicon."""
+    import numpy as np
+
+    length = np.random.poisson(avg_length)
+    if length <= 0:
+        length = 1
+    words = np.random.choice(lexicon, size=length)
+    if join:
+        return " ".join(words).capitalize()
+    return list(words)

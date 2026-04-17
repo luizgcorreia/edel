@@ -7,60 +7,18 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from wordfreq import top_n_list, zipf_frequency
 
-from edel.providers.base import ensure_schema
-
-
-def sample_abstract_length(mu: float, sigma: float) -> int:
-    """Sample abstract length from lognormal distribution.
-    
-    Args:
-        mu: Mean of the log distribution.
-        sigma: Standard deviation of the log distribution.
-    """
-    return int(max(200, min(np.random.lognormal(mu, sigma), 4000)))
-
-
-def load_lexicon(lexicon_file: str | None = None) -> list[str]:
-    """Load or generate common English lexicon.
-    
-    Args:
-        lexicon_file: Path to a line-separated text file with tokens.
-            If None, generates a lexicon from top English words.
-    """
-    if lexicon_file:
-        with open(lexicon_file, "r") as f:
-            return f.read().splitlines()
-
-    vocab = [w for w in top_n_list("en", n=100000) if zipf_frequency(w, "en") > 3]
-
-    # basic cleanup
-    vocab = [w for w in vocab if w.isalpha() and len(w) > 2]
-
-    return vocab
-
-
-def generate_random_sentence(avg_length: int, lexicon: list[str], join: bool = True) -> Any:
-    """Generate a random sentence by sampling tokens from lexicon.
-    
-    Args:
-        avg_length: Poisson mean for the number of words.
-        lexicon: List of available tokens.
-        join: If True, returns a capitalized string. Otherwise returns list of words.
-    """
-    length = np.random.poisson(avg_length)
-    if length <= 0:
-        length = 1
-    words = np.random.choice(lexicon, size=length)
-    if join:
-        return " ".join(words).capitalize()
-    return list(words)
+from edel.providers.base import (
+    ensure_schema,
+    generate_random_sentence,
+    load_lexicon,
+    sample_abstract_length,
+)
 
 
 def generate_random_abstract(mu: float, sigma: float, lexicon: list[str]) -> str:
     """Generate a random abstract by concatenating random sentences.
-    
+
     Args:
         mu: Abstract length lognormal mu.
         sigma: Abstract length lognormal sigma.
@@ -81,7 +39,7 @@ def generate_random_abstract(mu: float, sigma: float, lexicon: list[str]) -> str
 
 def generate_dataset(config: dict) -> pd.DataFrame:
     """Generate a synthetic lexicon-null dataset with randomized tokens.
-    
+
     Expected config structure:
     {
         "provider": {

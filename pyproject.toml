@@ -8,10 +8,26 @@ version = "0.1.0"
 description = "Modular embedding-driven epistemic landscapes pipeline"
 requires-python = ">=3.10"
 dependencies = [
-  "numpy",
-  "pandas",
-  "scipy",
-  "plotly",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "hdbscan",
+    "umap-learn",
+    "pydiffmap",
+    "plotly",
+    "matplotlib",
+    "seaborn",
+    "tqdm",
+    "pyarrow",
+    "requests",
+    
+    "nltk",
+    "wordfreq",
+    
+    "openai", 
+    
+    "ijson",
 ]
 
 [tool.setuptools.packages.find]

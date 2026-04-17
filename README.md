@@ -10,6 +10,15 @@ Artifacts are addressed as:
 
 Use `edel.io.artifact.make_stage_artifact(...)` and `save_artifact(...)` / `load_artifact(...)`.
 
+## Install
+
+Install with conda:
+
+conda create -n edel python=3.11
+conda activate edel
+conda install -c conda-forge pyarrow
+pip install -e .
+
 ## Run
 
 ```bash

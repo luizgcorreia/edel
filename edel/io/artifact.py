@@ -1,7 +1,7 @@
 """Deterministic artifact addressing and persistence utilities.
 
 Artifacts are written under:
-    <base_path>/<stage>/<config_hash>/<name>.(parquet|pkl)
+    <base_path>/<stage>/<label>/<name>__<hash_segment>.(parquet|pkl)
 """
 
 from __future__ import annotations
@@ -15,38 +15,55 @@ from typing import Any
 
 
 CANONICAL_STAGE_NAMES = (
-    "raw_data",
-    "sa_data",
-    "embeddings_data",
-    "dr_data",
-    "vf_data",
-    "clustering_data",
-    "labeled_data",
+    "data_collection",
+    "structured_abstracts",
+    "embeddings",
+    "dimensionality_reduction",
+    "vector_field",
+    "clustering",
+    "labeling",
     "output",
 )
 
 # Stage-specific keys in RUN_CONFIG (mirrors the original pipeline organization).
 STAGE_CONFIG_KEYS = {
-    "raw_data": "data",
-    "sa_data": "structured_abstracts",
-    "embeddings_data": "embedding",
-    "dr_data": "dimensionality_reduction",
-    "vf_data": "vector_field",
-    "clustering_data": "clustering",
-    "labeled_data": "labeling",
+    "data_collection": "data",
+    "structured_abstracts": "structured_abstracts",
+    "embeddings": "embedding",
+    "dimensionality_reduction": "dimensionality_reduction",
+    "vector_field": "vector_field",
+    "clustering": "clustering",
+    "labeling": "labeling",
     "output": "landscape",
 }
 
 CANONICAL_ARTIFACT_NAMES = {
-    "raw_data": ("raw",),
-    "sa_data": ("sa",),
-    "embeddings_data": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
-    "dr_data": ("dr",),
-    "vf_data": ("vf",),
-    "clustering_data": ("clustering", "field_clustering"),
-    "labeled_data": ("labeled", "field_labeled", "axes_labeled"),
+    "data_collection": ("dataset", "raw"),
+    "structured_abstracts": ("sa",),
+    "embeddings": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
+    "dimensionality_reduction": ("dr",),
+    "vector_field": ("vf",),
+    "clustering": ("clustering", "field_clustering"),
+    "labeling": ("labeled", "field_labeled", "axes_labeled"),
     "output": ("plot", "experiment_stats"),
 }
+
+
+def get_experiment_label(config: dict) -> str:
+    """Derive experiment label (provider_topicId_region) from config.
+
+    Supports both full RUN_CONFIG and its 'data' section.
+    """
+    data_cfg = config.get("data", config)
+    provider_cfg = data_cfg.get("provider", {})
+
+    provider = provider_cfg.get("type", "unknown")
+    topic_id = provider_cfg.get("topic_id", "unknown")
+
+    # Try region_label, then region, then default to 'global'
+    region = provider_cfg.get("region_label") or provider_cfg.get("region") or "global"
+
+    return f"{provider}_{topic_id}_{region}"
 
 
 @dataclass(frozen=True)
@@ -55,6 +72,7 @@ class Artifact:
 
     stage: str
     name: str
+    label: str
     config_hash: str
     base_path: Path
 
@@ -64,6 +82,7 @@ class Artifact:
         return canonical_artifact_path(
             base_path=self.base_path,
             stage=self.stage,
+            label=self.label,
             config_hash=self.config_hash,
             name=self.name,
         )
@@ -88,11 +107,13 @@ def stable_hash(config: dict) -> str:
 def canonical_artifact_path(
     base_path: str | Path,
     stage: str,
+    label: str,
     config_hash: str,
     name: str,
 ) -> Path:
-    """Build canonical artifact path prefix: <base>/<stage>/<hash>/<name>."""
-    return Path(base_path) / stage / config_hash / name
+    """Build canonical artifact path: <base>/<stage>/<label>/<name>__<hash_segment>."""
+    hash_segment = config_hash[:8]
+    return Path(base_path) / stage / label / f"{name}__{hash_segment}"
 
 
 def stage_hash(run_config: dict, stage: str) -> str:
@@ -108,19 +129,34 @@ def make_stage_artifact(
     name: str,
 ) -> Artifact:
     """Create artifact descriptor for a canonical stage using stage-specific hash."""
+    label = get_experiment_label(run_config)
+    stage_key = STAGE_CONFIG_KEYS[stage]
     return Artifact(
         stage=stage,
         name=name,
-        config_hash=stage_hash(run_config, stage),
+        label=label,
+        config_hash=stable_hash(run_config[stage_key]),
         base_path=Path(base_path),
     )
 
 
-def make_artifact(stage: str, name: str, config: dict, base_path: str | Path) -> Artifact:
+def make_artifact(
+    stage: str,
+    name: str,
+    config: dict,
+    base_path: str | Path,
+    run_config: dict | None = None,
+    label: str | None = None,
+) -> Artifact:
     """Create an artifact descriptor addressed deterministically by config hash."""
+    if not label:
+        # Try to get label from run_config or config (if it's the data section)
+        label = get_experiment_label(run_config or config)
+
     return Artifact(
         stage=stage,
         name=name,
+        label=label,
         config_hash=stable_hash(config),
         base_path=Path(base_path),
     )
@@ -163,9 +199,24 @@ def load_artifact(artifact: Artifact):
 
 
 if __name__ == "__main__":
-    # Small deterministic usage example.
-    cfg = {"stage": "example", "version": 1, "params": {"alpha": 0.1}}
-    art = make_artifact(stage="output", name="dummy_payload", config=cfg, base_path="artifacts")
+    # Small deterministic usage example mirroring RUN_CONFIG structure.
+    run_cfg = {
+        "data": {
+            "provider": {
+                "type": "openalex",
+                "topic_id": "T10102",
+                "region": None,
+            }
+        },
+        "landscape": {"metric": "cited_by_count"},
+    }
+    art = make_artifact(
+        stage="output",
+        name="dummy_payload",
+        config=run_cfg["landscape"],
+        run_config=run_cfg,
+        base_path="artifacts",
+    )
     saved_to = save_artifact(art, {"ok": True, "values": [1, 2, 3]})
     loaded = load_artifact(art)
 

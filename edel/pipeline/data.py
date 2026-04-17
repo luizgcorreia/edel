@@ -16,7 +16,7 @@ def run_data_stage(config: dict, artifact_root: Path) -> dict:
         artifact_root: Root directory where artifacts are persisted.
 
     Returns:
-        {"dataset": Artifact}
+        dict[str, Artifact]
     """
     provider_name = config["provider"]["type"]
     provider = get_provider(provider_name)

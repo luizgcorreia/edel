@@ -13,19 +13,19 @@ def run_pipeline(config: dict, base_path: str | Path = "artifacts") -> dict:
     """Run the full pipeline and return reusable artifacts.
 
     Expected input artifacts (by canonical names):
-    - clustering_data/clustering
-    - clustering_data/field_clustering
+    - clustering/clustering
+    - clustering/field_clustering
     """
     df_artifact = make_stage_artifact(
         run_config=config,
         base_path=base_path,
-        stage="clustering_data",
+        stage="clustering",
         name="clustering",
     )
     field_artifact = make_stage_artifact(
         run_config=config,
         base_path=base_path,
-        stage="clustering_data",
+        stage="clustering",
         name="field_clustering",
     )
 

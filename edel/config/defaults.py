@@ -1,8 +1,8 @@
-"""Default configuration for the epistemic landscape pipeline."""
+"""Default run configuration mirroring the original monolithic pipeline."""
 
 RUN_CONFIG = {
-    "processing_mode": "batch",
-    "embedding_mode": "aspects",
+    "processing_mode": "batch",  # "simple" | "batch"
+    "embedding_mode": "aspects",  # "aspects" | "documents"
     "data": {
         "provider": {
             "type": "openalex",
@@ -14,35 +14,99 @@ RUN_CONFIG = {
                 "avg_length": 150,
             },
         },
-        "dataset_path": "data/cluster_data.csv",
         "transforms": [{"type": "shuffle_words"}],
+    },
+    "structured_abstracts": {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "min_sentences": 4,
+        "min_tokens": 80,
+    },
+    "embedding": {
+        "mode": "multi",  # multi | single | abstract
+        "provider": "openai",
+        "model": "text-embedding-ada-002",
+        "n_dimensions": 1536,
+        "batch_size": 5000,
     },
     "dimensionality_reduction": {
         "method": "diffusion",
+        "n_neighbors": 15,
+        "random_state": 0,
+        "min_dist": 0.1,
+        "metric": "cosine",
     },
-    "landscape": {
-        "scale": 8.0,
-        "metric": "cited_by_count",
-        "log_scale": True,
-        "color_cluster": "cluster_domain",
-        "style_cluster": "cluster_style",
-        "grid": {
-            "num_bins": 40,
-            "sigma": 2.0,
+    "vector_field": {
+        "method": "diffusion",
+        "grid_size": 25,
+        "min_count": 3,
+        "smooth_sigma": 1.0,
+        "compute_divergence": True,
+        "compute_magnitude": True,
+    },
+    "clustering": {
+        "domain": {
+            "source": "proj_p",
+            "algorithm": "hdbscan",
+            "params": {
+                "min_cluster_size": 15,
+            },
         },
         "field": {
-            "field_type": "discovery",
-            "grid_res": 40,
-            "kernel_sigma": 0.25,
-            "step": 2,
-            "scale": 0.14,
+            "source": "field",
+            "algorithm": "hdbscan",
+            "params": {
+                "min_cluster_size": 10,
+            },
+        },
+        "style": {
+            "source": "features",
+            "algorithm": "gmm",
+            "params": {
+                "n_components": 4,
+            },
+        },
+        "operator": {
+            "source": "operators",
+            "algorithm": "hdbscan",
+            "params": {
+                "min_cluster_size": 20,
+            },
         },
     },
-    "paths": {
-        "field_dataset_path": "data/field_cluster_data.csv",
-        "axis_labels_path": "data/axes_labels.csv",
-        "cluster_labels_path": "data/clusters_labels.csv",
-        "artifacts_path": "artifacts/pipeline_artifacts.pkl",
-        "plots_dir": "artifacts/plots",
+    "labeling": {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "text_column": "abstract_text",
+        "topic": None,
+        "language": "en",
+        "axis": {
+            "enabled": True,
+            "projection": "diffusion",
+            "n_samples": 5,
+        },
+        "clusters": {
+            "enabled": True,
+            "cluster_keys": ["domain", "style", "operator", "field"],
+            "n_samples": 5,
+        },
+    },
+    "landscape": {
+        "metric": "cited_by_count",
+        "log_scale": True,
+        "grid": {
+            "num_bins": 50,
+            "sigma": 1.5,
+        },
+        "scale": 12.0,
+        "color_cluster": "cluster_domain",
+        "style_cluster": "cluster_style",
+        "field": {
+            "enabled": True,
+            "type": "total",
+            "step": 2,
+            "scale": 0.07,
+            "width": 1,
+        },
     },
 }

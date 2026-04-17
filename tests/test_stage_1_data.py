@@ -3,6 +3,7 @@ import pandas as pd
 from edel.providers.lexicon_null import generate_dataset as generate_lexicon_null
 from edel.providers.syntax_null import generate_dataset as generate_syntax_null
 from edel.providers.scigen_null import generate_dataset as generate_scigen_null
+from edel.providers.openalex import generate_dataset as generate_openalex
 from edel.pipeline.data import run_data_stage
 from edel.providers.base import REQUIRED_COLUMNS
 
@@ -136,3 +137,28 @@ def test_scigen_null_provider_direct():
     
     assert "abstract" in df.columns
     assert "title" in df.columns
+
+
+def test_openalex_provider_direct():
+    """Test the openalex provider with a real API call (limited to 10 docs)."""
+    config = {
+        "provider": {
+            "type": "openalex",
+            "topic_id": "T10102",
+            "params": {
+                "n_documents": 10
+            }
+        }
+    }
+    
+    df = generate_openalex(config)
+    
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) <= 10  # Might be less if topic is small or filters are strict
+    if len(df) > 0:
+        for col in REQUIRED_COLUMNS:
+            assert col in df.columns
+        
+        assert "abstract" in df.columns
+        assert isinstance(df["abstract"].iloc[0], str)
+        assert len(df["abstract"].iloc[0]) > 0

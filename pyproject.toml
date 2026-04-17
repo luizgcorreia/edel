@@ -15,4 +15,5 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
+where = ["."]
 include = ["edel*"]

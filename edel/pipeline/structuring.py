@@ -25,23 +25,30 @@ def sentence_count(text: str) -> int:
 
 def filter_abstracts(
     df: pd.DataFrame, min_sentences: int = 2, min_tokens: int = 20
-) -> pd.DataFrame:
-    """Filter out extremely short or empty abstracts."""
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Filter out extremely short or empty abstracts and return a report."""
+    report = {"initial_count": len(df)}
     if df.empty:
-        return df
+        return df, report
 
-    out = df[df["abstract_text"].notna()].copy()
+    # 1. Missing abstract
+    df_clean = df[df["abstract_text"].notna()].copy()
+    report["missing_abstract_count"] = len(df) - len(df_clean)
     
-    # Sentence filter
-    out["_n_sentences"] = out["abstract_text"].apply(sentence_count)
-    out = out[out["_n_sentences"] >= min_sentences].copy()
+    # 2. Sentence filter
+    df_clean["_n_sentences"] = df_clean["abstract_text"].apply(sentence_count)
+    df_sent = df_clean[df_clean["_n_sentences"] >= min_sentences].copy()
+    report["insufficient_sentences_count"] = len(df_clean) - len(df_sent)
 
-    # Token filter
-    out["_n_tokens"] = out["abstract_text"].str.split().str.len()
-    out = out[out["_n_tokens"] >= min_tokens].copy()
+    # 3. Token filter
+    df_sent["_n_tokens"] = df_sent["abstract_text"].str.split().str.len()
+    df_final = df_sent[df_sent["_n_tokens"] >= min_tokens].copy()
+    report["insufficient_tokens_count"] = len(df_sent) - len(df_final)
+    report["final_count"] = len(df_final)
 
     # Drop temporary columns
-    return out.drop(columns=["_n_sentences", "_n_tokens"])
+    out = df_final.drop(columns=["_n_sentences", "_n_tokens"])
+    return out, report
 
 
 def parse_and_merge_results(df: pd.DataFrame, results: dict[str, str]) -> pd.DataFrame:
@@ -157,7 +164,7 @@ def process_batch(
     return all_results
 
 
-def run_structuring_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, dict[str, int]]:
     """Run the Stage 2 pipeline: Abstract Structuring."""
     stage_cfg = config.get("structured_abstracts", {})
     processing_mode = config.get("processing_mode", "simple")
@@ -165,11 +172,12 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     # 1. Filter
     min_sentences = stage_cfg.get("min_sentences", 2)
     min_tokens = stage_cfg.get("min_tokens", 20)
-    df_filtered = filter_abstracts(df, min_sentences, min_tokens)
+    df_filtered, filter_report = filter_abstracts(df, min_sentences, min_tokens)
     print(f"Filtered to {len(df_filtered)} abstracts for structuring.")
+    print(f"Filter Report: {filter_report}")
 
     if df_filtered.empty:
-        return df_filtered
+        return df_filtered, filter_report
 
     # 2. Setup Client
     client = get_llm_client(stage_cfg)
@@ -182,4 +190,5 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         results = process_simple(df_filtered, client, topic)
 
     # 4. Parse & Merge
-    return parse_and_merge_results(df_filtered, results)
+    df_structured = parse_and_merge_results(df_filtered, results)
+    return df_structured, filter_report

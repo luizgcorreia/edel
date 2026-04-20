@@ -142,7 +142,13 @@ class OpenAIClient(LLMClient):
                 custom_id = data.get("custom_id")
                 if data.get("response") and data["response"].get("status_code") == 200:
                     body = data["response"]["body"]
-                    results[custom_id] = body["choices"][0]["message"]["content"]
+                    if "choices" in body:
+                        results[custom_id] = body["choices"][0]["message"]["content"]
+                    elif "data" in body:
+                        # Return the embedding list directly
+                        results[custom_id] = body["data"][0]["embedding"]
+                    else:
+                        results[custom_id] = body
                 else:
                     results[custom_id] = json.dumps({"error": "batch_failed", "details": data.get("error")})
             status_info["results"] = results

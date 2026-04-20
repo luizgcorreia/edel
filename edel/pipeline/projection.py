@@ -96,6 +96,43 @@ def get_reducer(method: str, config: dict) -> Any:
         raise ValueError(f"Unknown DR method: {method}")
 
 
+def calculate_signatures_and_magnitudes(df: pd.DataFrame, dimensions: int) -> pd.DataFrame:
+    """Calculate transition signatures (cosines) and movement magnitudes between aspects."""
+    aspects = ["problem", "method", "finding", "interpretation"]
+    if not all(f"{a}_embedding" in df.columns for a in aspects):
+        return df
+
+    # Load embeddings to matrices
+    emb_p = load_embeddings_to_matrix(df, "problem_embedding", dimensions)
+    emb_m = load_embeddings_to_matrix(df, "method_embedding", dimensions)
+    emb_f = load_embeddings_to_matrix(df, "finding_embedding", dimensions)
+    emb_i = load_embeddings_to_matrix(df, "interpretation_embedding", dimensions)
+
+    # Calculate difference vectors (Operators)
+    pm = emb_m - emb_p
+    mf = emb_f - emb_m
+    fi = emb_i - emb_f
+
+    # Calculate Magnitudes
+    df["mag_pm"] = np.linalg.norm(pm, axis=1)
+    df["mag_mf"] = np.linalg.norm(mf, axis=1)
+    df["mag_fi"] = np.linalg.norm(fi, axis=1)
+
+    # Calculate Transition Signatures (Cosine similarities between operators)
+    def row_wise_cosine(a, b):
+        # Normalize rows to unit length
+        a_norm = normalize(a, axis=1, norm="l2")
+        b_norm = normalize(b, axis=1, norm="l2")
+        # Dot product of normalized rows = cosine similarity
+        return np.sum(a_norm * b_norm, axis=1)
+
+    df["cos_pm_mf"] = row_wise_cosine(pm, mf)
+    df["cos_mf_fi"] = row_wise_cosine(mf, fi)
+    df["cos_pm_fi"] = row_wise_cosine(pm, fi)
+
+    return df
+
+
 def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Orchestrate the dimensionality reduction stage."""
     dr_cfg = config.get("dimensionality_reduction", {})
@@ -162,6 +199,10 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 coords_a = reducer.fit_transform(X_a_prep)
                 out[f"proj_{aspect}_{method}_x"] = coords_a[:, 0]
                 out[f"proj_{aspect}_{method}_y"] = coords_a[:, 1]
+
+        # 3. Calculate Signatures & Magnitudes (Research Style Features)
+        print("Calculating transition signatures and magnitudes...")
+        out = calculate_signatures_and_magnitudes(out, dimensions)
 
     # Memory efficiency: Drop the large embedding columns if requested
     if dr_cfg.get("drop_embeddings", False):

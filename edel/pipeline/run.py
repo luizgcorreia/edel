@@ -51,14 +51,16 @@ def run_full_pipeline(
 
     # --- Stage 2: Structured Abstracts ---
     art_sa = make_stage_artifact(config, base_path, "structured_abstracts", "sa")
+    art_report = make_stage_artifact(config, base_path, "structured_abstracts", "filter_report")
     try:
         if force: raise FileNotFoundError()
         df = load_artifact(art_sa)
         print("Stage 2: Loaded existing structured abstracts artifact.")
     except (FileNotFoundError, Exception):
         print("Stage 2: Running structuring...")
-        df = run_structuring_stage(df, config)
+        df, report = run_structuring_stage(df, config)
         save_artifact(art_sa, df)
+        save_artifact(art_report, report)
     final_results["structuring"] = df
 
     # --- Stage 3: Text Embeddings ---

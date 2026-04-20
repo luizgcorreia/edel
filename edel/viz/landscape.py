@@ -21,6 +21,7 @@ def plot_landscape_3d(
     surface_opacity: float = 0.8,
     scatter_opacity: float = 0.05,
     scatter_size: int = 2,
+    topic_name: str | None = None,
 ):
     """
     Create an interactive 3D Epistemic Landscape Surface plot.
@@ -82,7 +83,7 @@ def plot_landscape_3d(
     _add_manual_legends_3d(fig, df, color_col, symbol_col)
 
     fig.update_layout(
-        title=title or "3D Epistemic Landscape Surface",
+        title=title or f"3D Epistemic Landscape Surface: {topic_name}" if topic_name else "3D Epistemic Landscape Surface",
         scene=dict(
             xaxis_title=x_label,
             yaxis_title=y_label,
@@ -109,6 +110,7 @@ def plot_landscape_contour(
     show_flow: bool = True,
     flow_type: str = "discovery",
     flow_scale: float = 0.08,
+    topic_name: str | None = None,
 ):
     """
     Create an interactive 2D Epistemic Landscape Contour Map with optional flow overlay.
@@ -165,7 +167,7 @@ def plot_landscape_contour(
     _add_manual_legends_2d(fig, df, color_col, symbol_col)
 
     fig.update_layout(
-        title=title or "2D Epistemic Landscape Contour Map",
+        title=title or f"2D Epistemic Landscape Contour Map: {topic_name}" if topic_name else "2D Epistemic Landscape Contour Map",
         xaxis_title=x_label, yaxis_title=y_label,
         width=1000, height=800,
         legend=dict(orientation="h", y=-0.15, x=0.5, xanchor="center")

@@ -93,6 +93,7 @@ def plot_landscape_3d(
         margin=dict(l=0, r=0, b=0, t=50)
     )
 
+    fig.show()
     return fig
 
 
@@ -173,6 +174,7 @@ def plot_landscape_contour(
         legend=dict(orientation="h", y=-0.15, x=0.5, xanchor="center")
     )
 
+    fig.show()
     return fig
 
 

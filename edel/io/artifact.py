@@ -182,20 +182,47 @@ def save_artifact(artifact: Artifact, obj: Any) -> Path:
     return path
 
 
-def load_artifact(artifact: Artifact):
-    """Load artifact from deterministic location, preferring parquet over pickle."""
+def load_artifact(artifact: Artifact) -> Any:
+    """Load artifact data from Parquet (preferred) or Pickle."""
     if artifact.parquet_path.exists():
         import pandas as pd
-
         return pd.read_parquet(artifact.parquet_path)
-
     if artifact.pkl_path.exists():
-        with artifact.pkl_path.open("rb") as f:
+        with open(artifact.pkl_path, "rb") as f:
             return pickle.load(f)
 
     raise FileNotFoundError(
         f"Artifact not found at '{artifact.parquet_path}' or '{artifact.pkl_path}'."
     )
+
+
+def save_viz(artifact: Artifact, fig: Any, formats: list[str] = ["png", "html"]):
+    """Save a visualization (Matplotlib or Plotly) using artifact conventions."""
+    for fmt in formats:
+        hash_segment = artifact.config_hash[:8]
+        path = artifact.path_prefix.parent / f"{artifact.name}__{hash_segment}.{fmt}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Plotly support
+        if hasattr(fig, "write_html"):
+            if fmt == "html":
+                fig.write_html(str(path))
+            elif fmt == "png":
+                try:
+                    # Scale=2 for high-res publication quality
+                    fig.write_image(str(path), scale=2)
+                except Exception as e:
+                    print(f"Warning: Could not save Plotly PNG (is 'kaleido' installed?): {e}")
+        
+        # Matplotlib support
+        elif hasattr(fig, "savefig"):
+            if fmt == "png":
+                fig.savefig(str(path), dpi=300, bbox_inches="tight")
+            # PDF is often preferred for papers
+            elif fmt == "pdf":
+                fig.savefig(str(path), bbox_inches="tight")
+        
+        print(f"✅ Saved visualization: {path.name}")
 
 
 if __name__ == "__main__":

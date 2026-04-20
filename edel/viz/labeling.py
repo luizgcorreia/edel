@@ -85,7 +85,7 @@ def plot_epistemic_map(
         y_label = axes_info[1].get("axis_label", y_label)
 
     # 3. Plot
-    plt.figure(figsize=(12, 9))
+    plt.figure(figsize=(10, 10))
     
     # Sort by label to ensure consistent legend
     hue_order = sorted(plot_df["Semantic Label"].unique())
@@ -102,17 +102,31 @@ def plot_epistemic_map(
         s=size,
         alpha=alpha,
         palette="tab10" if len(hue_order) <= 10 else "tab20",
-        edgecolor=None
+        edgecolor="white",
+        linewidth=0.5
     )
 
-    plt.xlabel(x_label, fontsize=14, fontweight="bold")
-    plt.ylabel(y_label, fontsize=14, fontweight="bold")
+    import textwrap
+    def wrap_text(text, width=50):
+        return "\n".join(textwrap.wrap(text, width=width))
+
+    plt.xlabel(wrap_text(x_label), fontsize=12, fontweight="bold", labelpad=15)
+    plt.ylabel(wrap_text(y_label), fontsize=12, fontweight="bold", labelpad=15)
     
     title = f"Epistemic Landscape: {topic_name}" if topic_name else "Epistemic Landscape Map"
-    plt.title(title, fontsize=16, fontweight="bold", pad=20)
+    plt.title(title, fontsize=15, fontweight="bold", pad=25)
     
-    # Move legend outside
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., title="Knowledge Domains")
+    # Move legend below the plot
+    leg = plt.legend(
+        loc='upper center', 
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=2 if len(hue_order) > 4 else 1,
+        title="Knowledge Domains",
+        frameon=True,
+        edgecolor="#CCCCCC"
+    )
+    if leg:
+        leg.get_title().set_fontweight('bold')
     
     plt.tight_layout()
     
@@ -121,3 +135,4 @@ def plot_epistemic_map(
         print(f"Figure saved to: {save_path}")
         
     plt.show()
+    return plt.gcf()

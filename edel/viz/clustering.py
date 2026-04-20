@@ -42,21 +42,18 @@ def plot_clusters_on_landscape(
     if x_col not in df.columns:
         x_col, y_col = f"proj_{method}_x", f"proj_{method}_y"
 
-    plt.figure(figsize=(8, 8))
+    # Using Seaborn for better categorical legends
+    unique_clusters = sorted(df[cluster_col].unique())
+    cmap = "tab10" if len(unique_clusters) <= 10 else "tab20"
     
-    # Using tab10 for categorical clusters
-    unique_clusters = df[cluster_col].nunique()
-    cmap = "tab10" if unique_clusters <= 10 else "tab20"
-    
-    sc = plt.scatter(
-        df[x_col], df[y_col],
-        c=df[cluster_col],
-        s=size,
-        alpha=alpha,
-        cmap=cmap
+    sns.scatterplot(
+        data=df, x=x_col, y=y_col,
+        hue=cluster_col, palette=cmap,
+        s=size, alpha=alpha,
+        legend="full"
     )
     
-    plt.colorbar(sc, label=f"Cluster ({cluster_key})")
+    plt.legend(title=f"Cluster ({cluster_key})", bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.title(f"Clustering: {cluster_key.capitalize()} ({method.upper()})", fontsize=14, pad=15)
     plt.xlabel(f"{method.upper()} 1")
     plt.ylabel(f"{method.upper()} 2")
@@ -84,15 +81,14 @@ def plot_field_clusters(
 
     plt.figure(figsize=(8, 8))
     
-    sc = plt.scatter(
-        field["cell_px"], field["cell_py"],
-        c=field[cluster_col],
-        s=size,
-        marker="s", # Square marker for grid cells
-        cmap="tab10"
+    sns.scatterplot(
+        data=field, x="cell_px", y="cell_py",
+        hue=cluster_col, palette="tab10",
+        s=size, marker="s",
+        legend="full"
     )
     
-    plt.colorbar(sc, label=f"Field Cluster ({cluster_key})")
+    plt.legend(title=f"Field Cluster ({cluster_key})", bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.title(f"Vector Field Clusters: {cluster_key.capitalize()}", fontsize=14, pad=15)
     plt.xlabel("X Position")
     plt.ylabel("Y Position")

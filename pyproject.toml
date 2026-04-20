@@ -19,6 +19,7 @@ dependencies = [
     "plotly",
     "matplotlib",
     "seaborn",
+    "kaleido",
     "tqdm",
     "pyarrow",
     "requests",

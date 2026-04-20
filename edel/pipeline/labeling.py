@@ -194,7 +194,7 @@ Summarize the common themes and approaches in JSON format:
 
 {{
   "cluster_topics": "1-2 sentences",
-  "proposed_label": "3-5 words"
+  "proposed_label": "1-5 words"
 }}
 
 The label must be different from: {prev_text}
@@ -254,7 +254,7 @@ Describe the main difference between the two poles in JSON format:
 {{
   "negative_pole": "Main characteristics of the negative pole",
   "positive_pole": "Main characteristics of the positive pole",
-  "axis_label": "Short contrast label describing the difference"
+  "axis_label": "Short contrast label describing the difference between negative and positive poles. (1-3 words per pole)."
 }}
 
 The label should describe a conceptual contrast, not just a topic name.

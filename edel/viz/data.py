@@ -58,7 +58,7 @@ def plot_publication_year_dist(
 
 
 def plot_citation_dist(
-    df: pd.DataFrame, max_citations: int = 50, color: str = "#16A085"
+    df: pd.DataFrame, max_citations: int | None = None, color: str = "#16A085"
 ):
     """Plot the distribution of citation counts."""
     set_viz_style()
@@ -67,14 +67,24 @@ def plot_citation_dist(
         return
 
     plt.figure(figsize=(10, 6))
+    
+    # Filter out NaNs for plotting
+    data = df["cited_by_count"].dropna()
+    
+    if data.empty:
+        print("Warning: No citation data available to plot.")
+        return
+
     # Using more bins for citations since it's often a power-law distribution
-    sns.histplot(df["cited_by_count"], bins=100, kde=True, color=color, alpha=0.7)
+    sns.histplot(data, bins=min(len(data), 50), kde=True, color=color, alpha=0.7)
     
     plt.title("Distribution of Citations", fontsize=14, fontweight="bold", pad=20)
     plt.xlabel("Number of Citations", fontsize=12)
     plt.ylabel("Number of Works", fontsize=12)
-    plt.xlim(0, max_citations)
-    # Optional: set y-limit if there are too many 0-citation papers
-    # plt.ylim(0, df['cited_by_count'].value_counts().max() * 1.1) 
+    
+    # If max_citations is provided, cap the plot; otherwise use data max
+    if max_citations:
+        plt.xlim(0, max_citations)
+    
     plt.tight_layout()
     plt.show()

@@ -2,40 +2,23 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from edel.io.artifact import make_artifact, save_artifact
+import pandas as pd
 from edel.providers import get_provider
 
 
-def run_data_stage(config: dict, artifact_root: Path) -> dict:
-    """Run Stage 1 data collection and save the dataset artifact.
+def run_data_stage(config: dict) -> pd.DataFrame:
+    """Run Stage 1 data collection and return the DataFrame.
 
     Args:
-        config: Stage-1 config, expected to contain ``config['provider']['type']``.
-        artifact_root: Root directory where artifacts are persisted.
+        config: Full RUN_CONFIG or the 'data' section.
 
     Returns:
-        dict[str, Artifact]
+        pd.DataFrame: The collected/generated dataset.
     """
-    provider_name = config["provider"]["type"]
+    data_cfg = config.get("data", config)
+    provider_name = data_cfg["provider"]["type"]
     provider = get_provider(provider_name)
 
-    dataset_df = provider(config)
+    dataset_df = provider(data_cfg)
 
-    dataset_artifact = make_artifact(
-        stage="data_collection",
-        name="dataset",
-        config=config,
-        base_path=artifact_root,
-    )
-    save_artifact(dataset_artifact, dataset_df)
-
-    return {"dataset": dataset_artifact}
-
-
-# Example:
-# from pathlib import Path
-# from edel.config.defaults import RUN_CONFIG
-# artifacts = run_data_stage(RUN_CONFIG["data"], Path("artifacts"))
-# print(artifacts["dataset"].parquet_path)
+    return dataset_df

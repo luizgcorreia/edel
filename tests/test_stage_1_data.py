@@ -28,8 +28,8 @@ def test_lexicon_null_provider_direct():
         assert col in df.columns
     
     # Check that abstract and title are strings and not empty
-    assert all(isinstance(val, str) for val in df["abstract"])
-    assert all(len(val) > 0 for val in df["abstract"])
+    assert all(isinstance(val, str) for val in df["abstract_text"])
+    assert all(len(val) > 0 for val in df["abstract_text"])
     assert all(isinstance(val, str) for val in df["title"])
     assert all(len(val) > 0 for val in df["title"])
 
@@ -50,31 +50,19 @@ def test_lexicon_null_determinism():
     
     pd.testing.assert_frame_equal(df1, df2)
 
-def test_run_data_stage_lexicon_null(base_run_config, tmp_path):
+def test_run_data_stage_lexicon_null(base_run_config):
     """Test the Stage 1 orchestrator with lexicon_null provider."""
     # Modify config to use lexicon_null
     config = base_run_config.copy()
     config["data"]["provider"]["type"] = "lexicon_null"
     config["data"]["provider"]["params"]["n_documents"] = 3
     
-    artifacts = run_data_stage(config["data"], tmp_path)
+    df = run_data_stage(config["data"])
     
-    assert "dataset" in artifacts
-    art = artifacts["dataset"]
-    
-    # Check path structure: artifacts/data_collection/<label>/dataset__<hash>.parquet
-    assert "data_collection" in str(art.parquet_path)
-    # Label should be lexicon_null_unknown_global (because topic_id is not in config["data"]["provider"] top-level but inside data section?)
-    # Wait, get_experiment_label uses data_cfg = config.get("data", config).
-    # In run_data_stage, we pass config["data"].
-    assert art.label == "lexicon_null_T10102_global"
-    
-    assert art.parquet_path.exists() or art.pkl_path.exists()
-    
-    # Load and check
-    from edel.io.artifact import load_artifact
-    df = load_artifact(art)
+    assert isinstance(df, pd.DataFrame)
     assert len(df) == 3
+    for col in REQUIRED_COLUMNS:
+        assert col in df.columns
 
 
 def test_syntax_null_provider_direct():
@@ -96,8 +84,8 @@ def test_syntax_null_provider_direct():
     for col in REQUIRED_COLUMNS:
         assert col in df.columns
     
-    assert all(isinstance(val, str) for val in df["abstract"])
-    assert all(len(val) > 0 for val in df["abstract"])
+    assert all(isinstance(val, str) for val in df["abstract_text"])
+    assert all(len(val) > 0 for val in df["abstract_text"])
 
 
 def test_syntax_null_determinism():
@@ -136,7 +124,7 @@ def test_scigen_null_provider_direct():
     for col in REQUIRED_COLUMNS:
         assert col in df.columns
     
-    assert "abstract" in df.columns
+    assert "abstract_text" in df.columns
     assert "title" in df.columns
 
 
@@ -160,9 +148,9 @@ def test_openalex_provider_direct():
         for col in REQUIRED_COLUMNS:
             assert col in df.columns
         
-        assert "abstract" in df.columns
-        assert isinstance(df["abstract"].iloc[0], str)
-        assert len(df["abstract"].iloc[0]) > 0
+        assert "abstract_text" in df.columns
+        assert isinstance(df["abstract_text"].iloc[0], str)
+        assert len(df["abstract_text"].iloc[0]) > 0
 
 
 def test_afp_provider_direct():
@@ -184,7 +172,7 @@ def test_afp_provider_direct():
     for col in REQUIRED_COLUMNS:
         assert col in df.columns
     
-    assert "abstract" in df.columns
+    assert "abstract_text" in df.columns
     assert "title" in df.columns
     assert all(df["source_provider"] == "afp")
     # Check that some semantic aspects were filled

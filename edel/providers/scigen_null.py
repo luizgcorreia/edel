@@ -64,8 +64,4 @@ def generate_dataset(config: dict) -> pd.DataFrame:
 
     df = pd.read_csv(out_file)
 
-    # Convert column names if needed to match the schema
-    # (The script seems to use the correct names already if it follows OpenAlex format)
-    # But let's check scigen-openalex code (implied by usage)
-
     return ensure_schema(df, provider_name="scigen_null")

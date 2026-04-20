@@ -135,7 +135,7 @@ def generate_dataset(config: dict) -> pd.DataFrame:
                 "source_provider": "syntax_null",
                 "id": f"syntax_null_{i}",
                 "title": title,
-                "abstract": abstract,
+                "abstract_text": abstract,
                 "authorships": [],
                 "publication_year": None,
                 "cited_by_count": 0,

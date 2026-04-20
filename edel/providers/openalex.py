@@ -23,7 +23,7 @@ def filter_keywords(df: pd.DataFrame, keywords: list[str]) -> pd.DataFrame:
 
     # Create a regex pattern from the keywords
     pattern = "|".join(keywords)
-    mask = df["abstract"].str.contains(pattern, case=False, na=False)
+    mask = df["abstract_text"].str.contains(pattern, case=False, na=False)
     df_filtered = df[~mask]
 
     print(f"Shape after filtering: {df_filtered.shape}")
@@ -106,7 +106,7 @@ def generate_dataset(config: dict) -> pd.DataFrame:
                         "source_provider": "openalex",
                         "id": work.get("id"),
                         "title": work.get("title"),
-                        "abstract": abstract_text,
+                        "abstract_text": abstract_text,
                         "authorships": work.get("authorships", []),
                         "publication_year": work.get("publication_year"),
                         "cited_by_count": work.get("cited_by_count"),
@@ -158,7 +158,7 @@ def generate_dataset(config: dict) -> pd.DataFrame:
             pbar.close()
 
     if not all_records:
-        return ensure_schema(pd.DataFrame(columns=["abstract"]), provider_name="openalex")
+        return ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
 
     df = pd.DataFrame(all_records)
 

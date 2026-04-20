@@ -182,7 +182,7 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         entry_data = {
             "id": f"afp:{entry_id}",
             "title": meta["title"],
-            "abstract": meta["abstract"],
+            "abstract_text": meta["abstract"],
             "authorships": meta["authorships"],
             "publication_year": int(meta["date"].split("-")[0]) if "-" in meta["date"] else None,
             "topics": meta["topics"],

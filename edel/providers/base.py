@@ -24,6 +24,10 @@ REQUIRED_COLUMNS = [
     "language",
     "keywords",
     "has_fulltext",
+    "problem",
+    "method",
+    "finding",
+    "interpretation",
 ]
 
 _DEFAULTS: dict[str, Any] = {
@@ -44,6 +48,10 @@ _DEFAULTS: dict[str, Any] = {
     "language": "en",
     "keywords": [],
     "has_fulltext": False,
+    "problem": "",
+    "method": "",
+    "finding": "",
+    "interpretation": "",
 }
 
 
@@ -96,3 +104,54 @@ def generate_random_sentence(avg_length: int, lexicon: list[str], join: bool = T
     if join:
         return " ".join(words).capitalize()
     return list(words)
+
+
+def unique_preserve_order(items: list[Any]) -> list[Any]:
+    """Return unique items while preserving their original order."""
+    seen = set()
+    result = []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            result.append(x)
+    return result
+
+
+def stratified_sample(items: list[Any], k: int) -> list[Any]:
+    """Sample k items with stratification (25% start, 50% middle, 25% end)."""
+    import math
+
+    n = len(items)
+    if n <= k:
+        return items
+
+    start_n = k // 4
+    end_n = k // 4
+    mid_n = k - start_n - end_n
+
+    start = items[:start_n]
+    end = items[-end_n:]
+
+    step = n / mid_n
+    middle = [items[math.floor(i * step)] for i in range(mid_n)]
+
+    return start + middle + end
+
+
+def normalize_token(token: str) -> str | None:
+    """Normalize identifiers (Isabelle, code, etc.) for embedding usage."""
+    import re
+
+    if not isinstance(token, str):
+        return None
+
+    token = token.strip()
+    # Replace underscores and hyphens with spaces
+    token = token.replace("_", " ").replace("-", " ")
+    # Split CamelCase
+    token = re.sub(r"([a-z])([A-Z])", r"\1 \2", token)
+    # Lowercase and remove extra spaces
+    token = token.lower()
+    token = re.sub(r"\s+", " ", token)
+
+    return token.strip()

@@ -4,6 +4,7 @@ from edel.providers.lexicon_null import generate_dataset as generate_lexicon_nul
 from edel.providers.syntax_null import generate_dataset as generate_syntax_null
 from edel.providers.scigen_null import generate_dataset as generate_scigen_null
 from edel.providers.openalex import generate_dataset as generate_openalex
+from edel.providers.afp import generate_dataset as generate_afp
 from edel.pipeline.data import run_data_stage
 from edel.providers.base import REQUIRED_COLUMNS
 
@@ -162,3 +163,30 @@ def test_openalex_provider_direct():
         assert "abstract" in df.columns
         assert isinstance(df["abstract"].iloc[0], str)
         assert len(df["abstract"].iloc[0]) > 0
+
+
+def test_afp_provider_direct():
+    """Test the afp provider using the local repository mirror."""
+    config = {
+        "provider": {
+            "type": "afp",
+            "repo_url": "https://foss.heptapod.net/isa-afp/afp-2025-2",
+            "params": {
+                "n_documents": 5
+            }
+        }
+    }
+    
+    df = generate_afp(config)
+    
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 5
+    for col in REQUIRED_COLUMNS:
+        assert col in df.columns
+    
+    assert "abstract" in df.columns
+    assert "title" in df.columns
+    assert all(df["source_provider"] == "afp")
+    # Check that some semantic aspects were filled
+    assert any(df["method"] != "")
+    assert any(df["finding"] != "")

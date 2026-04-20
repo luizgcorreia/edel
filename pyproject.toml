@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Modular embedding-driven epistemic landscapes pipeline"
 requires-python = ">=3.10"
 dependencies = [
+    "dotenv",
     "numpy",
     "pandas",
     "scipy",

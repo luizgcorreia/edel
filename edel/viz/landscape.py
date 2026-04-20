@@ -18,6 +18,7 @@ def plot_landscape_3d(
     z_label: str = "Impact",
     x_label: str = "Dim 1",
     y_label: str = "Dim 2",
+    label_results: dict | None = None,
     surface_opacity: float = 0.8,
     scatter_opacity: float = 0.05,
     scatter_size: int = 2,
@@ -34,11 +35,27 @@ def plot_landscape_3d(
         symbol_col: Column for dot shapes.
     """
     terrain = landscape_results.get("terrain", {})
-    xi, yi, zi = terrain.get("xi"), terrain.get("yi"), terrain.get("zi")
+    xi = terrain.get("x") if "x" in terrain else terrain.get("xi")
+    yi = terrain.get("y") if "y" in terrain else terrain.get("yi")
+    zi = terrain.get("z") if "z" in terrain else terrain.get("zi")
     
     if xi is None or yi is None or zi is None:
-        print("Warning: Terrain data missing in results.")
+        print("Warning: Terrain data missing in results (keys checked: x/xi, y/yi, z/zi).")
         return None
+
+    # Retrieve semantic labels if available
+    z_label = terrain.get("metric", z_label)
+    if label_results:
+        axes_info = label_results.get("axes", [])
+        if len(axes_info) >= 1:
+            x_label = axes_info[0].get("axis_label", x_label)
+        if len(axes_info) >= 2:
+            y_label = axes_info[1].get("axis_label", y_label)
+
+    # Wrap labels for Plotly (using <br>)
+    import textwrap
+    x_label = "<br>".join(textwrap.wrap(x_label, width=50))
+    y_label = "<br>".join(textwrap.wrap(y_label, width=50))
 
     fig = go.Figure()
 
@@ -59,12 +76,14 @@ def plot_landscape_3d(
     y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
     
     # We need the impact metric to place them at the right height
-    # Here we assume the user wants the same metric used for the surface
-    metric = terrain.get("metric", "cited_by_count")
-    if metric in df.columns:
-        z_vals = df[metric]
-        if terrain.get("log_scale", True):
-            z_vals = np.log1p(z_vals)
+    # We use the raw_metric and log_scale flag from the terrain results
+    raw_metric = terrain.get("raw_metric", "cited_by_count")
+    log_scale = terrain.get("log_scale", True)
+    
+    if raw_metric in df.columns:
+        z_vals = df[raw_metric].fillna(0).values
+        if log_scale:
+            z_vals = np.log10(z_vals + 1)
     else:
         z_vals = np.zeros(len(df))
 
@@ -93,7 +112,6 @@ def plot_landscape_3d(
         margin=dict(l=0, r=0, b=0, t=50)
     )
 
-    fig.show()
     return fig
 
 
@@ -110,17 +128,34 @@ def plot_landscape_contour(
     y_label: str = "Dim 2",
     show_flow: bool = True,
     flow_type: str = "discovery",
-    flow_scale: float = 0.08,
+    flow_scale: float = 0.20,
     topic_name: str | None = None,
+    label_results: dict | None = None,
 ):
     """
     Create an interactive 2D Epistemic Landscape Contour Map with optional flow overlay.
     """
     terrain = landscape_results.get("terrain", {})
-    xi, yi, zi = terrain.get("xi"), terrain.get("yi"), terrain.get("zi")
+    xi = terrain.get("x") if "x" in terrain else terrain.get("xi")
+    yi = terrain.get("y") if "y" in terrain else terrain.get("yi")
+    zi = terrain.get("z") if "z" in terrain else terrain.get("zi")
     
     if xi is None or yi is None or zi is None:
         return None
+
+    # Retrieve semantic labels if available
+    z_label = terrain.get("metric", z_label)
+    if label_results:
+        axes_info = label_results.get("axes", [])
+        if len(axes_info) >= 1:
+            x_label = axes_info[0].get("axis_label", x_label)
+        if len(axes_info) >= 2:
+            y_label = axes_info[1].get("axis_label", y_label)
+
+    # Wrap labels for Plotly (using <br>)
+    import textwrap
+    x_label = "<br>".join(textwrap.wrap(x_label, width=50))
+    y_label = "<br>".join(textwrap.wrap(y_label, width=50))
 
     # Plotly Contour expects 1D arrays for x and y if z is a 2D grid
     x_coords = xi[0]
@@ -174,7 +209,6 @@ def plot_landscape_contour(
         legend=dict(orientation="h", y=-0.15, x=0.5, xanchor="center")
     )
 
-    fig.show()
     return fig
 
 
@@ -248,12 +282,27 @@ def _add_flow_to_contour(fig, field, field_type, scale=0.08, grid_res=40, sigma=
     mask = mag > 1e-5
     xs, ys, dxs, dys = xs[mask], ys[mask], dxs[mask], dys[mask]
 
-    # Plotly quiver using Scatter and arrows logic (or just lines for now)
-    # The legacy code uses go.Scatter to draw arrows or go.Cone in 3D
-    # For 2D we'll draw lines with markers at the end
+    # Use annotations to get proper arrowheads, matching the original file's style
+    # Dynamic scaling: calculate a reasonable scale based on the data range
+    plot_range = X.max() - X.min()
+    adjusted_scale = scale * (plot_range / 5.0) # Heuristic for good looking arrows
+    
     for x, y, dx, dy in zip(xs, ys, dxs, dys):
-        fig.add_trace(go.Scatter(
-            x=[x, x + dx * scale], y=[y, y + dy * scale],
-            mode="lines", line=dict(color="rgba(255, 255, 255, 0.4)", width=1),
-            showlegend=False, hoverinfo="skip"
-        ))
+        # Normalize and scale
+        mag_i = np.sqrt(dx**2 + dy**2)
+        if mag_i == 0: continue
+        dx_s = (dx / mag_i) * adjusted_scale
+        dy_s = (dy / mag_i) * adjusted_scale
+
+        fig.add_annotation(
+            x=x + dx_s, y=y + dy_s,
+            ax=x, ay=y,
+            xref="x", yref="y",
+            axref="x", ayref="y",
+            showarrow=True,
+            arrowhead=1,
+            arrowsize=1.2,
+            arrowwidth=1,
+            arrowcolor="rgba(0, 0, 0, 0.7)",
+            opacity=0.7
+        )

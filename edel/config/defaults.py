@@ -103,7 +103,7 @@ RUN_CONFIG = {
         "style_cluster": "cluster_style",
         "field": {
             "enabled": True,
-            "type": "total",
+            "type": "fi",
             "step": 2,
             "scale": 0.07,
             "width": 1,

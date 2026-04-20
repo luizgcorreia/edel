@@ -134,5 +134,4 @@ def plot_epistemic_map(
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved to: {save_path}")
         
-    plt.show()
     return plt.gcf()

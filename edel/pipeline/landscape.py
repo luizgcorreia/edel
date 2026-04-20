@@ -14,7 +14,17 @@ def run_landscape_stage(
     """Orchestrate the landscape preparation stage."""
     ls_cfg = config.get("landscape", {})
     method = config.get("dimensionality_reduction", {}).get("method", "umap")
+
+    # 0. Get global boundaries from documents to ensure terrain and field match perfectly
+    px_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+    py_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
     
+    if px_col in df.columns:
+        x_range = (df[px_col].min(), df[px_col].max())
+        y_range = (df[py_col].min(), df[py_col].max())
+    else:
+        x_range, y_range = None, None
+
     results = {}
 
     # 1. Terrain Calculation (Height Grid)
@@ -23,16 +33,18 @@ def run_landscape_stage(
     num_bins = grid_cfg.get("num_bins", 50)
     sigma = grid_cfg.get("sigma", 1.5)
     
-    print(f"Computing terrain using metric: {z_metric}...")
-    terrain = compute_terrain(df, method, z_metric, num_bins, sigma)
+    log_scale = ls_cfg.get("log_scale", True)
+    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale})...")
+    terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range)
     results["terrain"] = terrain
 
     # 2. Smoothed Vector Field Calculation
     if not field.empty:
         kernel_sigma = ls_cfg.get("vf_kernel_sigma", 0.3)
         vf_res = ls_cfg.get("vf_resolution", 40)
-        print("Computing smoothed vector field...")
-        smoothed_vf = compute_smoothed_vector_field(field, vf_res, kernel_sigma)
+        vf_type = ls_cfg.get("field", {}).get("type", "total")
+        print(f"Computing smoothed vector field ({vf_type})...")
+        smoothed_vf = compute_smoothed_vector_field(field, vf_res, kernel_sigma, vf_type, x_range, y_range)
         results["vector_field"] = smoothed_vf
 
     return results
@@ -43,7 +55,10 @@ def compute_terrain(
     method: str, 
     metric: str, 
     num_bins: int = 50, 
-    sigma: float = 1.5
+    sigma: float = 1.5,
+    log_scale: bool = True,
+    x_range: tuple | None = None,
+    y_range: tuple | None = None
 ) -> Dict[str, np.ndarray]:
     """Calculate the 3D terrain grid (Z values) based on a metric."""
     
@@ -66,13 +81,18 @@ def compute_terrain(
         label = "Density"
     else:
         Z = df[metric].fillna(0).values
-        if ls_cfg_log := True: # Always log scale for citations by default in legacy
+        label = "Citations" if metric == "cited_by_count" else metric
+        
+        if log_scale:
             Z = np.log10(Z + 1)
-        label = metric
+            label = f"{label} (log10)"
 
-    # Create grid
-    xi = np.linspace(X.min(), X.max(), num_bins)
-    yi = np.linspace(Y.min(), Y.max(), num_bins)
+    # Create grid using provided ranges or data min/max
+    x_min, x_max = x_range if x_range else (X.min(), X.max())
+    y_min, y_max = y_range if y_range else (Y.min(), Y.max())
+    
+    xi = np.linspace(x_min, x_max, num_bins)
+    yi = np.linspace(y_min, y_max, num_bins)
     xi_grid, yi_grid = np.meshgrid(xi, yi)
     
     zi_grid = np.zeros_like(xi_grid)
@@ -98,32 +118,48 @@ def compute_terrain(
         "x": xi_grid,
         "y": yi_grid,
         "z": zi_grid,
-        "metric": label
+        "metric": label,
+        "raw_metric": metric,
+        "log_scale": log_scale
     }
 
 
 def compute_smoothed_vector_field(
     field_df: pd.DataFrame, 
     grid_res: int = 40, 
-    kernel_sigma: float = 0.3
+    kernel_sigma: float = 0.3,
+    field_type: str = "total",
+    x_range: tuple | None = None,
+    y_range: tuple | None = None
 ) -> Dict[str, np.ndarray]:
     """Interpolate and smooth the vector field using a Gaussian kernel."""
     
     X = field_df["cell_px"].values
     Y = field_df["cell_py"].values
     
-    # We'll compute it for the 'total' flow by default
-    available_stages = ["pm", "mf", "fi"]
     DX = np.zeros_like(X)
     DY = np.zeros_like(Y)
     
-    for stage in available_stages:
-        if f"vf_{stage}_x" in field_df.columns:
-            DX += field_df[f"vf_{stage}_x"].values
-            DY += field_df[f"vf_{stage}_y"].values
+    if field_type == "total":
+        available_stages = ["pm", "mf", "fi"]
+        for stage in available_stages:
+            if f"vf_{stage}_x" in field_df.columns:
+                DX += field_df[f"vf_{stage}_x"].values
+                DY += field_df[f"vf_{stage}_y"].values
+    else:
+        # Single stage (e.g. "pm", "mf", "fi")
+        if f"vf_{field_type}_x" in field_df.columns:
+            DX = field_df[f"vf_{field_type}_x"].values
+            DY = field_df[f"vf_{field_type}_y"].values
+        else:
+            print(f"Warning: Requested field type '{field_type}' not found in data.")
 
-    xi = np.linspace(X.min(), X.max(), grid_res)
-    yi = np.linspace(Y.min(), Y.max(), grid_res)
+    # Create grid using provided ranges or data min/max
+    x_min, x_max = x_range if x_range else (X.min(), X.max())
+    y_min, y_max = y_range if y_range else (Y.min(), Y.max())
+    
+    xi = np.linspace(x_min, x_max, grid_res)
+    yi = np.linspace(y_min, y_max, grid_res)
     xi_grid, yi_grid = np.meshgrid(xi, yi)
 
     dx_grid = np.zeros_like(xi_grid)

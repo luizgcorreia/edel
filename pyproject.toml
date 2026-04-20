@@ -20,6 +20,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "kaleido",
+    "nbformat",
     "tqdm",
     "pyarrow",
     "requests",

@@ -1,8 +1,6 @@
-"""Full pipeline orchestration with deterministic artifact persistence."""
-
-from __future__ import annotations
-
 import logging
+import json
+import argparse
 from pathlib import Path
 from typing import Any, Dict
 
@@ -10,8 +8,10 @@ from edel.io.artifact import (
     load_artifact,
     make_stage_artifact,
     save_artifact,
+    save_viz,
 )
 from edel.io.llm import get_llm_client
+from edel.config.defaults import RUN_CONFIG
 from edel.pipeline import (
     run_clustering_stage,
     run_data_stage,
@@ -129,7 +129,7 @@ def run_full_pipeline(
     final_results["labels"] = labels
 
     # --- Stage 8: Landscape ---
-    art_land = make_stage_artifact(config, base_path, "output", "plot")
+    art_land = make_stage_artifact(config, base_path, "output", "landscape_results")
     try:
         if force: raise FileNotFoundError()
         landscape = load_artifact(art_land)
@@ -142,3 +142,44 @@ def run_full_pipeline(
 
     print("\n✅ Full pipeline execution finished successfully.")
     return final_results
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run the full EDEL pipeline.")
+    parser.add_argument("--config", type=str, help="Path to config JSON file.")
+    parser.add_argument("--base-path", type=str, default="artifacts", help="Base path for artifacts.")
+    parser.add_argument("--force", action="store_true", help="Force re-computation of all stages.")
+    parser.add_argument("--topic", type=str, help="Override topic name in config.")
+    
+    args = parser.parse_args()
+
+    # Load config
+    config = RUN_CONFIG.copy()
+    if args.config:
+        with open(args.config, "r") as f:
+            custom_config = json.load(f)
+            config.update(custom_config)
+    
+    if args.topic:
+        if "data" in config and "provider" in config["data"]:
+            config["data"]["provider"]["topic_name"] = args.topic
+        if "labeling" in config:
+            config["labeling"]["topic"] = args.topic
+
+    # Run pipeline
+    results = run_full_pipeline(config, base_path=args.base_path, force=args.force)
+    
+    # Save a final summary artifact
+    summary_art = make_stage_artifact(config, Path(args.base_path), "output", "run_summary")
+    summary = {
+        "status": "success",
+        "stages": list(results.keys()),
+        "config": config
+    }
+    save_artifact(summary_art, summary)
+    print(f"Final summary saved to: {summary_art}")
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    main()

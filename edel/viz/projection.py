@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from sklearn.decomposition import PCA
 from edel.viz.data import set_viz_style
 
 
@@ -134,5 +135,191 @@ def plot_movement_magnitudes(df: pd.DataFrame, bins: int = 50):
             plt.title(f"Magnitude: {col.replace('mag_', '')}")
             plt.xlabel("Euclidean Distance")
 
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_epistemic_transition_space(
+    df: pd.DataFrame, 
+    dimensions: int = 1536, 
+    quantile: float = 1.0,
+    std_threshold: float | None = None,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    title: str | None = None
+):
+    """
+    Project the three epistemic operators (P->M, M->F, F->I) into PCA space.
+    This helps visualize if the transitions are distinct in the embedding space.
+    """
+    from edel.pipeline.projection import load_embeddings_to_matrix
+    set_viz_style()
+
+    aspects = ["problem", "method", "finding", "interpretation"]
+    if not all(f"{a}_embedding" in df.columns for a in aspects):
+        print("Error: Aspect embeddings not found in DataFrame. Cannot plot transition space.")
+        return
+
+    # 1. Load embeddings
+    emb_p = load_embeddings_to_matrix(df, "problem_embedding", dimensions)
+    emb_m = load_embeddings_to_matrix(df, "method_embedding", dimensions)
+    emb_f = load_embeddings_to_matrix(df, "finding_embedding", dimensions)
+    emb_i = load_embeddings_to_matrix(df, "interpretation_embedding", dimensions)
+
+    # 2. Calculate difference vectors (Operators)
+    pm = emb_m - emb_p
+    mf = emb_f - emb_m
+    fi = emb_i - emb_f
+
+    # 3. Stack and Label
+    X = np.vstack([pm, mf, fi])
+    n = len(df)
+    labels = ["P->M"] * n + ["M->F"] * n + ["F->I"] * n
+    
+    # 4. PCA Projection
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X)
+
+    # 4.5 Filter outliers if requested
+    labels_arr = np.array(labels)
+    mask = np.ones(len(X_pca), dtype=bool)
+
+    if quantile < 1.0:
+        # Calculate symmetric bounds based on quantile
+        lower = (1.0 - quantile) / 2.0
+        upper = 1.0 - lower
+        
+        x_min, x_max = np.percentile(X_pca[:, 0], [lower * 100, upper * 100])
+        y_min, y_max = np.percentile(X_pca[:, 1], [lower * 100, upper * 100])
+        
+        mask &= (X_pca[:, 0] >= x_min) & (X_pca[:, 0] <= x_max) & \
+                (X_pca[:, 1] >= y_min) & (X_pca[:, 1] <= y_max)
+
+    if std_threshold is not None:
+        x_mean, x_std = X_pca[:, 0].mean(), X_pca[:, 0].std()
+        y_mean, y_std = X_pca[:, 1].mean(), X_pca[:, 1].std()
+        
+        mask &= (np.abs(X_pca[:, 0] - x_mean) <= std_threshold * x_std) & \
+                (np.abs(X_pca[:, 1] - y_mean) <= std_threshold * y_std)
+
+    if mask.sum() < len(mask):
+        X_pca = X_pca[mask]
+        labels_arr = labels_arr[mask]
+        print(f"Filtering: Kept {mask.sum()} / {len(mask)} points.")
+
+    # 5. Plot
+    plt.figure(figsize=(10, 8))
+    
+    # Custom colors for the transitions
+    palette = {"P->M": "#3498DB", "M->F": "#E67E22", "F->I": "#1ABC9C"}
+    
+    sns.scatterplot(
+        x=X_pca[:, 0], 
+        y=X_pca[:, 1], 
+        hue=labels_arr, 
+        palette=palette,
+        alpha=0.5, 
+        s=30,
+        edgecolor=None
+    )
+
+    # Add centroids for clarity
+    for label, color in palette.items():
+        mask = labels_arr == label
+        if mask.any():
+            centroid = X_pca[mask].mean(axis=0)
+            plt.scatter(centroid[0], centroid[1], c=color, s=200, marker='X', edgecolor='black', linewidth=2)
+
+    plt.title(title or "Epistemic Transition Space (PCA on Operators)", fontsize=14, pad=15)
+    plt.xlabel(f"PC 1 ({pca.explained_variance_ratio_[0]:.1%} var)")
+    plt.ylabel(f"PC 2 ({pca.explained_variance_ratio_[1]:.1%} var)")
+    plt.legend(title="Transition Type")
+    plt.grid(True, linestyle='--', alpha=0.3)
+    if xlim: plt.xlim(xlim)
+    if ylim: plt.ylim(ylim)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_paper_style_pca(
+    df: pd.DataFrame, 
+    color_col: str | None = None, 
+    quantile: float = 1.0,
+    std_threshold: float | None = None,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    title: str | None = None
+):
+    """
+    Project papers into PCA space based on their 6-dimensional transition features
+    (3 cosine signatures and 3 movement magnitudes).
+    """
+    set_viz_style()
+
+    cols = ["cos_pm_mf", "cos_mf_fi", "cos_pm_fi", "mag_pm", "mag_mf", "mag_fi"]
+    if not all(c in df.columns for c in cols):
+        print("Error: Research style features not found in DataFrame. Run projection stage first.")
+        return
+
+    # 1. Prepare data
+    X = df[cols].values
+    X = np.nan_to_num(X) # Ensure no NaNs
+
+    # 2. PCA Projection
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X)
+
+    # 2.5 Filter outliers if requested
+    plot_df = pd.DataFrame({
+        "x": X_pca[:, 0],
+        "y": X_pca[:, 1]
+    })
+    if color_col and color_col in df.columns:
+        plot_df[color_col] = df[color_col].values
+
+    mask = np.ones(len(plot_df), dtype=bool)
+
+    if quantile < 1.0:
+        lower = (1.0 - quantile) / 2.0
+        upper = 1.0 - lower
+        
+        x_min, x_max = np.percentile(X_pca[:, 0], [lower * 100, upper * 100])
+        y_min, y_max = np.percentile(X_pca[:, 1], [lower * 100, upper * 100])
+        
+        mask &= (X_pca[:, 0] >= x_min) & (X_pca[:, 0] <= x_max) & \
+                (X_pca[:, 1] >= y_min) & (X_pca[:, 1] <= y_max)
+
+    if std_threshold is not None:
+        x_mean, x_std = X_pca[:, 0].mean(), X_pca[:, 0].std()
+        y_mean, y_std = X_pca[:, 1].mean(), X_pca[:, 1].std()
+        
+        mask &= (np.abs(X_pca[:, 0] - x_mean) <= std_threshold * x_std) & \
+                (np.abs(X_pca[:, 1] - y_mean) <= std_threshold * y_std)
+
+    if mask.sum() < len(mask):
+        plot_df = plot_df[mask]
+        print(f"Filtering: Kept {mask.sum()} / {len(mask)} points.")
+
+    # 3. Plot
+    plt.figure(figsize=(10, 8))
+    
+    if color_col and color_col in plot_df.columns:
+        sc = plt.scatter(
+            plot_df["x"], plot_df["y"], 
+            c=plot_df[color_col], 
+            s=30, alpha=0.6, 
+            cmap="tab10" if plot_df[color_col].dtype != object else "tab10" 
+        )
+        # Note: dtype check refined for categorical/numeric
+        plt.colorbar(sc, label=color_col)
+    else:
+        plt.scatter(plot_df["x"], plot_df["y"], s=30, alpha=0.6, color="#9B59B6")
+
+    plt.title(title or "Paper Style Space (PCA on Transition Features)", fontsize=14, pad=15)
+    plt.xlabel(f"PC 1 ({pca.explained_variance_ratio_[0]:.1%} var)")
+    plt.ylabel(f"PC 2 ({pca.explained_variance_ratio_[1]:.1%} var)")
+    plt.grid(True, linestyle='--', alpha=0.3)
+    if xlim: plt.xlim(xlim)
+    if ylim: plt.ylim(ylim)
     plt.tight_layout()
     plt.show()

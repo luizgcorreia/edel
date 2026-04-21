@@ -10,6 +10,8 @@ from edel.viz.projection import (
     plot_projection_2d,
     plot_transition_signatures,
     plot_movement_magnitudes,
+    plot_epistemic_transition_space,
+    plot_paper_style_pca,
 )
 from edel.viz.vector_field import (
     plot_vector_field,

@@ -34,8 +34,9 @@ def run_landscape_stage(
     sigma = grid_cfg.get("sigma", 1.5)
     
     log_scale = ls_cfg.get("log_scale", True)
-    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale})...")
-    terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range)
+    terrain_scale = ls_cfg.get("scale", 1.0)
+    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale})...")
+    terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range, terrain_scale)
     results["terrain"] = terrain
 
     # 2. Smoothed Vector Field Calculation
@@ -58,7 +59,8 @@ def compute_terrain(
     sigma: float = 1.5,
     log_scale: bool = True,
     x_range: tuple | None = None,
-    y_range: tuple | None = None
+    y_range: tuple | None = None,
+    scale: float = 1.0
 ) -> Dict[str, np.ndarray]:
     """Calculate the 3D terrain grid (Z values) based on a metric."""
     
@@ -114,6 +116,9 @@ def compute_terrain(
     if sigma > 0:
         zi_grid = gaussian_filter(zi_grid, sigma=sigma)
 
+    # Scale Z values
+    zi_grid = zi_grid * scale
+
     return {
         "x": xi_grid,
         "y": yi_grid,
@@ -128,7 +133,7 @@ def compute_smoothed_vector_field(
     field_df: pd.DataFrame, 
     grid_res: int = 40, 
     kernel_sigma: float = 0.3,
-    field_type: str = "total",
+    field_type: str = "discovery",
     x_range: tuple | None = None,
     y_range: tuple | None = None
 ) -> Dict[str, np.ndarray]:
@@ -137,22 +142,25 @@ def compute_smoothed_vector_field(
     X = field_df["cell_px"].values
     Y = field_df["cell_py"].values
     
+    if field_type == "total":
+        stages = ["pm", "mf", "fi"]
+    elif field_type == "discovery":
+        stages = ["mf", "fi"]
+    else:
+        stages = [field_type]
+
     DX = np.zeros_like(X)
     DY = np.zeros_like(Y)
     
-    if field_type == "total":
-        available_stages = ["pm", "mf", "fi"]
-        for stage in available_stages:
-            if f"vf_{stage}_x" in field_df.columns:
-                DX += field_df[f"vf_{stage}_x"].values
-                DY += field_df[f"vf_{stage}_y"].values
-    else:
-        # Single stage (e.g. "pm", "mf", "fi")
-        if f"vf_{field_type}_x" in field_df.columns:
-            DX = field_df[f"vf_{field_type}_x"].values
-            DY = field_df[f"vf_{field_type}_y"].values
-        else:
-            print(f"Warning: Requested field type '{field_type}' not found in data.")
+    found_any = False
+    for stage in stages:
+        if f"vf_{stage}_x" in field_df.columns:
+            DX += field_df[f"vf_{stage}_x"].values
+            DY += field_df[f"vf_{stage}_y"].values
+            found_any = True
+    
+    if not found_any:
+        print(f"Warning: Requested field type '{field_type}' components not found in data.")
 
     # Create grid using provided ranges or data min/max
     x_min, x_max = x_range if x_range else (X.min(), X.max())

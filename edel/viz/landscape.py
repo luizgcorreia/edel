@@ -129,6 +129,8 @@ def plot_landscape_contour(
     show_flow: bool = True,
     flow_type: str = "discovery",
     flow_scale: float = 0.20,
+    flow_width: float = 0.7,
+    arrow_size: float = 0.8,
     topic_name: str | None = None,
     label_results: dict | None = None,
 ):
@@ -197,8 +199,14 @@ def plot_landscape_contour(
         fig.add_trace(tr)
 
     # 3. Add Vector Field Overlay
-    if show_flow and field is not None:
-        _add_flow_to_contour(fig, field, flow_type, scale=flow_scale)
+    if show_flow:
+        smoothed_vf = landscape_results.get("vector_field")
+        if smoothed_vf:
+            # Use the pre-computed flow from Stage 8 (respects config type and boundaries)
+            _add_precomputed_flow(fig, smoothed_vf, scale=flow_scale, width=flow_width, arrow_size=arrow_size)
+        elif field is not None:
+            # Fallback: Compute on the fly (might be slightly misaligned with boundaries)
+            _add_flow_to_contour(fig, field, flow_type, scale=flow_scale, width=flow_width, arrow_size=arrow_size)
 
     _add_manual_legends_2d(fig, df, color_col, symbol_col)
 
@@ -250,17 +258,71 @@ def _add_manual_legends_2d(fig, df, color_col, symbol_col):
                 marker=dict(size=8, color="gray", symbol=symbols[i % len(symbols)]),
                 legendgroup="symbol", legendgrouptitle_text=symbol_col, name=str(lab)))
 
-def _add_flow_to_contour(fig, field, field_type, scale=0.08, grid_res=40, sigma=0.25, step=2):
+def _add_precomputed_flow(fig, smoothed_vf, scale=0.20, step=2, width=0.7, arrow_size=0.8):
+    """Draw arrows from a pre-computed grid (Stage 8 results)."""
+    xi, yi = smoothed_vf["x"], smoothed_vf["y"]
+    ui, vi = smoothed_vf["u"], smoothed_vf["v"]
+
+    # Subsample
+    xs, ys = xi[::step, ::step].flatten(), yi[::step, ::step].flatten()
+    us, vs = ui[::step, ::step].flatten(), vi[::step, ::step].flatten()
+
+    # Filter small/null vectors
+    mag = np.sqrt(us**2 + vs**2)
+    mask = (mag > 1e-5) & (~np.isnan(mag))
+    xs, ys, us, vs = xs[mask], ys[mask], us[mask], vs[mask]
+
+    # Dynamic scaling for annotations
+    plot_range = xi.max() - xi.min()
+    adjusted_scale = scale * (plot_range / 5.0)
+
+    for x, y, u, v in zip(xs, ys, us, vs):
+        # Normalize and scale for consistent arrow lengths if desired, 
+        # or use raw scaled vectors for 'speed' visualization
+        m_i = np.sqrt(u**2 + v**2)
+        if m_i == 0: continue
+        dx_s = (u / m_i) * adjusted_scale
+        dy_s = (v / m_i) * adjusted_scale
+
+        # CLIP: Ensure the arrow end point is within the landscape boundaries
+        end_x, end_y = x + dx_s, y + dy_s
+        if end_x < xi.min() or end_x > xi.max() or end_y < yi.min() or end_y > yi.max():
+            continue
+
+        fig.add_annotation(
+            x=end_x, y=end_y,
+            ax=x, ay=y,
+            xref="x", yref="y",
+            axref="x", ayref="y",
+            showarrow=True,
+            arrowhead=1,
+            arrowsize=arrow_size,
+            arrowwidth=width,
+            arrowcolor="rgba(0, 0, 0, 0.7)",
+            opacity=0.7
+        )
+
+
+def _add_flow_to_contour(fig, field, field_type, scale=0.20, grid_res=40, sigma=0.25, step=2, width=0.7, arrow_size=0.8):
     # Kernel smoothing for beautiful flow
     X = field["cell_px"].values
     Y = field["cell_py"].values
     
-    if field_type == "discovery":
-        DX = field["vf_mf_x"].values + field["vf_fi_x"].values
-        DY = field["vf_mf_y"].values + field["vf_fi_y"].values
+    if field_type == "total":
+        stages = ["pm", "mf", "fi"]
+    elif field_type == "discovery":
+        stages = ["mf", "fi"]
     else:
-        DX = field.get(f"vf_{field_type}_x", np.zeros_like(X))
-        DY = field.get(f"vf_{field_type}_y", np.zeros_like(Y))
+        stages = [field_type]
+
+    DX = np.zeros_like(X)
+    DY = np.zeros_like(Y)
+    
+    for stage in stages:
+        col_x, col_y = f"vf_{stage}_x", f"vf_{stage}_y"
+        if col_x in field.columns:
+            DX += field[col_x].values
+            DY += field[col_y].values
 
     xi = np.linspace(X.min(), X.max(), grid_res)
     yi = np.linspace(Y.min(), Y.max(), grid_res)
@@ -294,15 +356,20 @@ def _add_flow_to_contour(fig, field, field_type, scale=0.08, grid_res=40, sigma=
         dx_s = (dx / mag_i) * adjusted_scale
         dy_s = (dy / mag_i) * adjusted_scale
 
+        # CLIP: Ensure the arrow end point is within the landscape boundaries
+        end_x, end_y = x + dx_s, y + dy_s
+        if end_x < X.min() or end_x > X.max() or end_y < Y.min() or end_y > Y.max():
+            continue
+
         fig.add_annotation(
-            x=x + dx_s, y=y + dy_s,
+            x=end_x, y=end_y,
             ax=x, ay=y,
             xref="x", yref="y",
             axref="x", ayref="y",
             showarrow=True,
             arrowhead=1,
-            arrowsize=1.2,
-            arrowwidth=1,
+            arrowsize=arrow_size,
+            arrowwidth=width,
             arrowcolor="rgba(0, 0, 0, 0.7)",
             opacity=0.7
         )

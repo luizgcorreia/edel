@@ -122,8 +122,7 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             df_art = make_stage_artifact(config, base_path, "clustering", "clustering")
             try:
                 _DATASET_CACHE[experiment_name] = load_artifact(df_art)
-            except Exception as e:
-                print(f"Error loading artifact for search: {e}")
+            except Exception:
                 return []
         
         df = _DATASET_CACHE.get(experiment_name)

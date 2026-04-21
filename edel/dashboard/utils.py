@@ -58,8 +58,16 @@ def df_to_dash_columns(df: pd.DataFrame, max_cols: int = 30) -> list[dict]:
 
 
 def df_to_dash_records(df: pd.DataFrame, max_rows: int = 200) -> list[dict]:
-    """Convert DataFrame to Dash DataTable records (list of row dicts)."""
-    return df.head(max_rows).to_dict("records")
+    """Convert DataFrame to Dash DataTable records (list of row dicts).
+    Ensures that values are JSON-serializable by converting complex types to strings.
+    """
+    subset = df.head(max_rows).copy()
+    # Convert non-serializable objects to strings
+    for col in subset.columns:
+        if subset[col].dtype == object:
+            # Check if any element in the column is a non-standard type
+            subset[col] = subset[col].apply(lambda x: str(x) if not isinstance(x, (int, float, str, bool, type(None))) else x)
+    return subset.to_dict("records")
 
 
 # ---------------------------------------------------------------------------

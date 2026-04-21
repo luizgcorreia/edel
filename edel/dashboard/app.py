@@ -21,11 +21,18 @@ def create_app(base_path: str = "artifacts") -> dash.Dash:
         __name__, 
         external_stylesheets=[dbc.themes.FLATLY],
         suppress_callback_exceptions=True,
-        title="EDEL Dashboard"
+        title="⛰️ EDEL Dashboard"
     )
     
-    # Set the layout
-    app.layout = create_layout()
+    # Initialize experiment registry and snippets with persistence
+    from edel.experiments.registry import init_registry
+    from edel.experiments.snippets import init_snippets
+    configs_dir = Path(base_path) / "configs"
+    init_registry(configs_dir)
+    init_snippets(configs_dir)
+    
+    # Set the layout as a function to ensure it's re-evaluated on every page load
+    app.layout = create_layout
     
     # Register callbacks
     register_callbacks(app, Path(base_path))

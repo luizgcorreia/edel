@@ -22,6 +22,7 @@ def debugger_panel_layout() -> dbc.Container:
                             options=get_registry_options(),
                             value="scientometrics_baseline",
                             clearable=False,
+                            persistence=False,
                             className="mb-3"
                         ),
                         

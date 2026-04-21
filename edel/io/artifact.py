@@ -45,7 +45,7 @@ CANONICAL_ARTIFACT_NAMES = {
     "vector_field": ("vf",),
     "clustering": ("clustering", "field_clustering"),
     "labeling": ("labeled", "field_labeled", "axes_labeled"),
-    "output": ("plot", "experiment_stats"),
+    "output": ("landscape_results", "experiment_stats"),
 }
 
 
@@ -249,3 +249,31 @@ if __name__ == "__main__":
 
     print(f"Saved to: {saved_to}")
     print(f"Loaded: {loaded}")
+def delete_experiment_artifacts(config: dict, base_path: str | Path):
+    """Delete all files associated with the given config across all stages.
+    
+    This computes the hash for each stage and deletes any file containing that hash segment.
+    """
+    base_path = Path(base_path)
+    label = get_experiment_label(config)
+    
+    deleted_count = 0
+    for stage in CANONICAL_STAGE_NAMES:
+        try:
+            h = stage_hash(config, stage)[:8]
+            stage_dir = base_path / stage / label
+            if not stage_dir.exists():
+                continue
+                
+            # Find and delete files with this hash segment
+            for f in stage_dir.glob(f"*__{h}.*"):
+                try:
+                    f.unlink()
+                    print(f"🗑️ Deleted artifact: {f.name}")
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Error deleting {f}: {e}")
+        except KeyError:
+            continue # Stage key might be missing in config
+            
+    return deleted_count

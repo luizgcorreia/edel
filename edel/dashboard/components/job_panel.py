@@ -3,6 +3,26 @@
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
 from edel.dashboard.utils import get_registry_options
+from edel.experiments.snippets import get_snippets, STAGE_LIST
+
+def _build_snippet_row(stage_name: str) -> dbc.Row:
+    """Helper to build a sweep axis row for a specific stage."""
+    snippets = get_snippets(stage_name)
+    options = [{"label": name, "value": name} for name in snippets.keys()]
+    
+    # ID is derived from stage name (e.g. "Embeddings" -> "sweep-embeddings")
+    id_name = f"sweep-{stage_name.lower().replace(' ', '-')}"
+    
+    return dbc.Row([
+        dbc.Col(dbc.Label(stage_name), width=4),
+        dbc.Col(dcc.Dropdown(
+            id=id_name,
+            options=options,
+            multi=True,
+            placeholder=f"Select {stage_name} variants...",
+            className="mb-2"
+        ), width=8)
+    ], className="mb-1 align-items-center")
 
 def job_panel_layout() -> dbc.Container:
     """Layout for the Experiment Runner (Job Queue) panel."""
@@ -21,42 +41,49 @@ def job_panel_layout() -> dbc.Container:
                             options=get_registry_options(),
                             value="scientometrics_baseline",
                             clearable=False,
+                            persistence=False,
                             className="mb-3"
                         ),
                         
-                        html.H6("Sweep Axes (Optional)", className="mt-3"),
+                        html.H6("Sweep Axes", className="mt-3"),
                         html.Div(id="sweep-axes-container", children=[
-                            dbc.Row([
-                                dbc.Col(dbc.Label("Embedding Model"), width=4),
-                                dbc.Col(dbc.Checklist(
-                                    options=[
-                                        {"label": "ada-002", "value": "text-embedding-ada-002"},
-                                        {"label": "3-small", "value": "text-embedding-3-small"}
-                                    ],
-                                    value=["text-embedding-ada-002"],
-                                    id="sweep-embedding",
-                                    inline=True,
-                                    switch=True,
-                                ), width=8)
-                            ], className="mb-2"),
-                            dbc.Row([
-                                dbc.Col(dbc.Label("Projection"), width=4),
-                                dbc.Col(dbc.Checklist(
-                                    options=[
-                                        {"label": "diffusion", "value": "diffusion"},
-                                        {"label": "umap", "value": "umap"}
-                                    ],
-                                    value=["diffusion"],
-                                    id="sweep-projection",
-                                    inline=True,
-                                    switch=True,
-                                ), width=8)
-                            ], className="mb-2"),
+                            _build_snippet_row(stage) for stage in STAGE_LIST
                         ]),
                         
+                        html.Div([
+                            dbc.Button("＋ New Snippet", id="btn-open-snippet-modal", size="sm", color="info", outline=True, className="mt-2"),
+                        ], className="text-end"),
+
                         html.Hr(),
-                        html.Div(id="sweep-summary", className="mb-3 font-weight-bold"),
-                        dbc.Button("Submit Jobs", id="btn-submit-jobs", color="success", className="w-100")
+                        html.Div(id="sweep-summary", className="mb-3 p-2 bg-light border rounded small"),
+                        dbc.Button("Submit Sweep", id="btn-submit-jobs", color="success", className="w-100"),
+                        
+                        # Modal for creating new snippets
+                        dbc.Modal([
+                            dbc.ModalHeader(dbc.ModalTitle("Save Config Snippet")),
+                            dbc.ModalBody([
+                                dbc.Label("Stage:"),
+                                dcc.Dropdown(
+                                    id="snippet-stage-select",
+                                    options=[{"label": s, "value": s} for s in [
+                                        "Structured Abstracts", "Embeddings", "Projection", 
+                                        "Vector Field", "Clustering", "Labeling", "Landscape"
+                                    ]],
+                                    className="mb-3"
+                                ),
+                                dbc.Label("Snippet Name (e.g. 'gpt-4o-mini', 'umap_15n'):"),
+                                dbc.Input(id="snippet-name-input", placeholder="Enter name...", className="mb-3"),
+                                dbc.Label("Config JSON:"),
+                                dcc.Textarea(
+                                    id="snippet-config-input",
+                                    placeholder='{ "model": "..." }',
+                                    style={"width": "100%", "height": "200px", "fontFamily": "monospace"}
+                                ),
+                            ]),
+                            dbc.ModalFooter(
+                                dbc.Button("Save Snippet", id="btn-save-snippet", color="primary")
+                            ),
+                        ], id="snippet-modal", is_open=False),
                     ])
                 ])
             ], md=4),

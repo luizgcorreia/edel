@@ -21,9 +21,9 @@ def create_layout() -> html.Div:
         
         # Navigation Bar
         dbc.NavbarSimple(
-            brand="EDEL Research Dashboard",
+            brand="⛰️ EDEL Research Dashboard",
             brand_href="#",
-            color="dark",
+            color="#1c1c84",
             dark=True,
             className="mb-4",
         ),

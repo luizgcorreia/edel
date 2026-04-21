@@ -87,19 +87,36 @@ def plot_landscape_3d(
     else:
         z_vals = np.zeros(len(df))
 
+    # Ensure categorical color column is string to avoid double colorbars
+    df_plot = df.copy()
+    if color_col and color_col in df_plot.columns:
+        df_plot[color_col] = df_plot[color_col].astype(str)
+
     scatter = px.scatter_3d(
-        df, x=x_col, y=y_col, z=z_vals,
+        df_plot, x=x_col, y=y_col, z=z_vals,
         color=color_col, symbol=symbol_col,
         opacity=scatter_opacity,
     )
 
+    # Add hover data if available (Clean hover, detailed customdata)
+    hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
+    hover_cols = [c for c in hover_cols if c in df_plot.columns]
+    
+    # Just show these on hover
+    display_hover = ["title", "publication_year", "cited_by_count"]
+    display_hover = [c for c in display_hover if c in df_plot.columns]
+
     for trace in scatter.data:
         trace.marker.size = scatter_size
         trace.showlegend = False
+        if hover_cols:
+            trace.customdata = df_plot[hover_cols]
+            # Use only a subset for the hover box to keep it readable
+            trace.hovertemplate = "<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         fig.add_trace(trace)
 
     # 3. Add Manual Legends (Workaround for PX trace merging)
-    _add_manual_legends_3d(fig, df, color_col, symbol_col)
+    _add_manual_legends_3d(fig, df_plot, color_col, symbol_col, label_results)
 
     fig.update_layout(
         title=title or f"3D Epistemic Landscape Surface: {topic_name}" if topic_name else "3D Epistemic Landscape Surface",
@@ -108,9 +125,19 @@ def plot_landscape_3d(
             yaxis_title=y_label,
             zaxis_title=z_label,
         ),
-        width=1000, height=800,
-        margin=dict(l=0, r=0, b=0, t=50)
+        width=1200, height=800, # Preferred 3:2 aspect ratio
+        margin=dict(l=0, r=0, b=0, t=50),
+        autosize=False,
+        legend=dict(x=0.02, y=0.98, xanchor="left", yanchor="top", bgcolor="rgba(255,255,255,0.5)")
     )
+    # 4. Add Pre-allocated Trajectory Placeholders (for callbacks)
+    fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode="lines+markers", 
+                               line=dict(color="red", width=5), marker=dict(size=4, color="red"),
+                               name="Trajectory Line", showlegend=False, hoverinfo="skip", visible=False))
+                               
+    fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode="markers", 
+                               marker=dict(size=8, color="yellow", line=dict(width=2, color="red")), 
+                               name="Selected Paper", showlegend=False, hoverinfo="skip", visible=False))
 
     return fig
 
@@ -181,17 +208,29 @@ def plot_landscape_contour(
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
     y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
 
+    # Ensure categorical color column is string to avoid double colorbars
+    df_plot = df.copy()
+    if color_col and color_col in df_plot.columns:
+        df_plot[color_col] = df_plot[color_col].astype(str)
+
     scatter = px.scatter(
-        df, x=x_col, y=y_col,
+        df_plot, x=x_col, y=y_col,
         color=color_col, symbol=symbol_col,
         opacity=0.3,
     )
     
     # Add hover data if available
-    hover_cols = ["title", "publication_year", "cited_by_count", "id"]
-    hover_cols = [c for c in hover_cols if c in df.columns]
+    hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
+    hover_cols = [c for c in hover_cols if c in df_plot.columns]
+    
+    display_hover = ["title", "publication_year", "cited_by_count"]
+    display_hover = [c for c in display_hover if c in df_plot.columns]
+
     if hover_cols:
-        scatter.update_traces(customdata=df[hover_cols], hovertemplate="<br>".join([f"<b>{c}:</b> %{{customdata[{i}]}}" for i, c in enumerate(hover_cols)]) + "<extra></extra>")
+        scatter.update_traces(
+            customdata=df_plot[hover_cols], 
+            hovertemplate="<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
+        )
 
     for tr in scatter.data:
         tr.marker.size = 6
@@ -208,30 +247,71 @@ def plot_landscape_contour(
             # Fallback: Compute on the fly (might be slightly misaligned with boundaries)
             _add_flow_to_contour(fig, field, flow_type, scale=flow_scale, width=flow_width, arrow_size=arrow_size)
 
-    _add_manual_legends_2d(fig, df, color_col, symbol_col)
+    _add_manual_legends_2d(fig, df_plot, color_col, symbol_col, label_results)
 
     fig.update_layout(
         title=title or f"2D Epistemic Landscape Contour Map: {topic_name}" if topic_name else "2D Epistemic Landscape Contour Map",
         xaxis_title=x_label, yaxis_title=y_label,
-        width=1000, height=800,
-        legend=dict(orientation="h", y=-0.15, x=0.5, xanchor="center")
+        width=1200, height=900, # Preferred 3:2 aspect ratio
+        autosize=False,
+        legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
+        yaxis=dict(range=[yi.min(), yi.max()]),
+        xaxis=dict(range=[xi.min(), xi.max()]),
+        margin=dict(b=100) # Space for horizontal legend
     )
+
+    # 4. Add Pre-allocated Trajectory Placeholders (for callbacks)
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines", 
+                             line=dict(color="red", width=3, dash="dot"), 
+                             name="Trajectory Line", showlegend=False, hoverinfo="skip", visible=False))
+                             
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", 
+                             marker=dict(size=14, color="yellow", line=dict(width=3, color="red")), 
+                             name="Selected Paper", showlegend=False, hoverinfo="skip", visible=False))
+
+    # Add 3 empty annotations for 2D arrows
+    for _ in range(3):
+        fig.add_annotation(
+            x=0, y=0, ax=0, ay=0, 
+            xref="x", yref="y", axref="x", ayref="y",
+            showarrow=False, arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor="red", 
+            visible=False
+        )
 
     return fig
 
 
 # --- Private Helpers ---
 
-def _add_manual_legends_3d(fig, df, color_col, symbol_col):
+def _add_manual_legends_3d(fig, df, color_col, symbol_col, label_results=None):
     colors = px.colors.qualitative.Set1
     symbols = ["circle", "diamond", "square", "cross", "x", "triangle-up"]
     
     if color_col and color_col in df.columns:
         labels = df[color_col].unique()
         for i, lab in enumerate(labels):
+            name = str(lab)
+            if name == "-1" or name == "-1.0":
+                name = "No cluster"
+
+            if label_results and color_col == "cluster_domain":
+                # results["clusters"]["domain"][cluster_id] = {"proposed_label": "..."}
+                domain_clusters = label_results.get("clusters", {}).get("domain", {})
+                try:
+                    cid_str = str(int(float(lab)))
+                    # Check both int and string keys as JSON might load as either
+                    c_info = domain_clusters.get(cid_str) or domain_clusters.get(int(cid_str))
+                    if c_info and "proposed_label" in c_info:
+                        name = c_info["proposed_label"]
+                except: pass
+
+            legend_title = color_col
+            if color_col == "cluster_domain":
+                legend_title = "Research Domains"
+
             fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode="markers", 
                 marker=dict(size=6, color=colors[i % len(colors)]),
-                legendgroup="color", legendgrouptitle_text=color_col, name=str(lab)))
+                legendgroup="color", legendgrouptitle_text=legend_title, name=name))
 
     if symbol_col and symbol_col in df.columns:
         labels = df[symbol_col].unique()
@@ -240,16 +320,33 @@ def _add_manual_legends_3d(fig, df, color_col, symbol_col):
                 marker=dict(size=6, color="gray", symbol=symbols[i % len(symbols)]),
                 legendgroup="symbol", legendgrouptitle_text=symbol_col, name=str(lab)))
 
-def _add_manual_legends_2d(fig, df, color_col, symbol_col):
+def _add_manual_legends_2d(fig, df, color_col, symbol_col, label_results=None):
     colors = px.colors.qualitative.Set1
     symbols = ["circle", "diamond", "square", "cross", "x", "triangle-up"]
     
     if color_col and color_col in df.columns:
         labels = df[color_col].unique()
         for i, lab in enumerate(labels):
+            name = str(lab)
+            if name == "-1" or name == "-1.0":
+                name = "No cluster"
+
+            if label_results and color_col == "cluster_domain":
+                domain_clusters = label_results.get("clusters", {}).get("domain", {})
+                try:
+                    cid_str = str(int(float(lab)))
+                    c_info = domain_clusters.get(cid_str) or domain_clusters.get(int(cid_str))
+                    if c_info and "proposed_label" in c_info:
+                        name = c_info["proposed_label"]
+                except: pass
+
+            legend_title = color_col
+            if color_col == "cluster_domain":
+                legend_title = "Research Domains"
+
             fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", 
                 marker=dict(size=8, color=colors[i % len(colors)]),
-                legendgroup="color", legendgrouptitle_text=color_col, name=str(lab)))
+                legendgroup="color", legendgrouptitle_text=legend_title, name=name))
 
     if symbol_col and symbol_col in df.columns:
         labels = df[symbol_col].unique()

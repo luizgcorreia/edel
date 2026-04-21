@@ -32,6 +32,8 @@ dependencies = [
     
     "ijson",
     "python-dotenv",
+    "dash>=2.17",
+    "dash-bootstrap-components",
 ]
 
 [tool.setuptools.packages.find]

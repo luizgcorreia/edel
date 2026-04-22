@@ -52,6 +52,8 @@ def generate_dataset(config: dict) -> pd.DataFrame:
     params = provider_cfg.get("params", {})
     limit = params.get("n_documents")
     keywords = params.get("filter_keywords")
+    sampling_strategy = params.get("sampling_strategy", "probabilistic")
+    sampling_seed = params.get("sampling_seed")
 
     if not topic_id:
         raise ValueError("topic_id must be specified in provider config for OpenAlex.")
@@ -71,38 +73,59 @@ def generate_dataset(config: dict) -> pd.DataFrame:
 
     # 2. Harvest Records
     all_records = []
-    current_cursor = "*"
+    
     print(f"Starting OpenAlex harvesting for topic {topic_id}...")
-
+    
     # Initialize progress bar if we have a limit
-    pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit else None
+    pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit else tqdm(desc="Harvesting OpenAlex (No Limit)")
 
     try:
-        while True:
-            # per_page max is 200
-            fetch_count = 200
-            if limit:
-                remaining = limit - len(all_records)
-                if remaining <= 0:
-                    break
-                fetch_count = min(200, remaining)
-
-            data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor)
-
+        if limit and sampling_strategy == "probabilistic":
+            # Use OpenAlex's native sample API
+            # OpenAlex sample endpoint doesn't support pagination, we fetch all N at once (up to 10k allowed)
+            # But the max per_page is still 200, so OpenAlex ignores per_page when sample is used and just returns sample
+            # Wait, OpenAlex docs say: "When you use sample, the per-page parameter is ignored. We'll return exactly the number of results you ask for."
+            # Actually, the maximum sample size is 10,000.
+            sample_size = min(limit, 10000)
+            if limit > 10000:
+                print(f"Warning: OpenAlex max sample size is 10,000. Limiting sample to 10,000 (requested {limit}).")
+            
+            data = openalex_request(filters, sample=sample_size, seed=sampling_seed)
             results = data.get("results", [])
-            if not results:
-                break
+        else:
+            # Deterministic or Exhaustive Harvesting
+            current_cursor = "*"
+            sort_param = "cited_by_count:desc" if limit else None # Only sort if we have a limit, else default order
+            results = []
+            
+            while True:
+                fetch_count = 200
+                if limit:
+                    remaining = limit - len(all_records)
+                    if remaining <= 0:
+                        break
+                    fetch_count = min(200, remaining)
 
-            for work in results:
-                # We need the inverted index to reconstruct the abstract text
-                inv_idx = work.get("abstract_inverted_index")
-                if not inv_idx:
-                    continue
+                data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor, sort=sort_param)
+                page_results = data.get("results", [])
+                if not page_results:
+                    break
+                
+                results.extend(page_results)
+                
+                # We process records immediately in the loop below, but for simplicity we collect all results first if probabilistic wasn't used
+                # Actually, to keep memory low and update pbar, we should process here.
+                # Since we already have the processing loop below, let's just break out of this 'results' collection logic
+                # and put the processing logic inside this while loop, OR we can just collect page_results.
+                # Let's process immediately to maintain the existing flow structure.
+                for work in page_results:
+                    inv_idx = work.get("abstract_inverted_index")
+                    if not inv_idx:
+                        continue
 
-                abstract_text = inverted_index_to_text(inv_idx)
+                    abstract_text = inverted_index_to_text(inv_idx)
 
-                all_records.append(
-                    {
+                    all_records.append({
                         "source_provider": "openalex",
                         "id": work.get("id"),
                         "title": work.get("title"),
@@ -110,49 +133,66 @@ def generate_dataset(config: dict) -> pd.DataFrame:
                         "authorships": work.get("authorships", []),
                         "publication_year": work.get("publication_year"),
                         "cited_by_count": work.get("cited_by_count"),
-                        "citation_normalized_percentile": (
-                            work.get("citation_normalized_percentile", {}).get("value")
-                            if work.get("citation_normalized_percentile")
-                            else 0
-                        ),
+                        "citation_normalized_percentile": (work.get("citation_normalized_percentile", {}).get("value") if work.get("citation_normalized_percentile") else 0),
                         "doi": work.get("doi"),
                         "oa_status": (work.get("open_access") or {}).get("oa_status"),
-                        "primary_location": (
-                            ((work.get("primary_location") or {}).get("source") or {}).get(
-                                "display_name"
-                            )
-                        ),
+                        "primary_location": (((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
                         "countries": extract_country_codes(work.get("authorships", [])),
-                        "topics": [
-                            t.get("display_name")
-                            for t in work.get("topics", [])
-                            if t.get("display_name")
-                        ],
+                        "topics": [t.get("display_name") for t in work.get("topics", []) if t.get("display_name")],
                         "type": work.get("type"),
                         "language": work.get("language"),
-                        "keywords": [
-                            k.get("display_name")
-                            for k in work.get("keywords", [])
-                            if k.get("display_name")
-                        ],
+                        "keywords": [k.get("display_name") for k in work.get("keywords", []) if k.get("display_name")],
                         "has_fulltext": work.get("has_fulltext"),
-                    }
-                )
-                if pbar:
-                    pbar.update(1)
+                    })
+                    if pbar:
+                        pbar.update(1)
+
+                    if limit and len(all_records) >= limit:
+                        break
+
+                # Handle pagination
+                next_cursor = data.get("meta", {}).get("next_cursor")
+                if next_cursor and next_cursor != current_cursor:
+                    current_cursor = next_cursor
+                else:
+                    break
 
                 if limit and len(all_records) >= limit:
                     break
+            
+            # We skip the external processing loop since we did it inline
+            results = [] 
+            
+        # If probabilistic, process the single batch of results
+        for work in results:
+            inv_idx = work.get("abstract_inverted_index")
+            if not inv_idx:
+                continue
 
-            # Handle pagination
-            next_cursor = data.get("meta", {}).get("next_cursor")
-            if next_cursor and next_cursor != current_cursor:
-                current_cursor = next_cursor
-            else:
-                break
+            abstract_text = inverted_index_to_text(inv_idx)
 
-            if limit and len(all_records) >= limit:
-                break
+            all_records.append({
+                "source_provider": "openalex",
+                "id": work.get("id"),
+                "title": work.get("title"),
+                "abstract_text": abstract_text,
+                "authorships": work.get("authorships", []),
+                "publication_year": work.get("publication_year"),
+                "cited_by_count": work.get("cited_by_count"),
+                "citation_normalized_percentile": (work.get("citation_normalized_percentile", {}).get("value") if work.get("citation_normalized_percentile") else 0),
+                "doi": work.get("doi"),
+                "oa_status": (work.get("open_access") or {}).get("oa_status"),
+                "primary_location": (((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
+                "countries": extract_country_codes(work.get("authorships", [])),
+                "topics": [t.get("display_name") for t in work.get("topics", []) if t.get("display_name")],
+                "type": work.get("type"),
+                "language": work.get("language"),
+                "keywords": [k.get("display_name") for k in work.get("keywords", []) if k.get("display_name")],
+                "has_fulltext": work.get("has_fulltext"),
+            })
+            if pbar:
+                pbar.update(1)
+
     finally:
         if pbar:
             pbar.close()

@@ -83,3 +83,54 @@ def get_nested(d: dict, dotted_path: str, default: Any = None) -> Any:
             return default
         cur = cur[k]
     return cur
+
+
+def parse_authorships(authorships: Any) -> list[dict]:
+    """Parse OpenAlex authorships data into a clean list of author metadata."""
+    if authorships is None:
+        return []
+    
+    # Handle cases where it might be a JSON string or already a list/array
+    data = authorships
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except:
+            return []
+            
+    if not hasattr(data, "__iter__") or isinstance(data, (str, dict)):
+        return []
+        
+    parsed = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+            
+        author_info = entry.get("author", {})
+        author_name = author_info.get("display_name", entry.get("raw_author_name", "Unknown"))
+        author_id = author_info.get("id", "")
+        author_orcid = author_info.get("orcid", "")
+        
+        # Institutions
+        institutions = []
+        inst_data = entry.get("institutions", [])
+        # Handle both lists and numpy arrays
+        if hasattr(inst_data, "__iter__") and not isinstance(inst_data, (str, dict)):
+            for inst in inst_data:
+                if isinstance(inst, dict):
+                    institutions.append({
+                        "name": inst.get("display_name", "Unknown Institution"),
+                        "country": inst.get("country_code", ""),
+                        "id": inst.get("id", "")
+                    })
+        
+        parsed.append({
+            "name": author_name,
+            "id": author_id,
+            "orcid": author_orcid,
+            "position": entry.get("author_position", ""),
+            "is_corresponding": entry.get("is_corresponding", False),
+            "institutions": institutions
+        })
+        
+    return parsed

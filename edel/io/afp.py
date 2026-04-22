@@ -28,7 +28,7 @@ def ensure_afp_repo(repo_url: str) -> Path:
     return base_path
 
 
-def load_afp_authors(afp_root: Path) -> dict[str, str]:
+def load_afp_authors(afp_root: Path) -> dict[str, dict[str, Any]]:
     """Load the author lookup table from metadata/authors.toml."""
     authors_file = afp_root / "metadata" / "authors.toml"
     if not authors_file.exists():
@@ -40,12 +40,16 @@ def load_afp_authors(afp_root: Path) -> dict[str, str]:
     author_map = {}
     for auth_id, info in data.items():
         if isinstance(info, dict):
-            author_map[auth_id] = info.get("name", auth_id)
+            author_map[auth_id] = {
+                "name": info.get("name", auth_id),
+                "orcid": info.get("orcid"),
+                "homepages": list(info.get("homepages", {}).values()) if isinstance(info.get("homepages"), dict) else []
+            }
     return author_map
 
 
 def load_afp_metadata(
-    afp_root: Path, author_map: dict[str, str]
+    afp_root: Path, author_map: dict[str, dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
     """Load entry metadata from the metadata/entries directory."""
     entries_dir = afp_root / "metadata" / "entries"
@@ -59,14 +63,31 @@ def load_afp_metadata(
         with open(toml_file, "rb") as f:
             data = tomllib.load(f)
 
-        # Resolve authors
+        # Resolve authors into an OpenAlex-compatible schema
         entry_authors = []
         author_data = data.get("authors", {})
         if isinstance(author_data, dict):
-            for auth_id in author_data.keys():
-                entry_authors.append(
-                    {"id": auth_id, "display_name": author_map.get(auth_id, auth_id)}
-                )
+            auth_ids = list(author_data.keys())
+            for i, auth_id in enumerate(auth_ids):
+                # Determine position
+                position = "middle"
+                if i == 0:
+                    position = "first"
+                elif i == len(auth_ids) - 1 and len(auth_ids) > 1:
+                    position = "last"
+                
+                auth_info = author_map.get(auth_id, {"name": auth_id, "orcid": None})
+                
+                entry_authors.append({
+                    "author": {
+                        "id": f"afp:author:{auth_id}",
+                        "display_name": auth_info["name"],
+                        "orcid": auth_info.get("orcid")
+                    },
+                    "author_position": position,
+                    "institutions": [],
+                    "is_corresponding": i == 0 # Assumption: first author is corresponding
+                })
 
         metadata[entry_id] = {
             "title": data.get("title", entry_id),

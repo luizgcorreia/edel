@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from edel.experiments.registry import get_experiment
 from edel.io.artifact import make_stage_artifact, load_artifact
 from edel.viz.landscape import plot_landscape_3d, plot_landscape_contour
+from edel.dashboard.utils import parse_authorships
 
 _DATASET_CACHE = {}
 
@@ -225,6 +226,31 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 try: z_coord = np.log10(float(cits) + 1)
                 except: z_coord = "N/A"
 
+            # Parse authorships
+            authorships = row.get("authorships", [])
+            parsed_authors = parse_authorships(authorships)
+            author_elements = []
+            if parsed_authors:
+                author_elements.append(html.Div([
+                    html.B("Authors: ", style={"fontSize": "0.875rem"}),
+                    html.Ul([
+                        html.Li([
+                            html.A(auth["name"], href=auth["id"], target="_blank", className="text-decoration-none"),
+                            html.A(
+                                html.Img(src="https://orcid.org/static/images/orcid_16x16.png", style={"marginLeft": "5px", "verticalAlign": "middle"}),
+                                href=f"https://orcid.org/{auth['orcid']}", 
+                                target="_blank",
+                                className="ms-1"
+                            ) if auth.get("orcid") else None,
+                            html.Span(f" ({auth['position']}{', corresponding' if auth['is_corresponding'] else ''})", 
+                                     className="text-muted", style={"fontSize": "0.75rem", "lineHeight": "1.1"}),
+                            html.Br(),
+                            html.Small(", ".join([inst["name"] for inst in auth["institutions"]]), 
+                                      className="text-muted", style={"fontSize": "0.75rem", "lineHeight": "1.1"})
+                        ], className="mb-1") for auth in parsed_authors
+                    ], className="ps-3 mb-2", style={"listStyleType": "none", "paddingLeft": "0"})
+                ], className="mb-3"))
+
             info = [
                 html.H5(title, className="mb-1"),
                 html.P(f"({year}) • {cits} citations", className="text-muted small"),
@@ -234,13 +260,15 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                     html.B("Method: "), html.Span(meth), html.Br(),
                     html.B("Finding: "), html.Span(find), html.Br(),
                     html.B("Interpretation: "), html.Span(inter),
-                ], className="small mb-3"),
+                ], style={"fontSize": "0.875rem"}, className="mb-3"),
+                *author_elements,
                 html.Div([
                     html.A("View on OpenAlex", href=url, target="_blank", className="btn btn-sm btn-outline-primary me-2"),
                     html.A("DOI", href=f"https://doi.org/{doi}", target="_blank", className="btn btn-sm btn-outline-secondary") if doi else None
                 ]),
                 html.Hr(),
-                html.P(f"Coordinates: ({fmt_coord(clicked_x)}, {fmt_coord(clicked_y)}, {fmt_coord(z_coord)})", className="text-muted tiny")
+                html.P(f"Coordinates: ({fmt_coord(clicked_x)}, {fmt_coord(clicked_y)}, {fmt_coord(z_coord)})", 
+                      className="text-muted", style={"fontSize": "0.75rem"})
             ]
             
             # --- 2. Trajectory Figure Update ---

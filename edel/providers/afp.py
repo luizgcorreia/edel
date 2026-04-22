@@ -140,6 +140,8 @@ def generate_dataset(config: dict) -> pd.DataFrame:
     repo_url = provider_cfg.get("repo_url")
     params = provider_cfg.get("params", {})
     limit = params.get("n_documents")
+    sampling_strategy = params.get("sampling_strategy", "probabilistic")
+    sampling_seed = params.get("sampling_seed")
 
     if not repo_url:
         raise ValueError("repo_url must be specified in provider config for AFP.")
@@ -158,8 +160,12 @@ def generate_dataset(config: dict) -> pd.DataFrame:
     
     # We iterate over metadata entries to ensure we only process "official" entries
     sorted_entry_ids = sorted(list(entry_ids))
-    if limit:
-        sorted_entry_ids = sorted_entry_ids[:limit]
+    
+    # Pre-parse sampling for probabilistic to save time
+    if limit and sampling_strategy == "probabilistic":
+        import random
+        rng = random.Random(sampling_seed)
+        sorted_entry_ids = rng.sample(sorted_entry_ids, min(limit, len(sorted_entry_ids)))
 
     print(f"Parsing {len(sorted_entry_ids)} AFP entries...")
     
@@ -203,6 +209,17 @@ def generate_dataset(config: dict) -> pd.DataFrame:
     cited_by = defaultdict(int)
     for dep, dependents in dependency_graph.items():
         cited_by[dep] = len(dependents)
+
+    # Post-parse sampling for deterministic (top-cited)
+    if limit and sampling_strategy == "deterministic":
+        # Sort by citation count descending, then alphabetically to break ties
+        sorted_by_citations = sorted(
+            raw_entries.keys(),
+            key=lambda x: (cited_by.get(x, 0), x),
+            reverse=True
+        )
+        top_entries = set(sorted_by_citations[:limit])
+        raw_entries = {k: v for k, v in raw_entries.items() if k in top_entries}
 
     # 4. Build Dataset & Epistemic Aspects
     records = []

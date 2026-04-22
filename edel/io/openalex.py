@@ -15,7 +15,13 @@ BASE_URL = "https://api.openalex.org/"
 
 
 def openalex_request(
-    filters: str, per_page: int = 200, cursor: str = "*", endpoint: str = "works"
+    filters: str, 
+    per_page: int = 200, 
+    cursor: str | None = "*", 
+    endpoint: str = "works",
+    sample: int | None = None,
+    seed: int | None = None,
+    sort: str | None = None,
 ) -> dict[str, Any]:
     """Execute a request against the OpenAlex API."""
     api_key = os.environ.get("OPENALEX_API_KEY")
@@ -23,8 +29,19 @@ def openalex_request(
     params = {
         "filter": filters,
         "per-page": per_page,
-        "cursor": cursor,
     }
+    
+    # Cursor pagination cannot be used with 'sample'
+    if sample:
+        params["sample"] = sample
+        if seed is not None:
+            params["seed"] = seed
+    elif cursor:
+        params["cursor"] = cursor
+        
+    if sort and not sample:
+        params["sort"] = sort
+
     if api_key:
         params["api_key"] = api_key
 

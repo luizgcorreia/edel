@@ -33,7 +33,7 @@ def get_scigen_dir() -> Path:
     return target_dir
 
 
-def generate_dataset(config: dict) -> pd.DataFrame:
+def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Generate a SCIGen-based synthetic dataset by running an external Perl script."""
     provider_cfg = config.get("provider", {})
     params = provider_cfg.get("params", {})
@@ -64,4 +64,4 @@ def generate_dataset(config: dict) -> pd.DataFrame:
 
     df = pd.read_csv(out_file)
 
-    return ensure_schema(df, provider_name="scigen_null")
+    return ensure_schema(df, provider_name="scigen_null"), {}

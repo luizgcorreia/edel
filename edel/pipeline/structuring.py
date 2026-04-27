@@ -87,6 +87,52 @@ def parse_and_merge_results(df: pd.DataFrame, results: dict[str, str]) -> pd.Dat
     return out.apply(process_row, axis=1)
 
 
+def compute_segmentation_metrics(df: pd.DataFrame) -> dict[str, float]:
+    """Calculate metrics on the segmentation quality (length, redundancy, etc)."""
+    aspect_columns = ["problem", "method", "finding", "interpretation"]
+    # Check if we have at least some of the columns
+    present_cols = [col for col in aspect_columns if col in df.columns]
+    if not present_cols:
+        return {}
+
+    results = {}
+
+    # 1. Redundancy (Duplication between aspects)
+    for i, col1 in enumerate(present_cols):
+        for j, col2 in enumerate(present_cols):
+            if i < j:
+                # Percentage of rows where snippets are identical
+                # (Ignore empty ones for duplication check to avoid inflation)
+                mask = (df[col1].str.len() > 0) & (df[col2].str.len() > 0)
+                if mask.any():
+                    val = (df[mask][col1] == df[mask][col2]).mean()
+                    results[f"dup_{col1}_{col2}"] = float(val)
+
+    # 2. Mean segment length (tokens)
+    for col in present_cols:
+        results[f"len_{col}"] = float(df[col].fillna("").str.split().str.len().mean())
+
+    # 3. Coverage (Segmentation ratio)
+    if "abstract_text" in df.columns:
+        df_temp = df.copy()
+        for col in present_cols:
+            df_temp[f"_{col}_len"] = df_temp[col].fillna("").str.split().str.len()
+
+        df_temp["_segmented_total_len"] = df_temp[[f"_{col}_len" for col in present_cols]].sum(axis=1)
+        df_temp["_abstract_len"] = df_temp["abstract_text"].fillna("").str.split().str.len()
+
+        # Avoid division by zero
+        df_temp = df_temp[df_temp["_abstract_len"] > 0]
+        if not df_temp.empty:
+            ratio = df_temp["_segmented_total_len"] / df_temp["_abstract_len"]
+            results["seg_ratio_mean"] = float(ratio.mean())
+            results["seg_ratio_std"] = float(ratio.std())
+            results["abstract_len_mean"] = float(df_temp["_abstract_len"].mean())
+            results["seg_total_mean"] = float(df_temp["_segmented_total_len"].mean())
+
+    return results
+
+
 def process_simple(
     df: pd.DataFrame, client: LLMClient, topic: str | None = None
 ) -> dict[str, str]:
@@ -108,12 +154,9 @@ def process_simple(
 
 
 def process_batch(
-    df: pd.DataFrame, client: LLMClient, config: dict, topic: str | None = None
+    df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None
 ) -> dict[str, str]:
     """Process abstracts using Batch API with optimal chunking."""
-    stage_cfg = config.get("structured_abstracts", {})
-    # OpenAI limit is 50,000 requests per batch.
-    batch_size = stage_cfg.get("batch_size", 50000)
     
     total_items = len(df)
     all_results = {}
@@ -170,8 +213,8 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame,
     processing_mode = config.get("processing_mode", "simple")
     
     # 1. Filter
-    min_sentences = stage_cfg.get("min_sentences", 2)
-    min_tokens = stage_cfg.get("min_tokens", 20)
+    min_sentences = stage_cfg.get("min_sentences", 4)
+    min_tokens = stage_cfg.get("min_tokens", 80)
     df_filtered, filter_report = filter_abstracts(df, min_sentences, min_tokens)
     
     # 1b. Sample if requested
@@ -194,10 +237,16 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame,
 
     # 3. Process
     if processing_mode == "batch":
-        results = process_batch(df_filtered, client, config, topic)
+        batch_size = stage_cfg.get("batch_size", 1000)
+        results = process_batch(df_filtered, client, batch_size, topic)
     else:
         results = process_simple(df_filtered, client, topic)
 
     # 4. Parse & Merge
     df_structured = parse_and_merge_results(df_filtered, results)
+
+    # 5. Compute Segmentation Metrics
+    seg_metrics = compute_segmentation_metrics(df_structured)
+    filter_report.update(seg_metrics)
+
     return df_structured, filter_report

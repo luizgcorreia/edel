@@ -29,6 +29,7 @@ dependencies = [
     "wordfreq",
     
     "openai", 
+    "google-genai",
     
     "ijson",
     "python-dotenv",

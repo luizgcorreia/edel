@@ -4,6 +4,8 @@ from edel.viz.data import (
     plot_abstract_length_dist,
     plot_publication_year_dist,
     plot_citation_dist,
+    plot_segmentation_stats,
+    plot_filtering_stats,
     set_viz_style,
 )
 from edel.viz.projection import (

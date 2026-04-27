@@ -37,7 +37,7 @@ def generate_random_abstract(mu: float, sigma: float, lexicon: list[str]) -> str
     return ". ".join(sentences) + "."
 
 
-def generate_dataset(config: dict) -> pd.DataFrame:
+def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Generate a synthetic lexicon-null dataset with randomized tokens.
 
     Expected config structure:
@@ -96,4 +96,4 @@ def generate_dataset(config: dict) -> pd.DataFrame:
             }
         )
 
-    return ensure_schema(pd.DataFrame(records), provider_name="lexicon_null")
+    return ensure_schema(pd.DataFrame(records), provider_name="lexicon_null"), {}

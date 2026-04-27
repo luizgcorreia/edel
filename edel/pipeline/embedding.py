@@ -20,8 +20,8 @@ def run_embedding_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     provider = embed_cfg.get("provider", "openai")
     model = embed_cfg.get("model", "text-embedding-ada-002")
     mode = embed_cfg.get("mode", "multi")  # "single" or "multi"
-    processing_mode = config.get("processing_mode", "simple")
-    batch_size = embed_cfg.get("batch_size", 50000)
+    processing_mode = config.get("processing_mode", "batch")
+    batch_size = embed_cfg.get("batch_size", 5000)
 
     client = get_llm_client({"provider": provider, "model": model})
 

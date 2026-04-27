@@ -1,7 +1,7 @@
 """Deterministic artifact addressing and persistence utilities.
 
 Artifacts are written under:
-    <base_path>/<stage>/<label>/<name>__<hash_segment>.(parquet|pkl)
+    <base_path>/<stage>/<label>/<name>_<hash_segment>.(parquet|pkl)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ CANONICAL_STAGE_NAMES = (
 )
 
 # Parameters that trigger a re-hash for all stages if changed
-GLOBAL_CONFIG_KEYS = ("random_seed", "processing_mode", "embedding_mode")
+GLOBAL_CONFIG_KEYS = ("random_seed", "embedding_mode")
 
 # Stage-specific keys in RUN_CONFIG (mirrors the original pipeline organization).
 STAGE_CONFIG_KEYS = {
@@ -41,8 +41,8 @@ STAGE_CONFIG_KEYS = {
 }
 
 CANONICAL_ARTIFACT_NAMES = {
-    "data_collection": ("dataset", "raw"),
-    "structured_abstracts": ("sa",),
+    "data_collection": ("dataset", "filter_report", "raw"),
+    "structured_abstracts": ("sa", "filter_report"),
     "embeddings": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
     "dimensionality_reduction": ("dr",),
     "vector_field": ("vf",),
@@ -114,9 +114,9 @@ def canonical_artifact_path(
     config_hash: str,
     name: str,
 ) -> Path:
-    """Build canonical artifact path: <base>/<stage>/<label>/<name>__<hash_segment>."""
+    """Build canonical artifact path: <base>/<stage>/<label>/<name>_<hash_segment>."""
     hash_segment = config_hash[:8]
-    return Path(base_path) / stage / label / f"{name}__{hash_segment}"
+    return Path(base_path) / stage / label / f"{name}_{hash_segment}"
 
 
 def get_global_hash(run_config: dict) -> str:
@@ -226,7 +226,7 @@ def save_viz(artifact: Artifact, fig: Any, formats: list[str] = ["png", "html"])
     """Save a visualization (Matplotlib or Plotly) using artifact conventions."""
     for fmt in formats:
         hash_segment = artifact.config_hash[:8]
-        path = artifact.path_prefix.parent / f"{artifact.name}__{hash_segment}.{fmt}"
+        path = artifact.path_prefix.parent / f"{artifact.name}_{hash_segment}.{fmt}"
         path.parent.mkdir(parents=True, exist_ok=True)
 
         # Plotly support
@@ -292,7 +292,7 @@ def delete_experiment_artifacts(config: dict, base_path: str | Path):
                 continue
                 
             # Find and delete files with this hash segment
-            for f in stage_dir.glob(f"*__{h}.*"):
+            for f in stage_dir.glob(f"*_{h}.*"):
                 try:
                     f.unlink()
                     print(f"🗑️ Deleted artifact: {f.name}")

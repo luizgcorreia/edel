@@ -39,14 +39,16 @@ def run_full_pipeline(
 
     # --- Stage 1: Data Collection ---
     art_data = make_stage_artifact(config, base_path, "data_collection", "dataset")
+    art_report = make_stage_artifact(config, base_path, "data_collection", "filter_report")
     try:
         if force: raise FileNotFoundError()
         df = load_artifact(art_data)
         print("Stage 1: Loaded existing dataset artifact.")
     except (FileNotFoundError, Exception):
         print("Stage 1: Running data collection...")
-        df = run_data_stage(config)
+        df, report = run_data_stage(config)
         save_artifact(art_data, df)
+        save_artifact(art_report, report)
     final_results["data"] = df
 
     # --- Stage 2: Structured Abstracts ---

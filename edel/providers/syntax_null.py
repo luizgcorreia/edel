@@ -108,7 +108,7 @@ def generate_grammar_abstract(
     return ". ".join(sentences) + "."
 
 
-def generate_dataset(config: dict) -> pd.DataFrame:
+def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Generate a synthetic syntax-null dataset with complex grammar patterns."""
     provider_cfg = config.get("provider", {})
     params = provider_cfg.get("params", {})
@@ -152,4 +152,4 @@ def generate_dataset(config: dict) -> pd.DataFrame:
             }
         )
 
-    return ensure_schema(pd.DataFrame(records), provider_name="syntax_null")
+    return ensure_schema(pd.DataFrame(records), provider_name="syntax_null"), {}

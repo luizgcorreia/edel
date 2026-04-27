@@ -13,21 +13,35 @@ from edel.io.openalex import (
 from edel.providers.base import ensure_schema
 
 
-def filter_keywords(df: pd.DataFrame, keywords: list[str]) -> pd.DataFrame:
+def filter_keywords(df: pd.DataFrame, keywords: list[str]) -> tuple[pd.DataFrame, dict]:
     """Filter out rows where the abstract contains any of the specified keywords."""
     if not keywords or df.empty:
-        return df
+        return df, {"total_initial": len(df), "total_filtered": len(df), "removed_count": 0, "keyword_stats": {}}
 
-    initial_shape = df.shape
-    print(f"Filtering non-research works. Shape before: {initial_shape}")
-
+    initial_count = len(df)
+    
     # Create a regex pattern from the keywords
-    pattern = "|".join(keywords)
-    mask = df["abstract_text"].str.contains(pattern, case=False, na=False)
-    df_filtered = df[~mask]
+    keyword_stats = {}
+    mask_any = pd.Series(False, index=df.index)
+    
+    for kw in keywords:
+        mask = df["abstract_text"].str.contains(kw, case=False, na=False)
+        count = mask.sum()
+        keyword_stats[kw] = int(count)
+        mask_any |= mask
 
-    print(f"Shape after filtering: {df_filtered.shape}")
-    return df_filtered
+    df_filtered = df[~mask_any].copy()
+    removed_count = initial_count - len(df_filtered)
+
+    report = {
+        "total_initial": initial_count,
+        "total_filtered": len(df_filtered),
+        "removed_count": removed_count,
+        "keyword_stats": keyword_stats
+    }
+
+    print(f"Filtering non-research works. Removed {removed_count} items. New shape: {df_filtered.shape}")
+    return df_filtered, report
 
 
 def process_work_json(work: dict) -> dict | None:
@@ -59,7 +73,22 @@ def process_work_json(work: dict) -> dict | None:
     }
 
 
-def generate_dataset(config: dict) -> pd.DataFrame:
+# Standard keywords used to filter out non-research items from OpenAlex
+DEFAULT_FILTER_KEYWORDS = [
+    "ADVERTISEMENT",
+    "RETURN TO ISSUE",
+    "NewsNEXT",
+    "This article has been withdrawn",
+    "Corrigendum",
+    "Erratum",
+    "Front Matter",
+    "Back Matter",
+    "Author Index",
+    "Subject Index",
+]
+
+
+def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Harvest works from OpenAlex based on topic and optional region filters.
     
     Expected config structure:
@@ -80,7 +109,7 @@ def generate_dataset(config: dict) -> pd.DataFrame:
     region = provider_cfg.get("region")
     params = provider_cfg.get("params", {})
     limit = params.get("n_documents")
-    keywords = params.get("filter_keywords")
+    keywords = params.get("filter_keywords", DEFAULT_FILTER_KEYWORDS)
     sampling_strategy = params.get("sampling_strategy", "probabilistic")
     sampling_seed = params.get("sampling_seed")
 
@@ -176,7 +205,8 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         pbar.close()
 
     if not all_records:
-        return ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
+        empty_df = ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
+        return empty_df, {"total_initial": 0, "total_filtered": 0, "removed_count": 0}
 
     df = pd.DataFrame(all_records)
     
@@ -186,7 +216,8 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     # 3. Post-harvest filtering
+    report = {"total_initial": len(df), "total_filtered": len(df), "removed_count": 0, "keyword_stats": {}}
     if keywords:
-        df = filter_keywords(df, keywords)
+        df, report = filter_keywords(df, keywords)
 
-    return ensure_schema(df, provider_name="openalex")
+    return ensure_schema(df, provider_name="openalex"), report

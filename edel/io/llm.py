@@ -173,6 +173,83 @@ class LMStudioClient(OpenAIClient):
         raise NotImplementedError("Batch API is not supported by LM Studio.")
 
 
+class GeminiClient(LLMClient):
+    """Google Gemini implementation using the official google-genai SDK."""
+
+    def __init__(self, model: str = "gemini-2.5-flash", **kwargs):
+        import os
+        import json
+        from google import genai
+        import google.auth
+        
+        self.model = model
+        
+        # Priority: explicit config > env var > ADC project
+        project_id = kwargs.get("project")
+        location = kwargs.get("location", "global")
+        
+        if not project_id:
+            try:
+                _, project_id = google.auth.default()
+            except Exception:
+                project_id = None
+        
+        # Fallback to parsing ADC file for quota_project_id
+        if not project_id:
+            adc_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            if not adc_path:
+                adc_path = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
+            if os.path.exists(adc_path):
+                try:
+                    with open(adc_path, "r") as f:
+                        adc_data = json.load(f)
+                        project_id = adc_data.get("quota_project_id")
+                except Exception:
+                    pass
+                    
+        if project_id:
+            # If global is requested, we use the global endpoint
+            # We use v1beta1 as it is the standard for Vertex AI regional/global beta
+            print(f"Initializing Gemini on Vertex AI (project: {project_id}, location: {location})")
+            self.client = genai.Client(
+                vertexai=True, 
+                project=project_id, 
+                location=location
+            )
+        else:
+            # Fallback to default API key mode
+            self.client = genai.Client()
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        from google.genai import types
+        
+        # Enforce JSON output as requested by the original design
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=kwargs.get("temperature", 1.0),
+        )
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=config
+        )
+        return response.text
+
+    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+        # Using the standard embedding model for Gemini
+        response = self.client.models.embed_content(
+            model="text-embedding-004",
+            contents=text,
+        )
+        return response.embeddings[0].values
+
+    def create_batch(self, prompts_with_ids: dict[str, str], **kwargs) -> str:
+        raise NotImplementedError("Batch API is not natively supported by this GeminiClient implementation.")
+
+    def poll_batch(self, batch_id: str) -> dict[str, Any]:
+        raise NotImplementedError("Batch API is not natively supported by this GeminiClient implementation.")
+
+
 class MockClient(LLMClient):
     """Mock client for testing."""
 
@@ -238,9 +315,11 @@ def get_llm_client(config: dict) -> LLMClient:
     model = config.get("model", "gpt-4o-mini")
 
     if provider == "openai":
-        return OpenAIClient(model=model)
+        return OpenAIClient(**config)
     elif provider == "lmstudio":
-        return LMStudioClient(model=model)
+        return LMStudioClient(**config)
+    elif provider == "gemini":
+        return GeminiClient(**config)
     elif provider == "mock":
         return MockClient()
     else:

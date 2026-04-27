@@ -210,13 +210,14 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 # --- RUN STAGE LOGIC (Mirroring exploration.ipynb) ---
                 data = None
                 field = None
+                report = None
                 
                 # 1. Load dependencies
                 if stage_name == "data_collection":
-                    data = pipeline.run_data_stage(config)
+                    data, report = pipeline.run_data_stage(config)
                 elif stage_name == "structured_abstracts":
                     prev_art = make_stage_artifact(config, base_path, "data_collection", "dataset")
-                    data = pipeline.run_structuring_stage(load_artifact(prev_art), config)
+                    data, report = pipeline.run_structuring_stage(load_artifact(prev_art), config)
                 elif stage_name == "embeddings":
                     prev_art = make_stage_artifact(config, base_path, "structured_abstracts", "sa")
                     prev_data = load_artifact(prev_art)
@@ -255,6 +256,9 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 elif data is not None:
                     p = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[0]), data)
                     saved_info = str(p)
+                    # Save report if it was generated
+                    if report is not None and len(art_names) > 1:
+                        save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[1]), report)
                 
                 info_prefix = f"Ran and Saved: {saved_info}"
             else:
@@ -271,14 +275,41 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 # Find which one exists
                 p = artifact.parquet_path if artifact.parquet_path.exists() else artifact.pkl_path
                 info_prefix = f"Loaded: {p}"
+                
+                # Load report if available for this stage
+                report = None
+                if (stage_name == "structured_abstracts" or stage_name == "data_collection") and len(art_names) > 1:
+                    try:
+                        report_art = make_stage_artifact(config, base_path, stage_name, art_names[1])
+                        report = load_artifact(report_art)
+                    except: pass
 
             # --- VISUALIZATION LOGIC ---
             viz_components = []
             
             if stage_name == "data_collection":
+                if report:
+                    # Show report as a preformatted JSON block
+                    viz_components.append(html.H5("Harvest Filtering Report", className="mt-3"))
+                    viz_components.append(html.Pre(json.dumps(report, indent=2), className="p-3 bg-dark text-white rounded small"))
+                    
+                    # Add filtering stats plot
+                    viz_components.append(capture_matplotlib_plot(viz.plot_filtering_stats, report))
+
                 viz_components.append(capture_matplotlib_plot(viz.plot_publication_year_dist, data))
                 viz_components.append(capture_matplotlib_plot(viz.plot_citation_dist, data))
                 viz_components.append(capture_matplotlib_plot(viz.plot_abstract_length_dist, data))
+            
+            elif stage_name == "structured_abstracts":
+                if report:
+                    # Show report as a preformatted JSON block
+                    viz_components.append(html.H5("Structuring Report", className="mt-3"))
+                    viz_components.append(html.Pre(json.dumps(report, indent=2), className="p-3 bg-dark text-white rounded small"))
+                    
+                    # Add charts
+                    viz_components.append(capture_matplotlib_plot(viz.plot_segmentation_stats, report))
+                else:
+                    viz_components.append(html.Div("No structuring report found for this artifact.", className="text-muted small"))
             
             elif stage_name == "dimensionality_reduction":
                 method = config.get("dimensionality_reduction", {}).get("method", "umap")

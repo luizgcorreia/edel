@@ -1,7 +1,8 @@
 """Default run configuration mirroring the original monolithic pipeline."""
 
 RUN_CONFIG = {
-    "processing_mode": "batch",  # "simple" | "batch"
+    "processing_mode": "simple",  # "simple" | "batch"
+    "random_seed": 42,
     "embedding_mode": "aspects",  # "aspects" | "documents"
     "data": {
         "provider": {
@@ -17,10 +18,11 @@ RUN_CONFIG = {
         "transforms": [{"type": "shuffle_words"}],
     },
     "structured_abstracts": {
-        "provider": "openai",
-        "model": "gpt-5-mini",
+        "provider": "gemini",
+        "model": "gemini-3-flash-preview",
         "min_sentences": 4,
         "min_tokens": 80,
+        "batch_size": 1000
     },
     "embedding": {
         "mode": "multi",  # multi | single | abstract
@@ -75,8 +77,8 @@ RUN_CONFIG = {
         },
     },
     "labeling": {
-        "provider": "openai",
-        "model": "gpt-5-mini",
+        "provider": "gemini",
+        "model": "gemini-3.1-flash-lite-preview",
         "text_column": "abstract_text",
         "topic": None,
         "language": "en",

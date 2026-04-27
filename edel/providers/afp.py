@@ -188,7 +188,7 @@ def build_segment_text(label: str, tokens: list[str]) -> str:
     return f"{label}:\n" + "\n".join(tokens)
 
 
-def generate_dataset(config: dict) -> pd.DataFrame:
+def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Harvest AFP entries and extract semantic data.
     
     Expected config:
@@ -348,4 +348,4 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         records.append(record)
 
     df = pd.DataFrame(records)
-    return ensure_schema(df, provider_name="afp")
+    return ensure_schema(df, provider_name="afp"), {}

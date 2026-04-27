@@ -65,9 +65,9 @@ def prepare_matrix(X: np.ndarray) -> np.ndarray:
     return X_norm
 
 
-def get_reducer(method: str, config: dict) -> Any:
+def get_reducer(method: str, config: dict, global_seed: int = 42) -> Any:
     """Initialize a dimensionality reduction object based on config."""
-    random_state = config.get("random_state", 42)
+    random_state = config.get("random_state", global_seed)
     n_components = config.get("n_components", 2)
 
     if method == "umap":
@@ -149,7 +149,8 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         X = load_embeddings_to_matrix(out, "embedding", dimensions)
         X_prep = prepare_matrix(X)
         
-        reducer = get_reducer(method, dr_cfg)
+        seed = config.get("random_seed", 42)
+        reducer = get_reducer(method, dr_cfg, global_seed=seed)
         coords = reducer.fit_transform(X_prep)
         
         out[f"proj_{method}_x"] = coords[:, 0]
@@ -173,7 +174,8 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         X_primary = load_embeddings_to_matrix(out, f"{primary_aspect}_embedding", dimensions)
         X_primary_prep = prepare_matrix(X_primary)
         
-        reducer = get_reducer(method, dr_cfg)
+        seed = config.get("random_seed", 42)
+        reducer = get_reducer(method, dr_cfg, global_seed=seed)
         coords_primary = reducer.fit_transform(X_primary_prep)
         
         # Save primary results

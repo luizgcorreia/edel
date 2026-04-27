@@ -26,7 +26,7 @@ def openalex_request(
     """Execute a request against the OpenAlex API."""
     api_key = os.environ.get("OPENALEX_API_KEY")
 
-    params = {
+    params: dict[str, Any] = {
         "filter": filters,
         "per-page": per_page,
     }
@@ -44,8 +44,12 @@ def openalex_request(
 
     if api_key:
         params["api_key"] = api_key
+    
+    email = os.environ.get("OPENALEX_EMAIL")
+    if email:
+        params["mailto"] = email
 
-    response = requests.get(urllib.parse.urljoin(BASE_URL, endpoint), params=params)
+    response = requests.get(urllib.parse.urljoin(BASE_URL, endpoint), params=params, timeout=30)
 
     if response.status_code != 200:
         raise RuntimeError(f"OpenAlex error {response.status_code}: {response.text}")

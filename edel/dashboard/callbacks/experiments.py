@@ -232,17 +232,17 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     data = field # For generic display
                 elif stage_name == "clustering":
                     art_df = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
-                    art_field = make_stage_artifact(config, base_path, "vector_field", "field")
+                    art_field = make_stage_artifact(config, base_path, "vector_field", "vf")
                     data, field = pipeline.run_clustering_stage(load_artifact(art_df), load_artifact(art_field), config)
                 elif stage_name == "labeling":
                     art_df = make_stage_artifact(config, base_path, "clustering", "clustering")
                     art_field = make_stage_artifact(config, base_path, "clustering", "field_clustering")
-                    from edel.pipeline.labeling import get_llm_client
+                    from edel.io.llm import get_llm_client
                     llm_client = get_llm_client(config.get("labeling", {}))
                     data = pipeline.run_labeling_stage(load_artifact(art_df), load_artifact(art_field), config, llm_client)
                 elif stage_name == "output":
                     art_df = make_stage_artifact(config, base_path, "clustering", "clustering")
-                    art_field = make_stage_artifact(config, base_path, "vector_field", "field")
+                    art_field = make_stage_artifact(config, base_path, "vector_field", "vf")
                     data = pipeline.run_landscape_stage(load_artifact(art_df), load_artifact(art_field), config)
                 
                 # 2. Save artifacts

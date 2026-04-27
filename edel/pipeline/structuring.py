@@ -173,8 +173,17 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame,
     min_sentences = stage_cfg.get("min_sentences", 2)
     min_tokens = stage_cfg.get("min_tokens", 20)
     df_filtered, filter_report = filter_abstracts(df, min_sentences, min_tokens)
-    print(f"Filtered to {len(df_filtered)} abstracts for structuring.")
-    print(f"Filter Report: {filter_report}")
+    
+    # 1b. Sample if requested
+    n_docs = stage_cfg.get("n_documents")
+    if n_docs and n_docs < len(df_filtered):
+        seed = config.get("random_seed", 42)
+        print(f"Sampling {n_docs} abstracts from filtered set (seed: {seed})...")
+        df_filtered = df_filtered.sample(n=n_docs, random_state=seed)
+        filter_report["sampled_count"] = n_docs
+
+    print(f"Final selection: {len(df_filtered)} abstracts for structuring.")
+    print(f"Filter/Sampling Report: {filter_report}")
 
     if df_filtered.empty:
         return df_filtered, filter_report

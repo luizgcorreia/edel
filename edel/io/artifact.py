@@ -25,6 +25,9 @@ CANONICAL_STAGE_NAMES = (
     "output",
 )
 
+# Parameters that trigger a re-hash for all stages if changed
+GLOBAL_CONFIG_KEYS = ("random_seed", "processing_mode", "embedding_mode")
+
 # Stage-specific keys in RUN_CONFIG (mirrors the original pipeline organization).
 STAGE_CONFIG_KEYS = {
     "data_collection": "data",
@@ -116,10 +119,34 @@ def canonical_artifact_path(
     return Path(base_path) / stage / label / f"{name}__{hash_segment}"
 
 
+def get_global_hash(run_config: dict) -> str:
+    """Compute a stable hash for parameters that affect all stages."""
+    global_cfg = {k: run_config.get(k) for k in GLOBAL_CONFIG_KEYS if k in run_config}
+    return stable_hash(global_cfg)
+
+
 def stage_hash(run_config: dict, stage: str) -> str:
-    """Compute deterministic hash for one canonical pipeline stage."""
-    key = STAGE_CONFIG_KEYS[stage]
-    return stable_hash(run_config[key])
+    """Compute deterministic chained hash for a pipeline stage.
+    
+    The hash is a linked list: Hash_N = MD5(Hash_{N-1} + Stage_N_Params).
+    """
+    if stage not in CANONICAL_STAGE_NAMES:
+        return stable_hash(run_config.get(STAGE_CONFIG_KEYS.get(stage, stage), {}))
+        
+    current_hash = get_global_hash(run_config)
+    
+    for s in CANONICAL_STAGE_NAMES:
+        stage_key = STAGE_CONFIG_KEYS[s]
+        stage_params = run_config.get(stage_key, {})
+        stage_params_hash = stable_hash(stage_params)
+        
+        # Chain the previous hash with the current stage params hash
+        current_hash = stable_hash({"prev_hash": current_hash, "params_hash": stage_params_hash})
+        
+        if s == stage:
+            return current_hash
+            
+    raise ValueError(f"Unknown stage: {stage}")
 
 
 def make_stage_artifact(
@@ -128,14 +155,13 @@ def make_stage_artifact(
     stage: str,
     name: str,
 ) -> Artifact:
-    """Create artifact descriptor for a canonical stage using stage-specific hash."""
+    """Create artifact descriptor for a canonical stage using chained stage-specific hash."""
     label = get_experiment_label(run_config)
-    stage_key = STAGE_CONFIG_KEYS[stage]
     return Artifact(
         stage=stage,
         name=name,
         label=label,
-        config_hash=stable_hash(run_config[stage_key]),
+        config_hash=stage_hash(run_config, stage),
         base_path=Path(base_path),
     )
 

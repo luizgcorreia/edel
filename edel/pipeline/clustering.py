@@ -45,7 +45,8 @@ def run_clustering_stage(
                 print(f"Skipping clustering {name}: No data found for source {source}")
                 continue
 
-            labels = run_clustering(X, algorithm, params)
+            seed = config.get("random_seed", 42)
+            labels = run_clustering(X, algorithm, params, random_seed=seed)
 
             colname = f"cluster_{name}"
             if source == "field":
@@ -147,13 +148,15 @@ def compute_transition_features(df: pd.DataFrame, dimensions: int) -> np.ndarray
     return features
 
 
-def run_clustering(X: np.ndarray, algorithm: str, params: dict) -> np.ndarray:
+def run_clustering(X: np.ndarray, algorithm: str, params: dict, random_seed: int = 42) -> np.ndarray:
     """Run the specified clustering algorithm on the matrix X."""
     # Centering and Normalizing
     X_norm = X - np.mean(X, axis=0)
     X_norm = normalize(X_norm, axis=1)
 
     if algorithm == "kmeans":
+        if "random_state" not in params:
+            params["random_state"] = random_seed
         model = KMeans(**params)
         return model.fit_predict(X_norm)
     elif algorithm == "hdbscan":
@@ -162,6 +165,8 @@ def run_clustering(X: np.ndarray, algorithm: str, params: dict) -> np.ndarray:
         model = hdbscan.HDBSCAN(**params)
         return model.fit_predict(X_norm)
     elif algorithm == "gmm":
+        if "random_state" not in params:
+            params["random_state"] = random_seed
         model = GaussianMixture(**params)
         return model.fit(X_norm).predict(X_norm)
     elif algorithm == "spectral":

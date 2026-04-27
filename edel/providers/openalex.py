@@ -30,6 +30,35 @@ def filter_keywords(df: pd.DataFrame, keywords: list[str]) -> pd.DataFrame:
     return df_filtered
 
 
+def process_work_json(work: dict) -> dict | None:
+    """Extract and format fields from OpenAlex Work JSON."""
+    inv_idx = work.get("abstract_inverted_index")
+    if not inv_idx:
+        return None
+
+    abstract_text = inverted_index_to_text(inv_idx)
+
+    return {
+        "source_provider": "openalex",
+        "id": work.get("id"),
+        "title": work.get("title"),
+        "abstract_text": abstract_text,
+        "authorships": work.get("authorships", []),
+        "publication_year": work.get("publication_year"),
+        "cited_by_count": work.get("cited_by_count"),
+        "citation_normalized_percentile": (work.get("citation_normalized_percentile", {}).get("value") if work.get("citation_normalized_percentile") else 0),
+        "doi": work.get("doi"),
+        "oa_status": (work.get("open_access") or {}).get("oa_status"),
+        "primary_location": (((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
+        "countries": extract_country_codes(work.get("authorships", [])),
+        "topics": [t.get("display_name") for t in work.get("topics", []) if t.get("display_name")],
+        "type": work.get("type"),
+        "language": work.get("language"),
+        "keywords": [k.get("display_name") for k in work.get("keywords", []) if k.get("display_name")],
+        "has_fulltext": work.get("has_fulltext"),
+    }
+
+
 def generate_dataset(config: dict) -> pd.DataFrame:
     """Harvest works from OpenAlex based on topic and optional region filters.
     
@@ -71,136 +100,90 @@ def generate_dataset(config: dict) -> pd.DataFrame:
 
     filters = ",".join(filter_parts)
 
+    # Pre-flight request to get total count
+    try:
+        initial_data = openalex_request(filters, per_page=1, cursor="*")
+        total_count = initial_data.get("meta", {}).get("count", 0)
+    except Exception as e:
+        print(f"Failed to fetch initial metadata from OpenAlex: {e}")
+        total_count = 0
+
+    if limit is None:
+        limit = total_count
+        print(f"No limit specified. Attempting to harvest all {limit} documents.")
+    else:
+        limit = min(limit, total_count)
+        print(f"Harvesting up to {limit} documents (total available: {total_count}).")
+
     # 2. Harvest Records
     all_records = []
+    seen_ids = set()
     
     print(f"Starting OpenAlex harvesting for topic {topic_id}...")
-    
-    # Initialize progress bar if we have a limit
-    pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit else tqdm(desc="Harvesting OpenAlex (No Limit)")
+    pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit > 0 else None
 
     try:
-        if limit and sampling_strategy == "probabilistic":
-            # Use OpenAlex's native sample API
-            # OpenAlex sample endpoint doesn't support pagination, we fetch all N at once (up to 10k allowed)
-            # But the max per_page is still 200, so OpenAlex ignores per_page when sample is used and just returns sample
-            # Wait, OpenAlex docs say: "When you use sample, the per-page parameter is ignored. We'll return exactly the number of results you ask for."
-            # Actually, the maximum sample size is 10,000.
-            sample_size = min(limit, 10000)
-            if limit > 10000:
-                print(f"Warning: OpenAlex max sample size is 10,000. Limiting sample to 10,000 (requested {limit}).")
-            
-            data = openalex_request(filters, sample=sample_size, seed=sampling_seed)
-            results = data.get("results", [])
-        else:
-            # Deterministic or Exhaustive Harvesting
-            current_cursor = "*"
-            sort_param = "cited_by_count:desc" if limit else None # Only sort if we have a limit, else default order
-            results = []
-            
-            while True:
-                fetch_count = 200
-                if limit:
-                    remaining = limit - len(all_records)
-                    if remaining <= 0:
-                        break
-                    fetch_count = min(200, remaining)
-
-                data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor, sort=sort_param)
-                page_results = data.get("results", [])
-                if not page_results:
+        # Cursor-based harvesting for both probabilistic and deterministic modes
+        current_cursor = "*"
+        
+        # Only sort by citation if deterministic
+        sort_param = "cited_by_count:desc" if (limit and sampling_strategy == "deterministic") else None
+        
+        while True:
+            fetch_count = 200
+            if limit:
+                remaining = limit - len(all_records)
+                if remaining <= 0:
                     break
-                
-                results.extend(page_results)
-                
-                # We process records immediately in the loop below, but for simplicity we collect all results first if probabilistic wasn't used
-                # Actually, to keep memory low and update pbar, we should process here.
-                # Since we already have the processing loop below, let's just break out of this 'results' collection logic
-                # and put the processing logic inside this while loop, OR we can just collect page_results.
-                # Let's process immediately to maintain the existing flow structure.
-                for work in page_results:
-                    inv_idx = work.get("abstract_inverted_index")
-                    if not inv_idx:
-                        continue
+                fetch_count = min(200, remaining)
 
-                    abstract_text = inverted_index_to_text(inv_idx)
+            try:
+                data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor, sort=sort_param)
+            except Exception as e:
+                print(f"\nError fetching page (cursor: {current_cursor}): {e}. Retrying in 5s...")
+                import time
+                time.sleep(5)
+                continue
 
-                    all_records.append({
-                        "source_provider": "openalex",
-                        "id": work.get("id"),
-                        "title": work.get("title"),
-                        "abstract_text": abstract_text,
-                        "authorships": work.get("authorships", []),
-                        "publication_year": work.get("publication_year"),
-                        "cited_by_count": work.get("cited_by_count"),
-                        "citation_normalized_percentile": (work.get("citation_normalized_percentile", {}).get("value") if work.get("citation_normalized_percentile") else 0),
-                        "doi": work.get("doi"),
-                        "oa_status": (work.get("open_access") or {}).get("oa_status"),
-                        "primary_location": (((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
-                        "countries": extract_country_codes(work.get("authorships", [])),
-                        "topics": [t.get("display_name") for t in work.get("topics", []) if t.get("display_name")],
-                        "type": work.get("type"),
-                        "language": work.get("language"),
-                        "keywords": [k.get("display_name") for k in work.get("keywords", []) if k.get("display_name")],
-                        "has_fulltext": work.get("has_fulltext"),
-                    })
+            page_results = data.get("results", [])
+            if not page_results:
+                break
+            
+            for work in page_results:
+                if work.get("id") in seen_ids:
+                    continue
+                
+                processed = process_work_json(work)
+                if processed:
+                    seen_ids.add(processed["id"])
+                    all_records.append(processed)
                     if pbar:
                         pbar.update(1)
 
-                    if limit and len(all_records) >= limit:
-                        break
-
-                # Handle pagination
-                next_cursor = data.get("meta", {}).get("next_cursor")
-                if next_cursor and next_cursor != current_cursor:
-                    current_cursor = next_cursor
-                else:
-                    break
-
                 if limit and len(all_records) >= limit:
                     break
-            
-            # We skip the external processing loop since we did it inline
-            results = [] 
-            
-        # If probabilistic, process the single batch of results
-        for work in results:
-            inv_idx = work.get("abstract_inverted_index")
-            if not inv_idx:
-                continue
 
-            abstract_text = inverted_index_to_text(inv_idx)
+            next_cursor = data.get("meta", {}).get("next_cursor")
+            if next_cursor and next_cursor != current_cursor:
+                current_cursor = next_cursor
+            else:
+                break
 
-            all_records.append({
-                "source_provider": "openalex",
-                "id": work.get("id"),
-                "title": work.get("title"),
-                "abstract_text": abstract_text,
-                "authorships": work.get("authorships", []),
-                "publication_year": work.get("publication_year"),
-                "cited_by_count": work.get("cited_by_count"),
-                "citation_normalized_percentile": (work.get("citation_normalized_percentile", {}).get("value") if work.get("citation_normalized_percentile") else 0),
-                "doi": work.get("doi"),
-                "oa_status": (work.get("open_access") or {}).get("oa_status"),
-                "primary_location": (((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
-                "countries": extract_country_codes(work.get("authorships", [])),
-                "topics": [t.get("display_name") for t in work.get("topics", []) if t.get("display_name")],
-                "type": work.get("type"),
-                "language": work.get("language"),
-                "keywords": [k.get("display_name") for k in work.get("keywords", []) if k.get("display_name")],
-                "has_fulltext": work.get("has_fulltext"),
-            })
-            if pbar:
-                pbar.update(1)
+            if limit and len(all_records) >= limit:
+                break
 
     finally:
-        if pbar:
-            pbar.close()
+        pbar.close()
 
     if not all_records:
         return ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
 
     df = pd.DataFrame(all_records)
+    
+    # Optional local shuffle for probabilistic to randomize the ordered cursor results
+    if sampling_strategy == "probabilistic":
+        seed = config.get("random_seed") or sampling_seed or 42
+        df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
 
     # 3. Post-harvest filtering
     if keywords:

@@ -29,6 +29,8 @@ def run_labeling_stage(
         "axes": []
     }
 
+    seed = config.get("random_seed", 42)
+
     # 1. Label Axes (Semantic contrast between extremes)
     if axis_cfg.get("enabled", True):
         method = axis_cfg.get("projection", "umap")
@@ -64,7 +66,7 @@ def run_labeling_stage(
                 cluster_ids = get_cluster_ids(df, cluster_col)
                 previous_labels = []
                 for cid in cluster_ids:
-                    block = sample_cluster_texts(df, cluster_col, text_col, cid, n_samples)
+                    block = sample_cluster_texts(df, cluster_col, text_col, cid, n_samples, random_seed=seed)
                     label_json = generate_cluster_label(
                         llm_client, block, key, topic, previous_labels, language
                     )
@@ -76,7 +78,7 @@ def run_labeling_stage(
                 cluster_ids = get_cluster_ids(field, cluster_col)
                 previous_labels = []
                 for cid in cluster_ids:
-                    block = sample_field_cluster_texts(df, field, cluster_col, text_col, cid, n_samples)
+                    block = sample_field_cluster_texts(df, field, cluster_col, text_col, cid, n_samples, random_seed=seed)
                     label_json = generate_cluster_label(
                         llm_client, block, key, topic, previous_labels, language
                     )
@@ -110,7 +112,7 @@ def sample_axis_extremes(
 
 
 def sample_cluster_texts(
-    df: pd.DataFrame, cluster_col: str, text_col: str, cluster_id: Any, n_samples: int
+    df: pd.DataFrame, cluster_col: str, text_col: str, cluster_id: Any, n_samples: int, random_seed: int = 42
 ) -> str:
     """Sample texts from a specific cluster."""
     subset = df[df[cluster_col] == cluster_id]
@@ -120,14 +122,14 @@ def sample_cluster_texts(
     samples = (
         subset[text_col]
         .dropna()
-        .sample(min(n_samples, len(subset)), random_state=42)
+        .sample(min(n_samples, len(subset)), random_state=random_seed)
         .tolist()
     )
     return "\n\n".join(samples)
 
 
 def sample_field_cluster_texts(
-    df: pd.DataFrame, field: pd.DataFrame, cluster_col: str, text_col: str, cluster_id: Any, n_samples: int
+    df: pd.DataFrame, field: pd.DataFrame, cluster_col: str, text_col: str, cluster_id: Any, n_samples: int, random_seed: int = 42
 ) -> str:
     """Sample texts from documents belonging to a field-level cluster."""
     # Assuming the field index or cell_id maps to documents
@@ -146,7 +148,7 @@ def sample_field_cluster_texts(
     samples = (
         subset[text_col]
         .dropna()
-        .sample(min(n_samples, len(subset)), random_state=42)
+        .sample(min(n_samples, len(subset)), random_state=random_seed)
         .tolist()
     )
     return "\n\n".join(samples)

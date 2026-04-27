@@ -43,5 +43,13 @@ echo "To access locally, create an SSH tunnel:"
 echo "ssh -L ${PORT}:localhost:${PORT} <your-username>@erdos"
 echo ""
 
+# Parse command line arguments
+DEBUG_FLAG=""
+for arg in "$@"; do
+    if [ "$arg" == "--debug" ]; then
+        DEBUG_FLAG="--debug"
+    fi
+done
+
 # Run dash server in the foreground
-python -m edel.dashboard.app --base-path "${BASE_PATH}" --host "${HOST}" --port ${PORT}
+python -m edel.dashboard.app --base-path "${BASE_PATH}" --host "${HOST}" --port ${PORT} ${DEBUG_FLAG}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
+import re
 import pandas as pd
 from tqdm import tqdm
 
@@ -41,6 +42,69 @@ BAD_CONTEXT_TOKENS = {
     "main",
 }
 
+STRICT_STOPWORDS = {
+    "get", "set", "add", "is", "of", "to", "in", "on", "for", "as", "by", "new",
+    "init", "start", "top", "bot", "empty", "proj", "update", "clear", "local",
+    "less", "makes", "other", "eq", "do", "val", "fun", "let", "where"
+}
+
+
+def strip_html(text: str | None) -> str:
+    """Remove HTML tags from a string."""
+    if not text:
+        return ""
+    clean = re.compile('<.*?>')
+    return re.sub(clean, '', text)
+
+
+def get_vowel_ratio(token: str) -> float:
+    """Calculate the ratio of vowels in a string."""
+    token = token.lower()
+    vowels = sum(1 for c in token if c in "aeiou")
+    return vowels / len(token) if token else 0.0
+
+
+def is_meaningful_semantic_token(
+    nt: str, meaningful_acronyms: set[str] | None = None
+) -> bool:
+    """Apply 4-layer filtering logic to a normalized token."""
+    # Layer 1: Total Length (strict for embeddings)
+    if len(nt) < 4:
+        return False
+
+    # Layer 2: Domain-specific Stopwords
+    if nt in STRICT_STOPWORDS:
+        return False
+
+    words = nt.split()
+
+    # Layer 3: Multi-word tokens are usually phrases (e.g., "hash tree")
+    if len(words) > 1:
+        # Check if it's not just a soup of single letters like "f g r"
+        if all(len(w) < 3 for w in words):
+            return False
+        return True
+
+    # Layer 4: Single word tokens must be "vowel-rich", "long", or "frequent"
+    w = words[0]
+    
+    # Bypass for longer English/Technical words that might have low vowel density
+    if len(w) >= 8:
+        return True
+
+    # Threshold 0.3 catches words with 1 vowel in 4 chars (0.25) like "extg" or "math"
+    # These will require promotion via frequency analysis
+    if get_vowel_ratio(w) < 0.3:
+        if meaningful_acronyms and w in meaningful_acronyms:
+            return True
+        return False
+
+    # Generic length check for single words to avoid code noise
+    if len(w) < 4:
+        return False
+
+    return True
+
 
 def clean_imports(imports: list[str]) -> list[str]:
     """Clean and filter import tokens."""
@@ -58,7 +122,6 @@ def clean_imports(imports: list[str]) -> list[str]:
 
 def clean_lemmas(lemmas: list[str]) -> list[str]:
     """Clean and filter lemma/theorem tokens."""
-    import re
 
     BAD_LEMMA_TOKENS = {"assumes", "shows", "fixes"}
     lemmas = unique_preserve_order(lemmas)
@@ -101,17 +164,20 @@ def clean_theories(theories: list[str]) -> list[str]:
     return cleaned
 
 
-def normalize_token_list(tokens: list[str]) -> list[str]:
-    """Normalize a list of tokens for embedding usage."""
+def normalize_token_list(
+    tokens: list[str], meaningful_acronyms: set[str] | None = None
+) -> list[str]:
+    """Normalize and filter a list of tokens for embedding usage."""
     if not tokens:
         return []
     normalized = []
     seen = set()
     for t in tokens:
         nt = normalize_token(t)
-        if nt and len(nt) > 2 and nt not in seen:
-            normalized.append(nt)
-            seen.add(nt)
+        if nt and nt not in seen:
+            if is_meaningful_semantic_token(nt, meaningful_acronyms):
+                normalized.append(nt)
+                seen.add(nt)
     return normalized
 
 
@@ -186,9 +252,9 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         
         # Store for citation counts and final dataset
         entry_data = {
-            "id": f"afp:{entry_id}",
+            "id": entry_id,
             "title": meta["title"],
-            "abstract_text": meta["abstract"],
+            "abstract_text": strip_html(meta["abstract"]),
             "authorships": meta["authorships"],
             "publication_year": int(meta["date"].split("-")[0]) if "-" in meta["date"] else None,
             "topics": meta["topics"],
@@ -205,10 +271,32 @@ def generate_dataset(config: dict) -> pd.DataFrame:
             if dep in entry_ids:
                 dependency_graph[dep].add(entry_id)
 
-    # 3. Compute Citations
+    # 3. Compute Citations & Dynamic Acronym Promotion
     cited_by = defaultdict(int)
     for dep, dependents in dependency_graph.items():
         cited_by[dep] = len(dependents)
+
+    # Pass 1: Global Frequency Analysis for Acronym Promotion
+    # We identify "consonant soup" tokens that appear across multiple entries
+    token_entry_map = defaultdict(set)
+    for entry_id, data in raw_entries.items():
+        all_raw_candidates = (
+            data["definitions"] + data["lemmas"] + data["imports"] + data["theories"]
+        )
+        for t in all_raw_candidates:
+            nt = normalize_token(t)
+            if not nt:
+                continue
+            words = nt.split()
+            for w in words:
+                # Potential acronym if it has low vowel density
+                if len(w) >= 3 and get_vowel_ratio(w) < 0.25:
+                    token_entry_map[w].add(entry_id)
+
+    # Meaningful acronyms appear in at least 3 unique entries
+    meaningful_acronyms = {
+        t for t, entries in token_entry_map.items() if len(entries) >= 3
+    }
 
     # Post-parse sampling for deterministic (top-cited)
     if limit and sampling_strategy == "deterministic":
@@ -232,11 +320,11 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         lems = stratified_sample(data["lemmas"], 20)
         imps = data["imports"]
         thys = data["theories"]
-        
-        norm_defs = normalize_token_list(defs)
-        norm_lems = normalize_token_list(lems)
-        norm_imps = normalize_token_list(imps)
-        norm_thys = normalize_token_list(thys)
+
+        norm_defs = normalize_token_list(defs, meaningful_acronyms)
+        norm_lems = normalize_token_list(lems, meaningful_acronyms)
+        norm_imps = normalize_token_list(imps, meaningful_acronyms)
+        norm_thys = normalize_token_list(thys, meaningful_acronyms)
         
         # Map to aspects
         data["problem"] = "" # AFP usually doesn't have a specific problem token set
@@ -249,8 +337,9 @@ def generate_dataset(config: dict) -> pd.DataFrame:
         ).strip()
         
         # Clean up internal parsing fields before adding to record
-        record = {k: v for k, v in data.items() if k not in ["imports", "theories", "definitions", "lemmas"]}
-        record["source_provider"] = "afp"
+        # We now KEEP the semantic entities for traceability as requested
+        record = {k: v for k, v in data.items()}
+        record["source_provider"] = afp_root.name
         record["primary_location"] = "Archive of Formal Proofs"
         record["type"] = "theory"
         record["language"] = "en"

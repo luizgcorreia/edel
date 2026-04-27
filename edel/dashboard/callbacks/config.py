@@ -11,8 +11,9 @@ def register_config_callbacks(app: Dash) -> None:
     
     # --- Global Registry Sync ---
     @app.callback(
-        Output("experiment-store", "data"),
+        Output("experiment-store", "data", allow_duplicate=True),
         Input("config-selector", "id"), # Trigger once on load
+        prevent_initial_call="initial_duplicate"
     )
     def init_registry_store(_):
         return get_registry_options()
@@ -50,7 +51,7 @@ def register_config_callbacks(app: Dash) -> None:
          Output("config-selector", "value"),
          Output("delete-confirm-modal", "is_open"),
          Output("delete-modal-exp-name", "children"),
-         Output("experiment-store", "data")],
+         Output("experiment-store", "data", allow_duplicate=True)],
         [Input("btn-save-config", "n_clicks"),
          Input("btn-overwrite-config", "n_clicks"),
          Input("btn-delete-config", "n_clicks"),

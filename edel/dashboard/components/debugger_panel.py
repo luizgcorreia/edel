@@ -35,7 +35,8 @@ def debugger_panel_layout() -> dbc.Container:
                             className="mb-3"
                         ),
                         
-                        dbc.Button("Load Artifact", id="btn-load-artifact", color="primary", className="w-100")
+                        dbc.Button("Load Artifact", id="btn-load-artifact", color="primary", className="w-100 mb-2"),
+                        dbc.Button("Run Stage", id="btn-run-stage", color="success", className="w-100")
                     ])
                 ])
             ], md=3),

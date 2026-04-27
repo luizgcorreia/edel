@@ -9,11 +9,18 @@ from dash import dash_table
 from edel.experiments.registry import get_experiment
 from edel.experiments.snippets import get_snippets, save_snippet, STAGE_KEYS, STAGE_LIST
 from edel.dashboard.worker import submit_job, list_jobs
-from edel.io.artifact import make_stage_artifact, load_artifact, CANONICAL_ARTIFACT_NAMES
+from edel.io.artifact import make_stage_artifact, load_artifact, save_artifact, CANONICAL_ARTIFACT_NAMES
 from edel.dashboard.utils import df_to_dash_columns, df_to_dash_records
+import edel.pipeline as pipeline
+import edel.viz as viz
 import itertools
 import copy
 import json
+import io
+import base64
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 
 def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
     
@@ -153,35 +160,185 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
     # Stage Debugger Callbacks
     # ---------------------------------------------------------------------------
     
+    def capture_matplotlib_plot(func, *args, **kwargs):
+        """Helper to capture a matplotlib plot as a Dash html.Img."""
+        # Use a non-interactive backend for thread safety in web apps if possible, 
+        # but here we just ensure we clear the figure.
+        plt.figure(figsize=(10, 6))
+        
+        # Patch plt.show temporarily
+        original_show = plt.show
+        plt.show = lambda: None
+        
+        try:
+            func(*args, **kwargs)
+            buf = io.BytesIO()
+            plt.savefig(buf, format="png", bbox_inches='tight', dpi=100)
+            plt.close()
+            buf.seek(0)
+            encoded = base64.b64encode(buf.read()).decode('utf-8')
+            return html.Img(src=f"data:image/png;base64,{encoded}", className="img-fluid mb-4 shadow-sm rounded")
+        except Exception as e:
+            plt.close()
+            return html.Div(f"Error generating plot: {str(e)}", className="text-warning small")
+        finally:
+            plt.show = original_show
+
     @app.callback(
         [Output("debug-data-container", "children"),
          Output("debug-artifact-info", "children")],
-        Input("btn-load-artifact", "n_clicks"),
+        [Input("btn-load-artifact", "n_clicks"),
+         Input("btn-run-stage", "n_clicks")],
         [State("debug-experiment-select", "value"),
          State("debug-stage-select", "value")],
         prevent_initial_call=True
     )
-    def load_debug_artifact(n_clicks, experiment_name, stage_name):
-        """Load and display an intermediate artifact for debugging."""
-        if not n_clicks or not experiment_name or not stage_name:
+    def handle_debug_action(load_clicks, run_clicks, experiment_name, stage_name):
+        """Load or Run an intermediate stage for debugging."""
+        ctx = callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if not experiment_name or not stage_name:
             raise PreventUpdate
             
         try:
             config = get_experiment(experiment_name)
             
-            # Get canonical artifact name for the stage
-            art_names = CANONICAL_ARTIFACT_NAMES.get(stage_name)
-            if not art_names:
-                return html.Div(f"No canonical artifact names defined for stage '{stage_name}'."), "Error"
+            if triggered_id == "btn-run-stage":
+                # --- RUN STAGE LOGIC (Mirroring exploration.ipynb) ---
+                data = None
+                field = None
                 
-            art_name = art_names[0] # Try the first one (e.g. 'dataset' for data_collection)
+                # 1. Load dependencies
+                if stage_name == "data_collection":
+                    data = pipeline.run_data_stage(config)
+                elif stage_name == "structured_abstracts":
+                    prev_art = make_stage_artifact(config, base_path, "data_collection", "dataset")
+                    data = pipeline.run_structuring_stage(load_artifact(prev_art), config)
+                elif stage_name == "embeddings":
+                    prev_art = make_stage_artifact(config, base_path, "structured_abstracts", "sa")
+                    prev_data = load_artifact(prev_art)
+                    if isinstance(prev_data, tuple):
+                        prev_data = prev_data[0]
+                    data = pipeline.run_embedding_stage(prev_data, config)
+                elif stage_name == "dimensionality_reduction":
+                    prev_art = make_stage_artifact(config, base_path, "embeddings", "embeddings")
+                    data = pipeline.run_projection_stage(load_artifact(prev_art), config)
+                elif stage_name == "vector_field":
+                    prev_art = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
+                    field = pipeline.run_vector_field_stage(load_artifact(prev_art), config)
+                    data = field # For generic display
+                elif stage_name == "clustering":
+                    art_df = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
+                    art_field = make_stage_artifact(config, base_path, "vector_field", "field")
+                    data, field = pipeline.run_clustering_stage(load_artifact(art_df), load_artifact(art_field), config)
+                elif stage_name == "labeling":
+                    art_df = make_stage_artifact(config, base_path, "clustering", "clustering")
+                    art_field = make_stage_artifact(config, base_path, "clustering", "field_clustering")
+                    from edel.pipeline.labeling import get_llm_client
+                    llm_client = get_llm_client(config.get("labeling", {}))
+                    data = pipeline.run_labeling_stage(load_artifact(art_df), load_artifact(art_field), config, llm_client)
+                elif stage_name == "output":
+                    art_df = make_stage_artifact(config, base_path, "clustering", "clustering")
+                    art_field = make_stage_artifact(config, base_path, "vector_field", "field")
+                    data = pipeline.run_landscape_stage(load_artifact(art_df), load_artifact(art_field), config)
+                
+                # 2. Save artifacts
+                art_names = CANONICAL_ARTIFACT_NAMES.get(stage_name, [])
+                saved_info = ""
+                if stage_name == "clustering" and isinstance(data, pd.DataFrame) and isinstance(field, pd.DataFrame):
+                    p1 = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[0]), data)
+                    p2 = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[1]), field)
+                    saved_info = str(p1.parent)
+                elif data is not None:
+                    p = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[0]), data)
+                    saved_info = str(p)
+                
+                info_prefix = f"Ran and Saved: {saved_info}"
+            else:
+                # --- LOAD ARTIFACT LOGIC ---
+                art_names = CANONICAL_ARTIFACT_NAMES.get(stage_name, [])
+                art_name = art_names[0]
+                artifact = make_stage_artifact(config, base_path, stage_name, art_name)
+                data = load_artifact(artifact)
+                # Robustness: some stages might have saved tuples (df, report)
+                if isinstance(data, tuple) and len(data) > 0 and isinstance(data[0], pd.DataFrame):
+                    data = data[0]
+                field = None
+                
+                # Find which one exists
+                p = artifact.parquet_path if artifact.parquet_path.exists() else artifact.pkl_path
+                info_prefix = f"Loaded: {p}"
+
+            # --- VISUALIZATION LOGIC ---
+            viz_components = []
             
-            artifact = make_stage_artifact(config, base_path, stage_name, art_name)
-            data = load_artifact(artifact)
+            if stage_name == "data_collection":
+                viz_components.append(capture_matplotlib_plot(viz.plot_publication_year_dist, data))
+                viz_components.append(capture_matplotlib_plot(viz.plot_citation_dist, data))
+                viz_components.append(capture_matplotlib_plot(viz.plot_abstract_length_dist, data))
             
+            elif stage_name == "dimensionality_reduction":
+                method = config.get("dimensionality_reduction", {}).get("method", "umap")
+                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method))
+                viz_components.append(capture_matplotlib_plot(viz.plot_paper_style_pca, data))
+                
+                # Transition space plot
+                n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
+                viz_components.append(capture_matplotlib_plot(viz.plot_epistemic_transition_space, data, quantile=0.95, dimensions=n_dims))
+            
+            elif stage_name == "vector_field":
+                # Need DF and field for some vector field plots
+                art_df = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
+                df_proj = load_artifact(art_df)
+                viz_components.append(capture_matplotlib_plot(viz.plot_vector_field, data))
+                viz_components.append(capture_matplotlib_plot(viz.plot_field_magnitude, data))
+                viz_components.append(capture_matplotlib_plot(viz.plot_transition_signatures, df_proj))
+                viz_components.append(capture_matplotlib_plot(viz.plot_movement_magnitudes, df_proj))
+            
+            elif stage_name == "clustering":
+                method = config.get("dimensionality_reduction", {}).get("method", "umap")
+                viz_components.append(capture_matplotlib_plot(viz.plot_clusters_on_landscape, data, method=method, cluster_key="domain"))
+                # If we have field clustering
+                if field is not None or triggered_id == "btn-load-artifact":
+                    try:
+                        f_clust = load_artifact(make_stage_artifact(config, base_path, stage_name, "field_clustering"))
+                        viz_components.append(capture_matplotlib_plot(viz.plot_field_clusters, f_clust, cluster_key="field"))
+                    except: pass
+                viz_components.append(capture_matplotlib_plot(viz.plot_cluster_trajectories, data, method=method, cluster_key="style"))
+            
+            elif stage_name == "labeling":
+                summaries = viz.print_cluster_summaries(data, cluster_key="domain")
+                viz_components.append(html.Pre(summaries, className="p-3 bg-light rounded small", style={"whiteSpace": "pre-wrap"}))
+            
+            elif stage_name == "output":
+                method = config.get("dimensionality_reduction", {}).get("method", "umap")
+                provider_cfg = config.get("data", {}).get("provider", {})
+                topic_name = provider_cfg.get("topic_name") or provider_cfg.get("topic_id", "Unknown")
+                
+                # Need clustering DF and labeling results for the Epistemic Map
+                try:
+                    art_clust = make_stage_artifact(config, base_path, "clustering", "clustering")
+                    df_clust = load_artifact(art_clust)
+                    
+                    art_labeled = make_stage_artifact(config, base_path, "labeling", "labeled")
+                    label_results = load_artifact(art_labeled)
+                    
+                    viz_components.append(capture_matplotlib_plot(
+                        viz.plot_epistemic_map, 
+                        df_clust, 
+                        label_results, 
+                        method=method, 
+                        topic_name=topic_name
+                    ))
+                except Exception as e:
+                    viz_components.append(html.Div(f"Could not load data for Epistemic Map: {e}", className="text-warning small"))
+
+            # --- RENDER TABLE/SUMMARY ---
             if isinstance(data, pd.DataFrame):
-                info = f"Loaded {stage_name}/{art_name}: DataFrame ({len(data)} rows × {len(data.columns)} cols)"
-                
+                info = f"{info_prefix}: DataFrame ({len(data)} rows × {len(data.columns)} cols)"
                 table = dash_table.DataTable(
                     columns=df_to_dash_columns(data),
                     data=df_to_dash_records(data, max_rows=50),
@@ -190,21 +347,28 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     style_cell={'textAlign': 'left', 'padding': '5px'},
                 )
                 return html.Div([
+                    html.Div(viz_components),
+                    html.Hr(),
                     html.P("Showing first 50 rows:", className="text-muted small"),
                     table
                 ]), info
                 
             elif isinstance(data, dict):
-                info = f"Loaded {stage_name}/{art_name}: Dictionary ({len(data)} keys)"
-                # Simple display for dicts
-                import json
-                # Handle non-serializable objects in dict by converting to string
+                info = f"{info_prefix}: Dictionary ({len(data)} keys)"
                 safe_dict = {k: str(v) if not isinstance(v, (int, float, str, bool, list, dict, type(None))) else v for k, v in data.items()}
-                return html.Pre(json.dumps(safe_dict, indent=2, default=str), style={"maxHeight": "500px", "overflowY": "auto"}), info
+                return html.Div([
+                    html.Div(viz_components),
+                    html.Hr(),
+                    html.Pre(json.dumps(safe_dict, indent=2, default=str), style={"maxHeight": "500px", "overflowY": "auto"})
+                ]), info
                 
             else:
-                info = f"Loaded {stage_name}/{art_name}: {type(data).__name__}"
-                return html.Pre(str(data)), info
+                info = f"{info_prefix}: {type(data).__name__}"
+                return html.Div([
+                    html.Div(viz_components),
+                    html.Hr(),
+                    html.Pre(str(data))
+                ]), info
                 
         except Exception as e:
             return html.Div(f"Error loading artifact: {str(e)}", className="text-danger"), "Error"

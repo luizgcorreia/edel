@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}Starting EDEL Dashboard Stack...${NC}"
 
-# 1. Start Worker in Tmux
+# 1. Start Worker in Screen
 # Create a restart wrapper script for the worker
 cat << 'EOF' > run_worker_loop.sh
 #!/bin/bash
@@ -28,13 +28,13 @@ done
 EOF
 chmod +x run_worker_loop.sh
 
-# Check if tmux session already exists
-if tmux has-session -t edel_worker 2>/dev/null; then
-    echo -e "${GREEN}✓ tmux session 'edel_worker' already running.${NC}"
+# Check if screen session already exists
+if screen -list | grep -q "\.edel_worker"; then
+    echo -e "${GREEN}✓ screen session 'edel_worker' already running.${NC}"
 else
-    echo "Starting new tmux session 'edel_worker'..."
-    tmux new-session -d -s edel_worker "./run_worker_loop.sh"
-    echo -e "${GREEN}✓ Worker running in background. Attach with: tmux attach -t edel_worker${NC}"
+    echo "Starting new screen session 'edel_worker'..."
+    screen -dmS edel_worker ./run_worker_loop.sh
+    echo -e "${GREEN}✓ Worker running in background. Attach with: screen -r edel_worker${NC}"
 fi
 
 # 2. Start Dash Server

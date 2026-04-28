@@ -37,6 +37,16 @@ def run_landscape_stage(
     terrain_scale = ls_cfg.get("scale", 1.0)
     print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale})...")
     terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range, terrain_scale)
+    
+    # 1.5 Compute Cluster Regions and boundaries
+    print("Computing cluster regions and boundaries...")
+    zi_grid = terrain.get("z", terrain.get("zi"))
+    regions = compute_cluster_regions(df, method, x_range, y_range, num_bins, zi_grid=zi_grid, min_height=0.02)
+    if regions:
+        terrain["explored_mask"] = regions["explored_mask"]
+        terrain["boundaries"] = regions["boundaries"]
+        terrain["centroids"] = regions["centroids"]
+        
     results["terrain"] = terrain
 
     # 2. Smoothed Vector Field Calculation
@@ -126,6 +136,163 @@ def compute_terrain(
         "metric": label,
         "raw_metric": metric,
         "log_scale": log_scale
+    }
+
+
+def compute_cluster_regions(
+    df: pd.DataFrame, 
+    method: str, 
+    x_range: tuple, 
+    y_range: tuple, 
+    num_bins: int = 50,
+    min_density: int = 3,
+    min_cells: int = 3,
+    zi_grid: np.ndarray | None = None,
+    min_height: float = 0.0
+) -> Dict[str, Any]:
+    """Calculate cluster boundaries and explored mask based on grid density."""
+    
+    px_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+    py_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
+        
+    if px_col not in df.columns or "cluster_domain" not in df.columns:
+        return {}
+
+    X = df[px_col].values
+    Y = df[py_col].values
+    C = df["cluster_domain"].astype(str).values
+    
+    x_min, x_max = x_range if x_range else (X.min(), X.max())
+    y_min, y_max = y_range if y_range else (Y.min(), Y.max())
+    
+    xi = np.linspace(x_min, x_max, num_bins)
+    yi = np.linspace(y_min, y_max, num_bins)
+    
+    dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
+    dy = yi[1] - yi[0] if len(yi) > 1 else 1.0
+
+    # Grid mapping
+    cell_ix = np.floor((X - (x_min - dx/2)) / dx).astype(int)
+    cell_iy = np.floor((Y - (y_min - dy/2)) / dy).astype(int)
+    
+    cell_ix = np.clip(cell_ix, 0, num_bins - 1)
+    cell_iy = np.clip(cell_iy, 0, num_bins - 1)
+    
+    import collections
+    grid_clusters = np.full((num_bins, num_bins), "", dtype=object)
+    grid_density = np.zeros((num_bins, num_bins), dtype=int)
+    global_density = np.zeros((num_bins, num_bins), dtype=int)
+    
+    # Calculate global density (all points)
+    for ix, iy in zip(cell_ix, cell_iy):
+        global_density[iy, ix] += 1
+        
+    cell_dict = collections.defaultdict(list)
+    for ix, iy, c in zip(cell_ix, cell_iy, C):
+        if c and c != "No topic" and c != "-1" and c != "nan":
+            cell_dict[(iy, ix)].append(c)
+            
+    for (iy, ix), clusters in cell_dict.items():
+        grid_density[iy, ix] = len(clusters)
+        if len(clusters) >= min_density:
+            counter = collections.Counter(clusters)
+            grid_clusters[iy, ix] = counter.most_common(1)[0][0]
+            
+    from scipy.spatial import ConvexHull
+    from matplotlib.path import Path
+    from scipy.ndimage import label
+    
+    boundaries = {}
+    centroids = {}
+    
+    unique_clusters = [c for c in np.unique(grid_clusters) if c]
+    xi_grid, yi_grid = np.meshgrid(xi, yi)
+    
+    for cluster in unique_clusters:
+        mask = (grid_clusters == cluster)
+        
+        # Get cell centers
+        cell_x = xi_grid[mask].flatten()
+        cell_y = yi_grid[mask].flatten()
+        
+        paths = []
+        if len(cell_x) >= min_cells:
+            # Centroid (center of mass of the grid cells)
+            cy = yi_grid[mask].mean()
+            cx = xi_grid[mask].mean()
+            centroids[cluster] = {"x": cx, "y": cy}
+            
+            # Add 4 corners for each cell to ensure the hull encompasses the entire cell area
+            pts_x = np.concatenate([cell_x - dx/2, cell_x + dx/2, cell_x - dx/2, cell_x + dx/2])
+            pts_y = np.concatenate([cell_y - dy/2, cell_y - dy/2, cell_y + dy/2, cell_y + dy/2])
+            pts = np.column_stack((pts_x, pts_y))
+            
+            try:
+                hull = ConvexHull(pts)
+                hx = pts[hull.vertices, 0].tolist()
+                hy = pts[hull.vertices, 1].tolist()
+                # Close the polygon
+                hx.append(hx[0])
+                hy.append(hy[0])
+                paths.append({"x": hx, "y": hy})
+            except Exception:
+                pass # E.g., if points are perfectly collinear
+                
+        if paths:
+            boundaries[cluster] = paths
+            
+    # Redefine explored mask using Global Knowledge Islands, Cluster Boundaries, and Non-zero Height
+    explored_mask = np.zeros_like(xi_grid, dtype=bool)
+    grid_points = np.column_stack((xi_grid.flatten(), yi_grid.flatten()))
+    
+    # 1. Include regions inside any cluster boundaries
+    for cluster, paths in boundaries.items():
+        for path_dict in paths:
+            p = Path(np.column_stack((path_dict["x"], path_dict["y"])))
+            inside = p.contains_points(grid_points)
+            explored_mask |= inside.reshape(xi_grid.shape)
+            
+    # 2. Include global knowledge islands
+    knowledge_threshold = 1 # Generous non-zero threshold
+    global_dense_mask = global_density >= knowledge_threshold
+    structure = np.ones((3, 3), dtype=int) # 8-connected
+    labeled_array, num_features = label(global_dense_mask, structure=structure)
+    
+    for i in range(1, num_features + 1):
+        island_mask = (labeled_array == i)
+        island_x = xi_grid[island_mask].flatten()
+        island_y = yi_grid[island_mask].flatten()
+        
+        if len(island_x) > 0:
+            # Expand to corners
+            pts_x = np.concatenate([island_x - dx/2, island_x + dx/2, island_x - dx/2, island_x + dx/2])
+            pts_y = np.concatenate([island_y - dy/2, island_y - dy/2, island_y + dy/2, island_y + dy/2])
+            pts = np.column_stack((pts_x, pts_y))
+            
+            try:
+                hull = ConvexHull(pts)
+                hx = pts[hull.vertices, 0].tolist()
+                hy = pts[hull.vertices, 1].tolist()
+                hx.append(hx[0])
+                hy.append(hy[0])
+                
+                # Check points inside this island's hull
+                p = Path(np.column_stack((hx, hy)))
+                inside = p.contains_points(grid_points)
+                explored_mask |= inside.reshape(xi_grid.shape)
+            except Exception:
+                pass
+
+    # 3. Include any regions with height > min_height from the smoothed terrain
+    if zi_grid is not None:
+        explored_mask |= (zi_grid > min_height)
+
+
+    
+    return {
+        "explored_mask": explored_mask.tolist(),
+        "boundaries": boundaries,
+        "centroids": centroids
     }
 
 

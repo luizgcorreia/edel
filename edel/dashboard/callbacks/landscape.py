@@ -59,11 +59,15 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 title=f"3D Epistemic Landscape: {experiment_name}"
             )
             
+            show_regions = "regions" in layers if layers else False
+            show_frontier = "frontier" in layers if layers else False
             # Generate 2D
             fig_2d = plot_landscape_contour(
                 df=df, landscape_results=landscape_results, method=method,
                 color_col="cluster_domain", label_results=label_results,
-                title=f"2D Epistemic Landscape: {experiment_name}"
+                title=f"2D Epistemic Landscape: {experiment_name}",
+                show_regions=show_regions,
+                show_frontier=show_frontier
             )
 
             def apply_layers(fig, is_2d=False):

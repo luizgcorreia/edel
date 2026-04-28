@@ -166,6 +166,8 @@ def plot_landscape_contour(
     arrow_size: float = 0.8,
     topic_name: str | None = None,
     label_results: dict | None = None,
+    show_regions: bool = False,
+    show_frontier: bool = False,
 ):
     """
     Create an interactive 2D Epistemic Landscape Contour Map with optional flow overlay.
@@ -198,6 +200,16 @@ def plot_landscape_contour(
 
     fig = go.Figure()
 
+    # Apply explored mask if frontier is enabled
+    explored_mask = terrain.get("explored_mask")
+    if show_frontier and explored_mask is not None:
+        # Convert mask to boolean array
+        mask_arr = np.array(explored_mask, dtype=bool)
+        if mask_arr.shape == zi.shape:
+            # Copy to avoid modifying the original artifact in memory
+            zi = np.copy(zi)
+            zi[~mask_arr] = np.nan
+            
     # 1. Add Contours
     fig.add_trace(
         go.Contour(
@@ -209,6 +221,9 @@ def plot_landscape_contour(
             name="Terrain Contours"
         )
     )
+    
+    if show_frontier and explored_mask is not None:
+        fig.update_layout(plot_bgcolor="rgba(60, 60, 60, 1)") # Distinct gray for unexplored
 
     # 2. Add Scatter (2D)
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
@@ -242,6 +257,54 @@ def plot_landscape_contour(
         tr.marker.size = 6
         tr.showlegend = False
         fig.add_trace(tr)
+
+    # Add Region Boundaries and Labels
+    if show_regions:
+        boundaries = terrain.get("boundaries", {})
+        centroids = terrain.get("centroids", {})
+        
+        for cluster, paths in boundaries.items():
+            # Draw boundary paths
+            for i, path in enumerate(paths):
+                fig.add_trace(
+                    go.Scatter(
+                        x=path["x"], y=path["y"],
+                        mode='lines',
+                        line=dict(color="white", width=1.5, dash="dash"),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    )
+                )
+            
+            # Add text label at centroid
+            if cluster in centroids:
+                cx, cy = centroids[cluster]["x"], centroids[cluster]["y"]
+                
+                # Fetch friendly label if available
+                display_name = cluster
+                if label_results and color_col == "cluster_domain":
+                    domain_info = label_results.get("clusters", {}).get("domain", {})
+                    # The ID could be string or int depending on clustering source
+                    # We check string first, then int if possible
+                    c_info = domain_info.get(cluster)
+                    if not c_info:
+                        try:
+                            c_info = domain_info.get(int(cluster))
+                        except ValueError:
+                            pass
+                    if c_info and "proposed_label" in c_info:
+                        display_name = c_info["proposed_label"]
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[cx], y=[cy],
+                        mode='text',
+                        text=[display_name],
+                        textfont=dict(size=12, color="white", weight="bold"),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    )
+                )
 
     # 3. Add Vector Field Overlay
     if show_flow:

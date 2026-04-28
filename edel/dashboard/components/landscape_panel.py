@@ -55,9 +55,11 @@ def landscape_panel_layout() -> dbc.Container:
                                 {"label": "Terrain Surface (3D)", "value": "surface"},
                                 {"label": "Paper Scatter", "value": "scatter"},
                                 {"label": "Vector Field", "value": "vectors"},
-                                {"label": "Cluster Labels", "value": "clusters"}
+                                {"label": "Cluster Labels", "value": "clusters"},
+                                {"label": "Domain Regions (2D)", "value": "regions"},
+                                {"label": "Knowledge Frontier (2D)", "value": "frontier"}
                             ],
-                            value=["surface", "scatter", "clusters"],
+                            value=["surface", "scatter", "clusters", "frontier"],
                             id="map-layer-toggles",
                             switch=True,
                             className="mb-3"

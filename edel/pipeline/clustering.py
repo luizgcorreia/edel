@@ -40,6 +40,12 @@ def run_clustering_stage(
         print(f"Running clustering: {name} (source: {source}, algorithm: {algorithm})...")
 
         try:
+            if source == "topic":
+                # Special case for hierarchical topic-based clustering
+                labels = extract_labels_from_topics(out_df)
+                out_df[f"cluster_{name}"] = labels
+                continue
+
             X = get_clustering_matrix(source, out_df, out_field, dimensions)
             if X is None or len(X) == 0:
                 print(f"Skipping clustering {name}: No data found for source {source}")
@@ -108,8 +114,64 @@ def get_clustering_matrix(
             return None
         return field[cols].values
 
+    elif source == "topic":
+        # Handled as a special case in run_clustering_stage
+        return None
+
     else:
         raise ValueError(f"Unknown clustering source: {source}")
+
+
+def extract_labels_from_topics(df: pd.DataFrame) -> List[str]:
+    """Extract the first broad topic (before '/') from the 'topics' column."""
+    if "topics" not in df.columns:
+        print("Warning: 'topics' column missing for topic-based clustering.")
+        return ["No topic"] * len(df)
+        
+    labels = []
+    for val in df["topics"]:
+        try:
+            # 1. Handle nulls safely (avoid pd.isna on arrays)
+            if val is None:
+                labels.append("No topic")
+                continue
+                
+            import numpy as np
+            topic = None
+            
+            # 2. Extract first topic from collection or string
+            if isinstance(val, (list, np.ndarray)):
+                if len(val) > 0:
+                    topic = str(val[0])
+                else:
+                    labels.append("No topic")
+                    continue
+            else:
+                s = str(val).strip()
+                if not s or s == "nan" or s == "None" or s == "[]":
+                    labels.append("No topic")
+                    continue
+                    
+                import re
+                found = re.findall(r"['\"](.*?)['\"]", s)
+                if found:
+                    topic = found[0]
+                else:
+                    topic = s.replace("[", "").replace("]", "").strip()
+            
+            if not topic:
+                labels.append("No topic")
+                continue
+                
+            # 3. Extract broad category and clean artifacts
+            broad = topic.split("/")[0].strip()
+            broad = broad.replace("'", "").replace('"', "").replace("[", "").replace("]", "").strip()
+            
+            labels.append(broad if broad else "No topic")
+        except Exception:
+            labels.append("No topic")
+            
+    return labels
 
 
 def compute_transition_features(df: pd.DataFrame, dimensions: int) -> np.ndarray:

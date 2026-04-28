@@ -198,7 +198,19 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             paper_id = search_val
             
         if not paper_id:
-            return "Select a paper to view its trajectory.", dash.no_update, dash.no_update, None
+            p3 = Patch()
+            p3["data"][-1]["visible"] = False
+            p3["data"][-2]["visible"] = False
+            
+            p2 = Patch()
+            p2["data"][-1]["visible"] = False
+            p2["data"][-2]["visible"] = False
+            # Also hide the 3 trajectory arrows in 2D
+            for i in range(1, 4):
+                try: p2["layout"]["annotations"][-i]["visible"] = False
+                except: pass
+                
+            return "Select a paper to view its trajectory.", p3, p2, None
             
         try:
             # We need the full dataframe for trajectory coordinates

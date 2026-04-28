@@ -70,7 +70,7 @@ def run_labeling_stage(
                     label_json = generate_cluster_label(
                         llm_client, block, key, topic, previous_labels, language
                     )
-                    results["clusters"][key][int(cid)] = label_json
+                    results["clusters"][key][cid] = label_json
                     if "proposed_label" in label_json:
                         previous_labels.append(label_json["proposed_label"])
             else:
@@ -82,7 +82,7 @@ def run_labeling_stage(
                     label_json = generate_cluster_label(
                         llm_client, block, key, topic, previous_labels, language
                     )
-                    results["clusters"][key][int(cid)] = label_json
+                    results["clusters"][key][cid] = label_json
                     if "proposed_label" in label_json:
                         previous_labels.append(label_json["proposed_label"])
 

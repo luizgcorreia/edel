@@ -47,6 +47,7 @@ class OpenAIClient(LLMClient):
         model: str = "gpt-4o-mini",
         api_key: str | None = None,
         base_url: str | None = None,
+        **kwargs,
     ):
         from openai import OpenAI
 
@@ -159,11 +160,12 @@ class OpenAIClient(LLMClient):
 class LMStudioClient(OpenAIClient):
     """LM Studio implementation (OpenAI-compatible)."""
 
-    def __init__(self, model: str = "local-model", base_url: str | None = None):
+    def __init__(self, model: str = "local-model", base_url: str | None = None, **kwargs):
         super().__init__(
             model=model,
             api_key="lm-studio",
             base_url=base_url or os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234/v1"),
+            **kwargs
         )
 
     def create_batch(self, prompts_with_ids: dict[str, str], **kwargs) -> str:
@@ -216,9 +218,13 @@ class GeminiClient(LLMClient):
                 project=project_id, 
                 location=location
             )
+            self.project_id = project_id
+            self.location = location
         else:
             # Fallback to default API key mode
             self.client = genai.Client()
+            self.project_id = None
+            self.location = None
 
     def generate(self, prompt: str, **kwargs) -> str:
         from google.genai import types
@@ -243,17 +249,137 @@ class GeminiClient(LLMClient):
         )
         return response.embeddings[0].values
 
-    def create_batch(self, prompts_with_ids: dict[str, str], **kwargs) -> str:
-        raise NotImplementedError("Batch API is not natively supported by this GeminiClient implementation.")
+    def _get_or_create_bucket(self):
+        from google.cloud import storage
+        from google.api_core.exceptions import Conflict
+        
+        if not self.project_id:
+            raise ValueError("project_id is required for Vertex AI batch processing.")
+            
+        bucket_name = f"edel-batch-staging-{self.project_id}".lower().replace("_", "-")
+        client = storage.Client(project=self.project_id)
+        
+        try:
+            client.get_bucket(bucket_name)
+        except Exception:
+            try:
+                bucket = client.bucket(bucket_name)
+                # Location must be a region for Vertex AI, or 'US'/'EU'. 
+                bucket.location = self.location if self.location != 'global' else 'us-central1'
+                client.create_bucket(bucket)
+            except Conflict:
+                pass
+        return bucket_name, client
 
-    def poll_batch(self, batch_id: str) -> dict[str, Any]:
-        raise NotImplementedError("Batch API is not natively supported by this GeminiClient implementation.")
+    def create_batch(self, prompts_with_ids: dict[str, str], **kwargs) -> str:
+        import json
+        import uuid
+        from google.genai.types import CreateBatchJobConfig
+        
+        bucket_name, storage_client = self._get_or_create_bucket()
+        job_uuid = str(uuid.uuid4())
+        
+        # 1. Create JSONL and Map
+        requests = []
+        id_map = {}
+        for idx, (custom_id, prompt) in enumerate(prompts_with_ids.items()):
+            requests.append({
+                "request": {
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}]
+                }
+            })
+            id_map[str(idx)] = custom_id
+            
+        jsonl_content = "\n".join([json.dumps(req) for req in requests])
+        
+        # 2. Upload to GCS
+        bucket = storage_client.bucket(bucket_name)
+        input_blob = bucket.blob(f"batch_jobs/{job_uuid}/input.jsonl")
+        input_blob.upload_from_string(jsonl_content)
+        
+        map_blob = bucket.blob(f"batch_jobs/{job_uuid}/id_map.json")
+        map_blob.upload_from_string(json.dumps(id_map))
+        
+        gcs_uri = f"gs://{bucket_name}/batch_jobs/{job_uuid}/input.jsonl"
+        dest_prefix = f"gs://{bucket_name}/batch_jobs/{job_uuid}/output/"
+        
+        # 3. Create Job
+        job = self.client.batches.create(
+            model=self.model,
+            src=gcs_uri,
+            config=CreateBatchJobConfig(dest=dest_prefix)
+        )
+        return f"{job.name}::{job_uuid}::{len(prompts_with_ids)}"
+
+    def poll_batch(self, batch_id_composite: str) -> dict[str, Any]:
+        import json
+        parts = batch_id_composite.split("::")
+        batch_id = parts[0]
+        job_uuid = parts[1] if len(parts) > 1 else ""
+        total_requests = int(parts[2]) if len(parts) > 2 else 0
+        
+        job = self.client.batches.get(name=batch_id)
+        state_str = str(job.state).upper()
+        
+        status_info = {
+            "id": batch_id_composite,
+            "status": "in_progress",
+            "request_counts": {
+                "completed": 0, # Vertex API doesn't expose partial progress easily
+                "total": total_requests,
+            },
+            "results": None
+        }
+        
+        if "SUCCEEDED" in state_str:
+            status_info["status"] = "completed"
+            status_info["request_counts"]["completed"] = total_requests
+        elif "FAILED" in state_str or "CANCELLED" in state_str:
+            status_info["status"] = "failed"
+            return status_info
+        else:
+            return status_info
+            
+        if status_info["status"] == "completed":
+            bucket_name, storage_client = self._get_or_create_bucket()
+            bucket = storage_client.bucket(bucket_name)
+            
+            # Download id_map
+            map_blob = bucket.blob(f"batch_jobs/{job_uuid}/id_map.json")
+            id_map = json.loads(map_blob.download_as_string())
+            
+            # Download output files
+            results = {}
+            blobs = bucket.list_blobs(prefix=f"batch_jobs/{job_uuid}/output/")
+            for blob in blobs:
+                if blob.name.endswith(".jsonl"):
+                    content = blob.download_as_string().decode('utf-8')
+                    lines = [line for line in content.split('\n') if line.strip()]
+                    # Vertex AI guarantees order in the output JSONL matches input
+                    for i, line in enumerate(lines):
+                        try:
+                            data = json.loads(line)
+                            candidates = data.get("response", {}).get("candidates", [])
+                            if candidates and candidates[0].get("content", {}).get("parts"):
+                                text = candidates[0]["content"]["parts"][0].get("text", "{}")
+                            else:
+                                text = "{}"
+                                
+                            custom_id = id_map.get(str(i))
+                            if custom_id:
+                                results[custom_id] = text
+                        except Exception as e:
+                            print(f"Error parsing batch output line: {e}")
+                            
+            status_info["results"] = results
+            
+        return status_info
 
 
 class MockClient(LLMClient):
     """Mock client for testing."""
 
-    def __init__(self, response: str | None = None):
+    def __init__(self, response: str | None = None, **kwargs):
         self.batches = {}
         self.response = response
 

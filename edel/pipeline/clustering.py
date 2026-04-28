@@ -150,6 +150,7 @@ def compute_transition_features(df: pd.DataFrame, dimensions: int) -> np.ndarray
 
 def run_clustering(X: np.ndarray, algorithm: str, params: dict, random_seed: int = 42) -> np.ndarray:
     """Run the specified clustering algorithm on the matrix X."""
+    params = params.copy()
     # Centering and Normalizing
     X_norm = X - np.mean(X, axis=0)
     X_norm = normalize(X_norm, axis=1)

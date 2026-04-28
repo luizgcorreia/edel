@@ -30,6 +30,33 @@ def register_config_callbacks(app: Dash) -> None:
             return [dash.no_update] * 3
         return [options] * 3
 
+    # --- Value Synchronization ---
+    @app.callback(
+        [Output("config-selector", "value", allow_duplicate=True),
+         Output("map-experiment-select", "value", allow_duplicate=True),
+         Output("debug-experiment-select", "value", allow_duplicate=True)],
+        [Input("config-selector", "value"),
+         Input("map-experiment-select", "value"),
+         Input("debug-experiment-select", "value")],
+        prevent_initial_call=True
+    )
+    def sync_experiment_selection(v1, v2, v3):
+        """Ensure all experiment dropdowns show the same selected value."""
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        
+        triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+        new_value = None
+        if triggered_id == "config-selector": new_value = v1
+        elif triggered_id == "map-experiment-select": new_value = v2
+        elif triggered_id == "debug-experiment-select": new_value = v3
+        
+        if not new_value:
+            raise PreventUpdate
+            
+        return [new_value] * 3
+
     
     @app.callback(
         [Output("config-editor", "value"),

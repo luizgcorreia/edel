@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from dash import Dash, Input, Output, State, callback_context, html
+import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 import pandas as pd
 from dash import dash_table
@@ -190,10 +191,11 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
         [Input("btn-load-artifact", "n_clicks"),
          Input("btn-run-stage", "n_clicks")],
         [State("debug-experiment-select", "value"),
-         State("debug-stage-select", "value")],
+         State("debug-stage-select", "value"),
+         State("config-editor", "value")],
         prevent_initial_call=True
     )
-    def handle_debug_action(load_clicks, run_clicks, experiment_name, stage_name):
+    def handle_debug_action(load_clicks, run_clicks, experiment_name, stage_name, config_json):
         """Load or Run an intermediate stage for debugging."""
         ctx = callback_context
         if not ctx.triggered:
@@ -204,7 +206,14 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
             raise PreventUpdate
             
         try:
-            config = get_experiment(experiment_name)
+            # Prefer the config currently in the editor UI to avoid hash mismatches
+            if config_json:
+                from edel.dashboard.utils import parse_config_json
+                config = parse_config_json(config_json)
+                if config is None:
+                    raise ValueError("Invalid JSON in config editor.")
+            else:
+                config = get_experiment(experiment_name)
             
             if triggered_id == "btn-run-stage":
                 # --- RUN STAGE LOGIC (Mirroring exploration.ipynb) ---
@@ -402,4 +411,11 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 ]), info
                 
         except Exception as e:
-            return html.Div(f"Error loading artifact: {str(e)}", className="text-danger"), "Error"
+            import traceback
+            traceback.print_exc()
+            return dbc.Alert([
+                html.H4("Stage Execution Error", className="alert-heading"),
+                html.P(f"An error occurred while running or loading the stage '{stage_name}':"),
+                html.Hr(),
+                html.Pre(str(e), className="mb-0 small")
+            ], color="danger", className="mt-3"), f"Error in {stage_name}"

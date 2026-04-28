@@ -201,8 +201,9 @@ def process_batch(
             all_results.update(status_info["results"])
             print(f"Batch {i+1} completed and results collected.")
         else:
-            print(f"Batch {i+1} failed or was incomplete. Status: {status}")
-            # We continue to next batch but some data will be missing aspects
+            msg = f"Batch {i+1} failed or was incomplete. Status: {status}"
+            print(msg)
+            raise RuntimeError(msg)
             
     return all_results
 

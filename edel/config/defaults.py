@@ -18,18 +18,16 @@ RUN_CONFIG = {
         "transforms": [{"type": "shuffle_words"}],
     },
     "structured_abstracts": {
-        "provider": "gemini",
-        "model": "gemini-3-flash-preview",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
         "min_sentences": 4,
-        "min_tokens": 80,
-        "batch_size": 1000
+        "min_tokens": 80
     },
     "embedding": {
         "mode": "multi",  # multi | single | abstract
         "provider": "openai",
         "model": "text-embedding-ada-002",
         "n_dimensions": 1536,
-        "batch_size": 5000,
     },
     "dimensionality_reduction": {
         "method": "diffusion",
@@ -77,8 +75,8 @@ RUN_CONFIG = {
         },
     },
     "labeling": {
-        "provider": "gemini",
-        "model": "gemini-3.1-flash-lite-preview",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
         "text_column": "abstract_text",
         "topic": None,
         "language": "en",

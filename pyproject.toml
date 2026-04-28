@@ -30,6 +30,7 @@ dependencies = [
     
     "openai", 
     "google-genai",
+    "google-cloud-storage",
     
     "ijson",
     "python-dotenv",

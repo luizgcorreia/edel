@@ -125,10 +125,16 @@ def plot_landscape_3d(
             yaxis_title=y_label,
             zaxis_title=z_label,
         ),
-        width=1200, height=800, # Preferred 3:2 aspect ratio
-        margin=dict(l=0, r=0, b=0, t=50),
+        width=1280, height=800, # 16:10 aspect ratio
+        margin=dict(l=50, r=50, b=50, t=50),
         autosize=False,
-        legend=dict(x=0.02, y=0.98, xanchor="left", yanchor="top", bgcolor="rgba(255,255,255,0.5)")
+        legend=dict(
+            x=0.98, y=0.98, 
+            xanchor="right", yanchor="top", 
+            bgcolor="rgba(255,255,255,0.6)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        )
     )
     # 4. Add Pre-allocated Trajectory Placeholders (for callbacks)
     fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode="lines+markers", 
@@ -252,12 +258,18 @@ def plot_landscape_contour(
     fig.update_layout(
         title=title or f"2D Epistemic Landscape Contour Map: {topic_name}" if topic_name else "2D Epistemic Landscape Contour Map",
         xaxis_title=x_label, yaxis_title=y_label,
-        width=1200, height=900, # Preferred 3:2 aspect ratio
+        width=1280, height=800, # 16:10 aspect ratio
         autosize=False,
-        legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
+        legend=dict(
+            x=0.98, y=0.98, 
+            xanchor="right", yanchor="top", 
+            bgcolor="rgba(255,255,255,0.6)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        ),
         yaxis=dict(range=[yi.min(), yi.max()]),
         xaxis=dict(range=[xi.min(), xi.max()]),
-        margin=dict(b=100) # Space for horizontal legend
+        margin=dict(l=80, r=100, b=80, t=80) 
     )
 
     # 4. Add Pre-allocated Trajectory Placeholders (for callbacks)

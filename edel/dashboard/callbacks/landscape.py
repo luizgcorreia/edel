@@ -25,9 +25,11 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
         [Input("map-experiment-select", "value"),
          Input("map-method-select", "value"),
          Input("map-layer-toggles", "value"),
+         Input("map-papers-metric", "value"),
+         Input("map-top-papers", "value"),
          Input("artifact-update-store", "data")]
     )
-    def update_map_figures(experiment_name, method, layers, update_signal):
+    def update_map_figures(experiment_name, method, layers, papers_metric, top_papers_n, update_signal):
         """Load artifacts and build BOTH Plotly figures (3D and 2D)."""
         if not experiment_name:
             raise PreventUpdate
@@ -52,22 +54,26 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             try: label_results = load_artifact(label_art)
             except: pass
 
+            show_regions = "regions" in layers if layers else False
+            show_frontier = "frontier" in layers if layers else False
+            show_papers = "papers" in layers if layers else False
+            
             # Generate 3D
             fig_3d = plot_landscape_3d(
                 df=df, landscape_results=landscape_results, method=method,
                 color_col="cluster_domain", label_results=label_results,
-                title=f"3D Epistemic Landscape: {experiment_name}"
+                title=f"3D Epistemic Landscape: {experiment_name}",
+                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric
             )
             
-            show_regions = "regions" in layers if layers else False
-            show_frontier = "frontier" in layers if layers else False
             # Generate 2D
             fig_2d = plot_landscape_contour(
                 df=df, landscape_results=landscape_results, method=method,
                 color_col="cluster_domain", label_results=label_results,
                 title=f"2D Epistemic Landscape: {experiment_name}",
                 show_regions=show_regions,
-                show_frontier=show_frontier
+                show_frontier=show_frontier,
+                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric
             )
 
             def apply_layers(fig, is_2d=False):
@@ -80,15 +86,22 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 for trace in fig.data:
                     t_name = trace.name.lower() if trace.name else ""
                     t_type = trace.type.lower()
-                    if "surface" in t_type or "contour" in t_type or "terrain" in t_name:
+                    
+                    if "relevant papers" in t_name:
+                        trace.visible = show_papers
+                    elif "trajectory" in t_name or "selected paper" in t_name:
+                        continue # Managed by other callbacks
+                    elif "domain regions" in t_name:
+                        trace.visible = show_regions
+                    elif "surface" in t_type or "contour" in t_type or "terrain" in t_name:
                         trace.visible = show_surface
+                    elif "vector" in t_name or "flow" in t_name:
+                        trace.visible = show_vectors
                     elif "scatter" in t_type or "markers" in trace.mode:
                         if trace.showlegend and not (hasattr(trace, 'x') and trace.x is not None and len(trace.x) > 0): 
                             trace.visible = show_clusters
                         else:
                             trace.visible = show_scatter
-                    elif "vector" in t_name or "flow" in t_name:
-                        trace.visible = show_vectors
 
                 if is_2d:
                     for ann in fig.layout.annotations:

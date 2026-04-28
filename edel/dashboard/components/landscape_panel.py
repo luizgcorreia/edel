@@ -57,13 +57,49 @@ def landscape_panel_layout() -> dbc.Container:
                                 {"label": "Vector Field", "value": "vectors"},
                                 {"label": "Cluster Labels", "value": "clusters"},
                                 {"label": "Domain Regions (2D)", "value": "regions"},
-                                {"label": "Knowledge Frontier (2D)", "value": "frontier"}
+                                {"label": "Knowledge Frontier (2D)", "value": "frontier"},
+                                {"label": "Relevant Papers", "value": "papers"}
                             ],
-                            value=["surface", "scatter", "clusters", "frontier"],
+                            value=["surface", "scatter", "clusters", "regions", "papers"],
                             id="map-layer-toggles",
                             switch=True,
                             className="mb-3"
                         ),
+                        
+                        html.Hr(),
+                        
+                        html.Div([
+                            html.H6("Relevant Papers Configuration", className="mb-2"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Metric:", className="small text-muted"),
+                                    dcc.Dropdown(
+                                        id="map-papers-metric",
+                                        options=[
+                                            {"label": "Absolute Citations", "value": "cited_by_count"},
+                                            {"label": "Citations per Year", "value": "citation_velocity"},
+                                            {"label": "Normalized Percentile", "value": "citation_normalized_percentile"},
+                                            {"label": "Landscape Peaks", "value": "local_peaks"},
+                                            {"label": "Cluster Capitals", "value": "cluster_centroids"}
+                                        ],
+                                        value="cited_by_count",
+                                        clearable=False,
+                                        className="mb-2"
+                                    )
+                                ], width=8),
+                                dbc.Col([
+                                    html.Label("Count:", className="small text-muted"),
+                                    dbc.Input(
+                                        id="map-top-papers",
+                                        type="number",
+                                        min=0,
+                                        step=1,
+                                        value=10,
+                                        className="mb-2"
+                                    )
+                                ], width=4)
+                            ])
+                        ]),
                         
                         html.Hr(),
                         

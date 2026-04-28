@@ -23,6 +23,9 @@ def plot_landscape_3d(
     scatter_opacity: float = 0.05,
     scatter_size: int = 2,
     topic_name: str | None = None,
+    show_papers: bool = False,
+    top_papers_n: int = 10,
+    papers_metric: str = "cited_by_count",
 ):
     """
     Create an interactive 3D Epistemic Landscape Surface plot.
@@ -114,6 +117,80 @@ def plot_landscape_3d(
             # Use only a subset for the hover box to keep it readable
             trace.hovertemplate = "<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         fig.add_trace(trace)
+        
+    # 2.5 Add Relevant Papers ("Cities")
+    if show_papers:
+        import datetime
+        from edel.dashboard.utils import parse_authorships
+        
+        df_papers = df_plot.copy()
+        
+        if papers_metric == "cited_by_count":
+            df_papers = df_papers.sort_values(by="cited_by_count", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "citation_velocity":
+            current_year = datetime.datetime.now().year
+            years_since = np.maximum(1, current_year - df_papers["publication_year"].fillna(current_year))
+            df_papers["velocity"] = df_papers["cited_by_count"].fillna(0) / years_since
+            df_papers = df_papers.sort_values(by="velocity", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "citation_normalized_percentile":
+            if "citation_normalized_percentile" in df_papers.columns:
+                df_papers = df_papers.sort_values(by="citation_normalized_percentile", ascending=False)
+            else:
+                df_papers = df_papers.sort_values(by="cited_by_count", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "cluster_centroids":
+            if color_col and color_col in df_papers.columns:
+                clusters = df_papers[color_col].unique()
+                k = max(1, top_papers_n // max(1, len(clusters)))
+                top_papers = df_papers.sort_values("cited_by_count", ascending=False).groupby(color_col).head(k).head(top_papers_n)
+            else:
+                top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+        elif papers_metric == "local_peaks":
+            if zi is not None:
+                x_min = xi.min()
+                y_min = yi.min()
+                dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
+                dy = yi[1,0] - yi[0,0] if len(yi) > 1 else 1.0
+                c_ix = np.clip(np.floor((df_papers[x_col] - (x_min - dx/2)) / dx).astype(int), 0, zi.shape[1]-1)
+                c_iy = np.clip(np.floor((df_papers[y_col] - (y_min - dy/2)) / dy).astype(int), 0, zi.shape[0]-1)
+                df_papers["peak_height"] = zi[c_iy, c_ix]
+                df_papers = df_papers.sort_values(["peak_height", "cited_by_count"], ascending=[False, False])
+                top_papers = df_papers.head(top_papers_n)
+            else:
+                top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+        else:
+            top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+
+        labels = []
+        for _, row in top_papers.iterrows():
+            authors_list = parse_authorships(row.get("authorships", ""))
+            first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
+            year = str(row.get("publication_year", ""))[:4]
+            labels.append(f"{first_author}, {year}")
+            
+        # Re-calculate Z for these specific points to ensure they sit on the surface
+        if raw_metric in top_papers.columns:
+            tp_z_vals = top_papers[raw_metric].fillna(0).values
+            if log_scale:
+                tp_z_vals = np.log10(tp_z_vals + 1)
+        else:
+            tp_z_vals = np.zeros(len(top_papers))
+            
+        fig.add_trace(go.Scatter3d(
+            x=top_papers[x_col],
+            y=top_papers[y_col],
+            z=tp_z_vals,
+            mode='markers+text',
+            marker=dict(size=6, color='white', line=dict(width=2, color='black')),
+            text=labels,
+            textposition="top center",
+            textfont=dict(color="white", size=10),
+            name="Relevant Papers",
+            showlegend=False,
+            hoverinfo='skip'
+        ))
 
     # 3. Add Manual Legends (Workaround for PX trace merging)
     _add_manual_legends_3d(fig, df_plot, color_col, symbol_col, label_results)
@@ -168,6 +245,9 @@ def plot_landscape_contour(
     label_results: dict | None = None,
     show_regions: bool = False,
     show_frontier: bool = False,
+    show_papers: bool = False,
+    top_papers_n: int = 10,
+    papers_metric: str = "cited_by_count",
 ):
     """
     Create an interactive 2D Epistemic Landscape Contour Map with optional flow overlay.
@@ -257,6 +337,75 @@ def plot_landscape_contour(
         tr.marker.size = 6
         tr.showlegend = False
         fig.add_trace(tr)
+        
+    # 2.5 Add Relevant Papers ("Cities")
+    if show_papers:
+        import datetime
+        from edel.dashboard.utils import parse_authorships
+        
+        df_papers = df_plot.copy()
+        
+        if papers_metric == "cited_by_count":
+            df_papers = df_papers.sort_values(by="cited_by_count", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "citation_velocity":
+            current_year = datetime.datetime.now().year
+            years_since = np.maximum(1, current_year - df_papers["publication_year"].fillna(current_year))
+            df_papers["velocity"] = df_papers["cited_by_count"].fillna(0) / years_since
+            df_papers = df_papers.sort_values(by="velocity", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "citation_normalized_percentile":
+            if "citation_normalized_percentile" in df_papers.columns:
+                df_papers = df_papers.sort_values(by="citation_normalized_percentile", ascending=False)
+            else:
+                df_papers = df_papers.sort_values(by="cited_by_count", ascending=False)
+            top_papers = df_papers.head(top_papers_n)
+        elif papers_metric == "cluster_centroids":
+            if color_col and color_col in df_papers.columns:
+                clusters = df_papers[color_col].unique()
+                k = max(1, top_papers_n // max(1, len(clusters)))
+                top_papers = df_papers.sort_values("cited_by_count", ascending=False).groupby(color_col).head(k).head(top_papers_n)
+            else:
+                top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+        elif papers_metric == "local_peaks":
+            if zi is not None:
+                x_min = xi.min()
+                y_min = yi.min()
+                dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
+                # Fix for contour map 1D arrays vs 3D meshgrids
+                if len(yi.shape) > 1:
+                    dy = yi[1,0] - yi[0,0] if len(yi) > 1 else 1.0
+                else:
+                    dy = yi[1] - yi[0] if len(yi) > 1 else 1.0
+                c_ix = np.clip(np.floor((df_papers[x_col] - (x_min - dx/2)) / dx).astype(int), 0, zi.shape[1]-1)
+                c_iy = np.clip(np.floor((df_papers[y_col] - (y_min - dy/2)) / dy).astype(int), 0, zi.shape[0]-1)
+                df_papers["peak_height"] = zi[c_iy, c_ix]
+                df_papers = df_papers.sort_values(["peak_height", "cited_by_count"], ascending=[False, False])
+                top_papers = df_papers.head(top_papers_n)
+            else:
+                top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+        else:
+            top_papers = df_papers.sort_values(by="cited_by_count", ascending=False).head(top_papers_n)
+
+        labels = []
+        for _, row in top_papers.iterrows():
+            authors_list = parse_authorships(row.get("authorships", ""))
+            first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
+            year = str(row.get("publication_year", ""))[:4]
+            labels.append(f"{first_author}, {year}")
+            
+        fig.add_trace(go.Scatter(
+            x=top_papers[x_col],
+            y=top_papers[y_col],
+            mode='markers+text',
+            marker=dict(size=8, color='white', line=dict(width=1, color='black')),
+            text=labels,
+            textposition="top center",
+            textfont=dict(color="white", size=10, weight="bold"),
+            name="Relevant Papers",
+            showlegend=False,
+            hoverinfo='skip'
+        ))
 
     # Add Region Boundaries and Labels
     if show_regions:
@@ -271,6 +420,7 @@ def plot_landscape_contour(
                         x=path["x"], y=path["y"],
                         mode='lines',
                         line=dict(color="white", width=1.5, dash="dash"),
+                        name="Domain Regions",
                         showlegend=False,
                         hoverinfo='skip'
                     )
@@ -301,6 +451,7 @@ def plot_landscape_contour(
                         mode='text',
                         text=[display_name],
                         textfont=dict(size=12, color="white", weight="bold"),
+                        name="Domain Regions",
                         showlegend=False,
                         hoverinfo='skip'
                     )

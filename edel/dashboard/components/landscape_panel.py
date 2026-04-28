@@ -80,6 +80,23 @@ def landscape_panel_layout() -> dbc.Container:
                         html.Div([
                             html.Strong("Selected Paper Trajectory:"),
                             html.Div(id="map-selected-paper-info", children="Click a paper on the map to view its trajectory.", className="text-muted small mt-2")
+                        ], className="mb-4"),
+                        
+                        html.Hr(),
+                        
+                        html.Div([
+                            html.H6("Export Map", className="mb-2"),
+                            dcc.Loading(
+                                id="loading-export",
+                                type="circle",
+                                children=[
+                                    dbc.ButtonGroup([
+                                        dbc.Button("Download PNG", id="btn-download-png", color="outline-primary", size="sm"),
+                                        dbc.Button("Download HTML", id="btn-download-html", color="outline-primary", size="sm"),
+                                    ], className="w-100"),
+                                ]
+                            ),
+                            dcc.Download(id="download-map-file")
                         ])
                     ])
                 ])
@@ -93,9 +110,19 @@ def landscape_panel_layout() -> dbc.Container:
                             dcc.Loading(
                                 id="loading-map",
                                 type="circle",
-                                children=dcc.Graph(id='landscape-graph', responsive=False)
+                                children=[
+                                    html.Div(
+                                        dcc.Graph(id='landscape-graph-3d', responsive=False, style={"height": "800px"}),
+                                        id='map-container-3d'
+                                    ),
+                                    html.Div(
+                                        dcc.Graph(id='landscape-graph-2d', responsive=False, style={"height": "800px"}),
+                                        id='map-container-2d',
+                                        style={'display': 'none'}
+                                    )
+                                ]
                             )
-                        ], style={"minHeight": "800px", "display": "flex", "alignItems": "center", "justifyContent": "center"})
+                        ], style={"minHeight": "800px"})
                     ])
                 ])
             ], md=9)

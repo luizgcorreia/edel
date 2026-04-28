@@ -34,7 +34,7 @@ _PAIRS = [
 _MAX_DENSITY_PAIRS = 50_000
 
 
-def embedding_metrics(artifacts: dict) -> dict:
+def embedding_metrics(artifacts: dict, remove_pc: int = 0) -> dict:
     """Compute embedding-level metrics from aspect embedding columns."""
     df: pd.DataFrame = artifacts.get("embedding")
     if df is None:
@@ -50,6 +50,56 @@ def embedding_metrics(artifacts: dict) -> dict:
         a: sk_normalize(load_embeddings_to_matrix(df, f"{a}_embedding", dimensions))
         for a in _ASPECTS
     }
+
+def apply_anisotropy_correction(embs_dict: dict[str, np.ndarray], method: str = "none", n_components: int = 0) -> dict[str, np.ndarray]:
+    """Apply anisotropy correction to a dictionary of embeddings."""
+    if method == "none" or (method == "pc_removal" and n_components <= 0):
+        return embs_dict
+        
+    # Concatenate all available embeddings to find global stats (mean or PCs)
+    all_embs = np.vstack([X for X in embs_dict.values()])
+    
+    corrected = {}
+    if method == "pc_removal":
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=n_components)
+        pca.fit(all_embs)
+        for a, X in embs_dict.items():
+            pc_projection = pca.transform(X)
+            X_corrected = X - pca.inverse_transform(pc_projection)
+            corrected[a] = sk_normalize(X_corrected)
+            
+    elif method == "mean_centering":
+        global_mean = all_embs.mean(axis=0)
+        for a, X in embs_dict.items():
+            X_corrected = X - global_mean
+            corrected[a] = sk_normalize(X_corrected)
+    else:
+        return embs_dict
+        
+    return corrected
+
+
+def embedding_metrics(artifacts: dict, correction_method: str = "none", remove_pc: int = 0) -> dict:
+    """Compute embedding-level metrics from aspect embedding columns."""
+    df: pd.DataFrame = artifacts.get("embedding")
+    if df is None:
+        return {"metrics": {}, "features": {}}
+
+    dimensions = artifacts.get("_dimensions", 1536)
+    missing = [a for a in _ASPECTS if f"{a}_embedding" not in df.columns]
+    if missing:
+        return {"metrics": {}, "features": {}}
+
+    # ── Load embedding matrices ──────────────────────────────────────────────
+    embs = {
+        a: sk_normalize(load_embeddings_to_matrix(df, f"{a}_embedding", dimensions))
+        for a in _ASPECTS
+    }
+
+    # ── Optional: Anisotropy Correction ──────────────────────────────────────
+    if correction_method != "none":
+        embs = apply_anisotropy_correction(embs, method=correction_method, n_components=remove_pc)
 
     N = next(iter(embs.values())).shape[0]
     metrics: dict = {}

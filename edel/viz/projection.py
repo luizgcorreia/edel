@@ -141,18 +141,21 @@ def plot_movement_magnitudes(df: pd.DataFrame, bins: int = 50):
 
 def plot_epistemic_transition_space(
     df: pd.DataFrame, 
-    dimensions: int = 1536, 
+    dimensions: int = 1536,
     quantile: float = 1.0,
     std_threshold: float | None = None,
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
-    title: str | None = None
+    title: str | None = None,
+    correction_method: str = "none",
+    remove_pc: int = 0
 ):
     """
     Project the three epistemic operators (P->M, M->F, F->I) into PCA space.
     This helps visualize if the transitions are distinct in the embedding space.
     """
     from edel.pipeline.projection import load_embeddings_to_matrix
+    from edel.experiments.metrics.embedding import apply_anisotropy_correction
     set_viz_style()
 
     aspects = ["problem", "method", "finding", "interpretation"]
@@ -161,10 +164,20 @@ def plot_epistemic_transition_space(
         return
 
     # 1. Load embeddings
-    emb_p = load_embeddings_to_matrix(df, "problem_embedding", dimensions)
-    emb_m = load_embeddings_to_matrix(df, "method_embedding", dimensions)
-    emb_f = load_embeddings_to_matrix(df, "finding_embedding", dimensions)
-    emb_i = load_embeddings_to_matrix(df, "interpretation_embedding", dimensions)
+    embs = {
+        a: load_embeddings_to_matrix(df, f"{a}_embedding", dimensions)
+        for a in aspects
+    }
+
+    # 1.5 Apply anisotropy correction if requested
+    if correction_method != "none":
+        print(f"Applying anisotropy correction ({correction_method}) to transition space...")
+        embs = apply_anisotropy_correction(embs, method=correction_method, n_components=remove_pc)
+
+    emb_p = embs["problem"]
+    emb_m = embs["method"]
+    emb_f = embs["finding"]
+    emb_i = embs["interpretation"]
 
     # 2. Calculate difference vectors (Operators)
     pm = emb_m - emb_p

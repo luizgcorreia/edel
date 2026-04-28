@@ -19,6 +19,7 @@ import copy
 import json
 import io
 import base64
+import time
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
@@ -187,15 +188,18 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
 
     @app.callback(
         [Output("debug-data-container", "children"),
-         Output("debug-artifact-info", "children")],
+         Output("debug-artifact-info", "children"),
+         Output("artifact-update-store", "data", allow_duplicate=True)],
         [Input("btn-load-artifact", "n_clicks"),
          Input("btn-run-stage", "n_clicks")],
         [State("debug-experiment-select", "value"),
          State("debug-stage-select", "value"),
-         State("config-editor", "value")],
+         State("config-editor", "value"),
+         State("debug-correction-method", "value"),
+         State("debug-remove-pc", "value")],
         prevent_initial_call=True
     )
-    def handle_debug_action(load_clicks, run_clicks, experiment_name, stage_name, config_json):
+    def handle_debug_action(load_clicks, run_clicks, experiment_name, stage_name, config_json, correction_method, remove_pc):
         """Load or Run an intermediate stage for debugging."""
         ctx = callback_context
         if not ctx.triggered:
@@ -203,7 +207,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
         
         triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if not experiment_name or not stage_name:
-            raise PreventUpdate
+            return None, None, time.time()
             
         try:
             # Prefer the config currently in the editor UI to avoid hash mismatches
@@ -215,6 +219,29 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
             else:
                 config = get_experiment(experiment_name)
             
+            # Resolve anisotropy correction parameters
+            dr_cfg = config.get("dimensionality_reduction", {})
+            if correction_method == "follow":
+                remove_pc_resolved = dr_cfg.get("remove_top_pcs", 0)
+                method_resolved = dr_cfg.get("anisotropy_method", "pc_removal" if remove_pc_resolved > 0 else "none")
+            else:
+                method_resolved = correction_method
+                remove_pc_resolved = remove_pc
+
+            # Inject resolved parameters into config ONLY if we are overriding 'Follow Config'
+            # This ensures that 'Follow Config' matches the hash of the original experiment perfectly.
+            if correction_method != "follow":
+                if method_resolved != "none":
+                    if "dimensionality_reduction" not in config:
+                        config["dimensionality_reduction"] = {}
+                    config["dimensionality_reduction"]["anisotropy_method"] = method_resolved
+                    config["dimensionality_reduction"]["remove_top_pcs"] = remove_pc_resolved
+                elif "dimensionality_reduction" in config:
+                    # If we explicitly select 'None' in the UI, we should probably ensure 
+                    # the config reflects that, but only if it's an override.
+                    config["dimensionality_reduction"]["anisotropy_method"] = "none"
+                    config["dimensionality_reduction"]["remove_top_pcs"] = 0
+
             if triggered_id == "btn-run-stage":
                 # --- RUN STAGE LOGIC (Mirroring exploration.ipynb) ---
                 data = None
@@ -320,6 +347,35 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 else:
                     viz_components.append(html.Div("No structuring report found for this artifact.", className="text-muted small"))
             
+            elif stage_name == "embeddings":
+                from edel.experiments.metrics.embedding import embedding_metrics
+                n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
+                m_res = embedding_metrics(
+                    {"embedding": data, "_dimensions": n_dims}, 
+                    correction_method=method_resolved or "none",
+                    remove_pc=remove_pc_resolved or 0
+                )
+                
+                metrics = m_res.get("metrics", {})
+                if metrics:
+                    method_label = "None" if method_resolved == "none" else ("Mean Centering" if method_resolved == "mean_centering" else f"PC Removal (N={remove_pc_resolved})")
+                    viz_components.append(html.H5(f"Embedding Metrics (Method: {method_label})", className="mt-3"))
+                    
+                    # Create a simple table for metrics
+                    rows = [
+                        html.Tr([html.Td(k, style={"fontWeight": "bold"}), html.Td(f"{v:.4f}")])
+                        for k, v in metrics.items()
+                    ]
+                    table = html.Table(
+                        [html.Thead(html.Tr([html.Th("Metric"), html.Th("Value")]))] + 
+                        [html.Tbody(rows)],
+                        className="table table-sm table-hover table-striped small border",
+                        style={"maxWidth": "500px"}
+                    )
+                    viz_components.append(table)
+                else:
+                    viz_components.append(html.Div("No embedding metrics could be computed.", className="text-muted small"))
+
             elif stage_name == "dimensionality_reduction":
                 method = config.get("dimensionality_reduction", {}).get("method", "umap")
                 viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method))
@@ -327,7 +383,14 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 
                 # Transition space plot
                 n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
-                viz_components.append(capture_matplotlib_plot(viz.plot_epistemic_transition_space, data, quantile=0.95, dimensions=n_dims))
+                viz_components.append(capture_matplotlib_plot(
+                    viz.plot_epistemic_transition_space, 
+                    data, 
+                    quantile=0.95, 
+                    dimensions=n_dims,
+                    correction_method=method_resolved or "none",
+                    remove_pc=remove_pc_resolved or 0
+                ))
             
             elif stage_name == "vector_field":
                 # Need DF and field for some vector field plots
@@ -391,7 +454,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     html.Hr(),
                     html.P("Showing first 50 rows:", className="text-muted small"),
                     table
-                ]), info
+                ]), info, time.time()
                 
             elif isinstance(data, dict):
                 info = f"{info_prefix}: Dictionary ({len(data)} keys)"
@@ -400,7 +463,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     html.Div(viz_components),
                     html.Hr(),
                     html.Pre(json.dumps(safe_dict, indent=2, default=str), style={"maxHeight": "500px", "overflowY": "auto"})
-                ]), info
+                ]), info, time.time()
                 
             else:
                 info = f"{info_prefix}: {type(data).__name__}"
@@ -408,7 +471,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     html.Div(viz_components),
                     html.Hr(),
                     html.Pre(str(data))
-                ]), info
+                ]), info, time.time()
                 
         except Exception as e:
             import traceback
@@ -418,4 +481,4 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 html.P(f"An error occurred while running or loading the stage '{stage_name}':"),
                 html.Hr(),
                 html.Pre(str(e), className="mb-0 small")
-            ], color="danger", className="mt-3"), f"Error in {stage_name}"
+            ], color="danger", className="mt-3"), f"Error in {stage_name}", time.time()

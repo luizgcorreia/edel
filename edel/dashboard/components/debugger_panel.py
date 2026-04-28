@@ -34,6 +34,31 @@ def debugger_panel_layout() -> dbc.Container:
                             clearable=False,
                             className="mb-3"
                         ),
+
+                        html.Label("Anisotropy Correction Method:"),
+                        dcc.Dropdown(
+                            id="debug-correction-method",
+                            options=[
+                                {"label": "Follow Config", "value": "follow"},
+                                {"label": "None", "value": "none"},
+                                {"label": "Remove Top PCs", "value": "pc_removal"},
+                                {"label": "Mean Centering", "value": "mean_centering"},
+                            ],
+                            value="follow",
+                            clearable=False,
+                            className="mb-3"
+                        ),
+
+                        html.Label("Top PCs to Remove (if selected):"),
+                        dcc.Input(
+                            id="debug-remove-pc",
+                            type="number",
+                            min=0,
+                            max=10,
+                            step=1,
+                            value=0,
+                            className="form-control mb-3"
+                        ),
                         
                         dbc.Button("Load Artifact", id="btn-load-artifact", color="primary", className="w-100 mb-2"),
                         dbc.Button("Run Stage", id="btn-run-stage", color="success", className="w-100")

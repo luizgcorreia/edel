@@ -137,6 +137,8 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Orchestrate the dimensionality reduction stage."""
     dr_cfg = config.get("dimensionality_reduction", {})
     method = dr_cfg.get("method", "umap")
+    remove_pc = dr_cfg.get("remove_top_pcs", 0)
+    anisotropy_method = dr_cfg.get("anisotropy_method", "pc_removal" if remove_pc > 0 else "none")
     dimensions = config.get("embedding", {}).get("n_dimensions", 1536)
     
     out = df.copy()
@@ -147,6 +149,12 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         # Single mode
         print(f"Projecting 'embedding' column using {method}...")
         X = load_embeddings_to_matrix(out, "embedding", dimensions)
+        
+        if anisotropy_method != "none":
+            from edel.experiments.metrics.embedding import apply_anisotropy_correction
+            print(f"Applying anisotropy correction ({anisotropy_method})...")
+            X = apply_anisotropy_correction({"embedding": X}, method=anisotropy_method, n_components=remove_pc)["embedding"]
+            
         X_prep = prepare_matrix(X)
         
         seed = config.get("random_seed", 42)
@@ -169,9 +177,20 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
             
         print(f"Projecting {len(available_aspects)} aspects into common {method} space...")
         
+        # Load and optionally denoise
+        embs_to_proj = {
+            a: load_embeddings_to_matrix(out, f"{a}_embedding", dimensions)
+            for a in available_aspects
+        }
+        
+        if anisotropy_method != "none":
+            from edel.experiments.metrics.embedding import apply_anisotropy_correction
+            print(f"Applying anisotropy correction ({anisotropy_method})...")
+            embs_to_proj = apply_anisotropy_correction(embs_to_proj, method=anisotropy_method, n_components=remove_pc)
+
         # 1. Fit on 'problem' (legacy logic: problem defines the coordinate system)
         primary_aspect = "problem"
-        X_primary = load_embeddings_to_matrix(out, f"{primary_aspect}_embedding", dimensions)
+        X_primary = embs_to_proj[primary_aspect]
         X_primary_prep = prepare_matrix(X_primary)
         
         seed = config.get("random_seed", 42)
@@ -188,7 +207,7 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 continue
                 
             print(f"Transforming {aspect} aspect...")
-            X_a = load_embeddings_to_matrix(out, f"{aspect}_embedding", dimensions)
+            X_a = embs_to_proj[aspect]
             X_a_prep = prepare_matrix(X_a)
             
             # transform() might not be available for all methods (e.g. t-SNE)

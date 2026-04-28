@@ -18,6 +18,7 @@ def create_layout() -> html.Div:
         dcc.Store(id='config-store'),
         dcc.Store(id='experiment-store'),
         dcc.Store(id='selected-paper-store'),
+        dcc.Store(id='artifact-update-store', data=0),
         
         # Navigation Bar
         dbc.NavbarSimple(

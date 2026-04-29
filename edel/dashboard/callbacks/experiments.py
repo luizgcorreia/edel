@@ -346,6 +346,9 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     viz_components.append(capture_matplotlib_plot(viz.plot_segmentation_stats, report))
                 else:
                     viz_components.append(html.Div("No structuring report found for this artifact.", className="text-muted small"))
+                    
+                if "language" in data.columns:
+                    viz_components.append(capture_matplotlib_plot(viz.plot_language_dist, data))
             
             elif stage_name == "embeddings":
                 from edel.experiments.metrics.embedding import embedding_metrics

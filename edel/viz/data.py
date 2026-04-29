@@ -167,3 +167,32 @@ def plot_filtering_stats(report: dict):
         plt.text(v + (max(counts) * 0.01), i, str(v), va="center", fontweight="bold")
         
     plt.tight_layout()
+
+def plot_language_dist(df: pd.DataFrame, top_n: int = 15, color: str = "#8E44AD"):
+    """Plot the distribution of works per language."""
+    set_viz_style()
+    if "language" not in df.columns:
+        print("Warning: 'language' column not found.")
+        return
+
+    # Filter out NaNs, count, and sort
+    lang_counts = df["language"].dropna().value_counts().head(top_n)
+    
+    if lang_counts.empty:
+        print("Warning: No language data available to plot.")
+        return
+
+    plt.figure(figsize=(10, min(max(4, len(lang_counts) * 0.5), 10)))
+    
+    # Plotting language codes/names as bars
+    sns.barplot(x=lang_counts.values, y=lang_counts.index, palette="viridis")
+    
+    plt.title(f"Distribution of Works per Language (Top {top_n})", fontsize=14, fontweight="bold", pad=20)
+    plt.xlabel("Number of Works", fontsize=12)
+    plt.ylabel("Language", fontsize=12)
+    
+    # Add text labels on the bars
+    for i, v in enumerate(lang_counts.values):
+        plt.text(v + (max(lang_counts.values) * 0.01), i, str(v), va="center", fontweight="bold", color="#333333")
+    
+    plt.tight_layout()

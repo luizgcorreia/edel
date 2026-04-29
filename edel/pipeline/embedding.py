@@ -23,6 +23,11 @@ def run_embedding_stage(df: pd.DataFrame, config: dict, base_path: str | Path = 
     mode = embed_cfg.get("mode", "multi")  # "single" or "multi"
     processing_mode = config.get("processing_mode", "batch")
     batch_size = embed_cfg.get("batch_size", 5000)
+    target_lang = embed_cfg.get("language")
+
+    if target_lang and "language" in df.columns:
+        print(f"Filtering embeddings to only include language: {target_lang}")
+        df = df[df["language"] == target_lang].copy()
 
     client = get_llm_client({"provider": provider, "model": model})
 

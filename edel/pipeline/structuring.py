@@ -25,18 +25,24 @@ def sentence_count(text: str) -> int:
 
 
 def filter_abstracts(
-    df: pd.DataFrame, min_sentences: int = 2, min_tokens: int = 20
+    df: pd.DataFrame, min_sentences: int = 2, min_tokens: int = 20, target_lang: str | None = None
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """Filter out extremely short or empty abstracts and return a report."""
     report = {"initial_count": len(df)}
     if df.empty:
         return df, report
 
-    # 1. Missing abstract
-    df_clean = df[df["abstract_text"].notna()].copy()
-    report["missing_abstract_count"] = len(df) - len(df_clean)
+    # 1. Target language filter
+    df_lang = df.copy()
+    if target_lang and "language" in df_lang.columns:
+        df_lang = df_lang[df_lang["language"] == target_lang].copy()
+        report["out_of_target_language_count"] = len(df) - len(df_lang)
+
+    # 2. Missing abstract
+    df_clean = df_lang[df_lang["abstract_text"].notna()].copy()
+    report["missing_abstract_count"] = len(df_lang) - len(df_clean)
     
-    # 2. Sentence filter
+    # 3. Sentence filter
     df_clean["_n_sentences"] = df_clean["abstract_text"].apply(sentence_count)
     df_sent = df_clean[df_clean["_n_sentences"] >= min_sentences].copy()
     report["insufficient_sentences_count"] = len(df_clean) - len(df_sent)
@@ -46,6 +52,12 @@ def filter_abstracts(
     df_final = df_sent[df_sent["_n_tokens"] >= min_tokens].copy()
     report["insufficient_tokens_count"] = len(df_sent) - len(df_final)
     report["final_count"] = len(df_final)
+
+    # 4. Language distribution (of the final filtered works)
+    if "language" in df_final.columns:
+        lang_counts = df_final["language"].value_counts(dropna=False).to_dict()
+        # Convert any float/NaN keys to string for clean JSON serialization
+        report["language_distribution"] = {str(k): int(v) for k, v in lang_counts.items()}
 
     # Drop temporary columns
     out = df_final.drop(columns=["_n_sentences", "_n_tokens"])
@@ -270,11 +282,12 @@ def run_structuring_stage(df: pd.DataFrame, config: dict, base_path: str | Path 
     """Run the Stage 2 pipeline: Abstract Structuring."""
     stage_cfg = config.get("structured_abstracts", {})
     processing_mode = config.get("processing_mode", "simple")
+    target_lang = stage_cfg.get("language")
     
     # 1. Filter
     min_sentences = stage_cfg.get("min_sentences", 4)
     min_tokens = stage_cfg.get("min_tokens", 80)
-    df_filtered, filter_report = filter_abstracts(df, min_sentences, min_tokens)
+    df_filtered, filter_report = filter_abstracts(df, min_sentences, min_tokens, target_lang)
     
     # 1b. Sample if requested
     n_docs = stage_cfg.get("n_documents")

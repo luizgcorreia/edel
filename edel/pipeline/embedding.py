@@ -140,14 +140,22 @@ def process_batch(
     # 3. Find missing prompts
     missing_keys = [k for k in all_prompts.keys() if k not in all_results]
     
-    if missing_keys:
-        total_missing = len(missing_keys)
-        num_chunks = math.ceil(total_missing / batch_size)
-        print(f"Submitting {total_missing} missing embeddings in {num_chunks} batch(es)...")
-        
-        for i in range(num_chunks):
-            start_idx = i * batch_size
-            end_idx = min((i + 1) * batch_size, total_missing)
+    # 4. Throttled Submission & Poll Loop
+    # For OpenAI, we limit to 1 active batch to avoid enqueued token limits.
+    # For Vertex AI, we allow up to 5 concurrent batches.
+    max_active = 1 if provider == "openai" else 5
+    
+    total_missing = len(missing_keys)
+    next_chunk_idx = 0
+    
+    if total_missing > 0:
+        print(f"Starting throttled submission for {total_missing} missing embeddings (max_active={max_active})...")
+    
+    while missing_keys[next_chunk_idx * batch_size:] or active_batches:
+        # A. Fill the "active" queue if there is space
+        while len(active_batches) < max_active and next_chunk_idx * batch_size < total_missing:
+            start_idx = next_chunk_idx * batch_size
+            end_idx = min((next_chunk_idx + 1) * batch_size, total_missing)
             chunk_keys = missing_keys[start_idx:end_idx]
             
             chunk_prompts = {k: all_prompts[k] for k in chunk_keys}
@@ -155,50 +163,72 @@ def process_batch(
             try:
                 batch_id = client.create_batch(chunk_prompts, endpoint="/v1/embeddings")
                 active_batches.append(batch_id)
-                print(f"Started new embedding batch job: {batch_id[:25]}...")
-            except Exception as e:
-                print(f"Failed to submit embedding batch chunk {i+1}: {e}")
+                print(f"[{time.strftime('%H:%M:%S')}] Started batch {next_chunk_idx + 1}/{math.ceil(total_missing/batch_size)}: {batch_id[:25]}...")
+                next_chunk_idx += 1
                 
-        if batch_log_path:
-            with open(batch_log_path, 'w') as f:
-                json.dump(active_batches, f, indent=2)
-    else:
-        print("All embeddings successfully recovered from log! No new batches needed.")
+                # Update persistent log immediately
+                if batch_log_path:
+                    with open(batch_log_path, 'w') as f:
+                        json.dump(active_batches, f, indent=2)
+            except Exception as e:
+                if "limit reached" in str(e).lower() or "429" in str(e):
+                    print(f"Rate limit or enqueued limit reached. Waiting for active batches to clear...")
+                    break # Stop submitting for this cycle
+                else:
+                    print(f"Failed to submit batch chunk {next_chunk_idx + 1}: {e}")
+                    # We will retry this chunk in the next iteration of the outer loop
+                    time.sleep(10)
+                    break
 
-    # 4. Continuous Poll loop
-    while active_batches:
-        print(f"Waiting for {len(active_batches)} embedding batch(es) to complete... next check in 60s")
-        time.sleep(60)
-        
+        if not active_batches:
+            if next_chunk_idx * batch_size < total_missing:
+                time.sleep(30)
+                continue
+            else:
+                break
+
+        # B. Poll active batches
         remaining = []
+        finished_this_cycle = False
+        
         for b_id in active_batches:
             try:
                 status_info = client.poll_batch(b_id)
                 status = status_info["status"]
                 counts = status_info["request_counts"]
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... Status: {status}, "
-                    f"Completed: {counts.get('completed', 0)}/{counts.get('total', 0)}"
-                )
                 
                 if status == "completed":
                     if status_info["results"]:
                         all_results.update(status_info["results"])
-                        print(f"Batch {b_id[:25]}... completed and results collected.")
+                        print(f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... completed.")
+                        finished_this_cycle = True
+                    else:
+                        # Sometimes results are missing temporarily
+                        remaining.append(b_id)
                 elif status in ["failed", "cancelled", "expired"]:
-                    print(f"Batch {b_id[:25]}... failed ({status}).")
-                    raise RuntimeError(f"Embedding batch failed: {status}")
+                    print(f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... failed ({status}).")
+                    # We don't raise error here, we just won't have those results
+                    # and they will be resubmitted if we run again.
                 else:
                     remaining.append(b_id)
             except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error while polling batch {b_id[:25]}... : {e}. Will retry...")
+                print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error polling {b_id[:25]}... : {e}")
                 remaining.append(b_id)
                 
-        active_batches = remaining
+        if active_batches != remaining:
+            active_batches = remaining
+            if batch_log_path:
+                with open(batch_log_path, 'w') as f:
+                    json.dump(active_batches, f, indent=2)
         
-        if batch_log_path:
-            with open(batch_log_path, 'w') as f:
-                json.dump(active_batches, f, indent=2)
+        if active_batches or next_chunk_idx * batch_size < total_missing:
+            # If we didn't finish any batch, wait 60s. 
+            # If we did finish one, we might want to submit the next one immediately.
+            if not finished_this_cycle:
+                time.sleep(60)
+            else:
+                # Small grace period before submitting next
+                time.sleep(5)
 
     # 5. Map results back to DataFrame
     for field in fields_to_embed:

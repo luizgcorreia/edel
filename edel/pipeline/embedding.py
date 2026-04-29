@@ -38,7 +38,7 @@ def run_embedding_stage(df: pd.DataFrame, config: dict, base_path: str | Path = 
         batch_log_path = batch_log_art.path_prefix.with_suffix(".json")
         batch_log_path.parent.mkdir(parents=True, exist_ok=True)
         
-        return process_batch(df, client, mode, batch_size, batch_log_path=batch_log_path)
+        return process_batch(df, client, mode, batch_size, provider=provider, batch_log_path=batch_log_path)
     else:
         return process_simple(df, client, mode)
 
@@ -81,7 +81,7 @@ def process_simple(df: pd.DataFrame, client: LLMClient, mode: str) -> pd.DataFra
 
 
 def process_batch(
-    df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int, batch_log_path: Path | None = None
+    df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int, provider: str = "openai", batch_log_path: Path | None = None
 ) -> pd.DataFrame:
     """Generate embeddings using Batch API with optimal chunking and resume capabilities."""
     out = df.copy()

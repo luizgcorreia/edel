@@ -6,6 +6,7 @@ from edel.viz.data import (
     plot_citation_dist,
     plot_segmentation_stats,
     plot_filtering_stats,
+    plot_language_dist,
     set_viz_style,
 )
 from edel.viz.projection import (

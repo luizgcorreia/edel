@@ -182,6 +182,7 @@ class GeminiClient(LLMClient):
         import os
         import json
         from google import genai
+        from google.genai import types
         import google.auth
         
         self.model = model
@@ -208,6 +209,8 @@ class GeminiClient(LLMClient):
                         project_id = adc_data.get("quota_project_id")
                 except Exception:
                     pass
+        # Increase timeout for large batch uploads
+        http_options = types.HttpOptions(timeout=600.0)
                     
         if project_id:
             # If global is requested, we use the global endpoint
@@ -216,13 +219,14 @@ class GeminiClient(LLMClient):
             self.client = genai.Client(
                 vertexai=True, 
                 project=project_id, 
-                location=location
+                location=location,
+                http_options=http_options
             )
             self.project_id = project_id
             self.location = location
         else:
             # Fallback to default API key mode
-            self.client = genai.Client()
+            self.client = genai.Client(http_options=http_options)
             self.project_id = None
             self.location = None
 
@@ -282,12 +286,21 @@ class GeminiClient(LLMClient):
         # 1. Create JSONL and Map
         requests = []
         id_map = {}
+        is_embedding = "embedding" in self.model or kwargs.get("endpoint") == "/v1/embeddings"
+        
         for idx, (custom_id, prompt) in enumerate(prompts_with_ids.items()):
-            requests.append({
-                "request": {
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}]
-                }
-            })
+            if is_embedding:
+                requests.append({
+                    "request": {
+                        "content": {"parts": [{"text": prompt}]}
+                    }
+                })
+            else:
+                requests.append({
+                    "request": {
+                        "contents": [{"role": "user", "parts": [{"text": prompt}]}]
+                    }
+                })
             id_map[str(idx)] = custom_id
             
         jsonl_content = "\n".join([json.dumps(req) for req in requests])
@@ -295,7 +308,7 @@ class GeminiClient(LLMClient):
         # 2. Upload to GCS
         bucket = storage_client.bucket(bucket_name)
         input_blob = bucket.blob(f"batch_jobs/{job_uuid}/input.jsonl")
-        input_blob.upload_from_string(jsonl_content)
+        input_blob.upload_from_string(jsonl_content, timeout=600.0)
         
         map_blob = bucket.blob(f"batch_jobs/{job_uuid}/id_map.json")
         map_blob.upload_from_string(json.dumps(id_map))
@@ -359,15 +372,22 @@ class GeminiClient(LLMClient):
                     for i, line in enumerate(lines):
                         try:
                             data = json.loads(line)
-                            candidates = data.get("response", {}).get("candidates", [])
-                            if candidates and candidates[0].get("content", {}).get("parts"):
-                                text = candidates[0]["content"]["parts"][0].get("text", "{}")
+                            res = data.get("response", {})
+                            
+                            # Check if it's an embedding response
+                            if "embeddings" in res and res["embeddings"]:
+                                parsed_val = res["embeddings"][0].get("values", [])
                             else:
-                                text = "{}"
+                                # Standard generation response
+                                candidates = res.get("candidates", [])
+                                if candidates and candidates[0].get("content", {}).get("parts"):
+                                    parsed_val = candidates[0]["content"]["parts"][0].get("text", "{}")
+                                else:
+                                    parsed_val = "{}"
                                 
                             custom_id = id_map.get(str(i))
                             if custom_id:
-                                results[custom_id] = text
+                                results[custom_id] = parsed_val
                         except Exception as e:
                             print(f"Error parsing batch output line: {e}")
                             

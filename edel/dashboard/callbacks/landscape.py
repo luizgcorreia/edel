@@ -105,7 +105,10 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
 
                 if is_2d:
                     for ann in fig.layout.annotations:
-                        ann.visible = show_vectors
+                        if hasattr(ann, 'text') and ann.text:
+                            ann.visible = show_regions
+                        else:
+                            ann.visible = show_vectors
                 return fig
 
             return apply_layers(fig_3d), apply_layers(fig_2d, is_2d=True)

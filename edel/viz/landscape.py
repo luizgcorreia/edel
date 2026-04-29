@@ -151,8 +151,15 @@ def plot_landscape_3d(
             if zi is not None:
                 x_min = xi.min()
                 y_min = yi.min()
-                dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
-                dy = yi[1,0] - yi[0,0] if len(yi) > 1 else 1.0
+                if len(xi.shape) > 1:
+                    dx = xi[0,1] - xi[0,0] if xi.shape[1] > 1 else 1.0
+                else:
+                    dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
+                    
+                if len(yi.shape) > 1:
+                    dy = yi[1,0] - yi[0,0] if yi.shape[0] > 1 else 1.0
+                else:
+                    dy = yi[1] - yi[0] if len(yi) > 1 else 1.0
                 c_ix = np.clip(np.floor((df_papers[x_col] - (x_min - dx/2)) / dx).astype(int), 0, zi.shape[1]-1)
                 c_iy = np.clip(np.floor((df_papers[y_col] - (y_min - dy/2)) / dy).astype(int), 0, zi.shape[0]-1)
                 df_papers["peak_height"] = zi[c_iy, c_ix]
@@ -168,7 +175,7 @@ def plot_landscape_3d(
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"{first_author}, {year}")
+            labels.append(f"<b>{first_author}</b><br>{year}")
             
         # Re-calculate Z for these specific points to ensure they sit on the surface
         if raw_metric in top_papers.columns:
@@ -295,7 +302,7 @@ def plot_landscape_contour(
         go.Contour(
             z=zi, x=x_coords, y=y_coords,
             colorscale="Viridis",
-            contours=dict(showlabels=True, labelfont=dict(size=10, color="white")),
+            contours=dict(showlabels=False),
             colorbar=dict(title=z_label),
             opacity=0.8,
             name="Terrain Contours"
@@ -304,6 +311,8 @@ def plot_landscape_contour(
     
     if show_frontier and explored_mask is not None:
         fig.update_layout(plot_bgcolor="rgba(60, 60, 60, 1)") # Distinct gray for unexplored
+    else:
+        fig.update_layout(plot_bgcolor="#440154") # Lowest Viridis color for seamless background
 
     # 2. Add Scatter (2D)
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
@@ -318,6 +327,7 @@ def plot_landscape_contour(
         df_plot, x=x_col, y=y_col,
         color=color_col, symbol=symbol_col,
         opacity=0.3,
+        render_mode="svg"
     )
     
     # Add hover data if available
@@ -371,10 +381,13 @@ def plot_landscape_contour(
             if zi is not None:
                 x_min = xi.min()
                 y_min = yi.min()
-                dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
-                # Fix for contour map 1D arrays vs 3D meshgrids
+                if len(xi.shape) > 1:
+                    dx = xi[0,1] - xi[0,0] if xi.shape[1] > 1 else 1.0
+                else:
+                    dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
+                    
                 if len(yi.shape) > 1:
-                    dy = yi[1,0] - yi[0,0] if len(yi) > 1 else 1.0
+                    dy = yi[1,0] - yi[0,0] if yi.shape[0] > 1 else 1.0
                 else:
                     dy = yi[1] - yi[0] if len(yi) > 1 else 1.0
                 c_ix = np.clip(np.floor((df_papers[x_col] - (x_min - dx/2)) / dx).astype(int), 0, zi.shape[1]-1)
@@ -392,19 +405,20 @@ def plot_landscape_contour(
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"{first_author}, {year}")
+            labels.append(f"<b>{first_author}</b><br>{year}")
             
         fig.add_trace(go.Scatter(
             x=top_papers[x_col],
             y=top_papers[y_col],
             mode='markers+text',
-            marker=dict(size=8, color='white', line=dict(width=1, color='black')),
+            marker=dict(size=8, color='lightgray', line=dict(width=1, color='black')),
             text=labels,
             textposition="top center",
-            textfont=dict(color="white", size=10, weight="bold"),
+            textfont=dict(color="white", size=10),
             name="Relevant Papers",
             showlegend=False,
-            hoverinfo='skip'
+            hoverinfo='skip',
+            cliponaxis=False
         ))
 
     # Add Region Boundaries and Labels
@@ -445,16 +459,15 @@ def plot_landscape_contour(
                     if c_info and "proposed_label" in c_info:
                         display_name = c_info["proposed_label"]
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=[cx], y=[cy],
-                        mode='text',
-                        text=[display_name],
-                        textfont=dict(size=12, color="white", weight="bold"),
-                        name="Domain Regions",
-                        showlegend=False,
-                        hoverinfo='skip'
-                    )
+                fig.add_annotation(
+                    x=cx, y=cy,
+                    text=display_name,
+                    showarrow=False,
+                    font=dict(size=12, color="white", weight="bold"),
+                    bgcolor="rgba(0,0,0,0.3)",
+                    bordercolor="rgba(255,255,255,0.3)",
+                    borderwidth=1,
+                    borderpad=3
                 )
 
     # 3. Add Vector Field Overlay
@@ -469,9 +482,14 @@ def plot_landscape_contour(
 
     _add_manual_legends_2d(fig, df_plot, color_col, symbol_col, label_results)
 
+    x_min, x_max = x_coords[0], x_coords[-1]
+    y_min, y_max = y_coords[0], y_coords[-1]
+
     fig.update_layout(
         title=title or f"2D Epistemic Landscape Contour Map: {topic_name}" if topic_name else "2D Epistemic Landscape Contour Map",
         xaxis_title=x_label, yaxis_title=y_label,
+        xaxis=dict(range=[x_min, x_max], showgrid=True, zeroline=False),
+        yaxis=dict(range=[y_min, y_max], showgrid=True, zeroline=False),
         width=1280, height=800, # 16:10 aspect ratio
         autosize=False,
         legend=dict(
@@ -481,8 +499,6 @@ def plot_landscape_contour(
             bordercolor="rgba(0,0,0,0.2)",
             borderwidth=1
         ),
-        yaxis=dict(range=[yi.min(), yi.max()]),
-        xaxis=dict(range=[xi.min(), xi.max()]),
         margin=dict(l=80, r=100, b=80, t=80) 
     )
 

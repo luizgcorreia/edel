@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -154,61 +155,118 @@ def process_simple(
 
 
 def process_batch(
-    df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None
+    df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None, batch_log_path: Path | None = None
 ) -> dict[str, str]:
-    """Process abstracts using Batch API with optimal chunking."""
+    """Process abstracts using Batch API with optimal chunking and resume capabilities."""
     
     total_items = len(df)
     all_results = {}
+    active_batches = []
     
-    # Split dataframe into chunks of batch_size
-    num_chunks = (total_items + batch_size - 1) // batch_size
-    print(f"Dividing {total_items} items into {num_chunks} batch(es) (size: {batch_size}).")
+    if batch_log_path and batch_log_path.exists():
+        try:
+            with open(batch_log_path, 'r') as f:
+                active_batches = json.load(f)
+            print(f"Loaded {len(active_batches)} existing batch jobs from log.")
+        except Exception as e:
+            print(f"Warning: Failed to load batch log: {e}")
 
-    for i in range(num_chunks):
-        start_idx = i * batch_size
-        end_idx = min((i + 1) * batch_size, total_items)
-        df_chunk = df.iloc[start_idx:end_idx]
-        
-        print(f"\n--- Processing Batch {i+1}/{num_chunks} ({len(df_chunk)} items) ---")
-        
-        prompts = {}
-        for idx, row in df_chunk.iterrows():
-            prompts[f"request-{idx}"] = create_structuring_prompt(
-                title=row["title"],
-                abstract_text=row["abstract_text"],
-                keywords=row.get("keywords", []),
-                topic=topic,
-            )
-
-        batch_id = client.create_batch(prompts)
-        print(f"Started batch job: {batch_id}. Waiting for completion...")
-
-        while True:
-            status_info = client.poll_batch(batch_id)
-            status = status_info["status"]
-            counts = status_info["request_counts"]
-            print(
-                f"[{time.strftime('%H:%M:%S')}] Status: {status}, "
-                f"Completed: {counts.get('completed', 0)}/{counts.get('total', 0)}"
-            )
+    # 1. Initial poll of existing batches to see what's done
+    remaining_batches = []
+    for b_id in active_batches:
+        try:
+            status_info = client.poll_batch(b_id)
+            if status_info["status"] == "completed" and status_info["results"]:
+                all_results.update(status_info["results"])
+                print(f"Recovered completed batch {b_id[:25]}...")
+            elif status_info["status"] in ["failed", "cancelled", "expired"]:
+                print(f"Batch {b_id[:25]}... failed. Discarding from tracking.")
+            else:
+                remaining_batches.append(b_id)
+        except Exception as e:
+            print(f"Connection error while polling existing batch {b_id[:25]}... : {e}. Will retry.")
+            remaining_batches.append(b_id)
             
-            if status in ["completed", "failed", "cancelled", "expired"]:
-                break
-            time.sleep(60)
+    active_batches = remaining_batches
 
-        if status == "completed" and status_info["results"]:
-            all_results.update(status_info["results"])
-            print(f"Batch {i+1} completed and results collected.")
-        else:
-            msg = f"Batch {i+1} failed or was incomplete. Status: {status}"
-            print(msg)
-            raise RuntimeError(msg)
+    # 2. Find missing items that were not recovered from existing completed batches
+    missing_indices = [idx for idx in df.index if f"request-{idx}" not in all_results]
+    
+    if missing_indices:
+        df_missing = df.loc[missing_indices]
+        total_missing = len(df_missing)
+        num_chunks = (total_missing + batch_size - 1) // batch_size
+        print(f"Submitting {total_missing} missing items in {num_chunks} batch(es)...")
+        
+        for i in range(num_chunks):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, total_missing)
+            df_chunk = df_missing.iloc[start_idx:end_idx]
             
+            prompts = {}
+            for idx, row in df_chunk.iterrows():
+                prompts[f"request-{idx}"] = create_structuring_prompt(
+                    title=row["title"],
+                    abstract_text=row["abstract_text"],
+                    keywords=row.get("keywords", []),
+                    topic=topic,
+                )
+            
+            try:
+                batch_id = client.create_batch(prompts)
+                active_batches.append(batch_id)
+                print(f"Started new batch job: {batch_id[:25]}...")
+            except Exception as e:
+                print(f"Failed to submit batch chunk {i+1}: {e}")
+                
+        # Save updated active batches to disk immediately
+        if batch_log_path:
+            with open(batch_log_path, 'w') as f:
+                json.dump(active_batches, f, indent=2)
+    else:
+        print("All items successfully recovered from log! No new batches needed.")
+
+    # 3. Continuous Poll loop for all active batches
+    while active_batches:
+        print(f"Waiting for {len(active_batches)} batch(es) to complete... next check in 60s")
+        time.sleep(60)
+        
+        remaining = []
+        for b_id in active_batches:
+            try:
+                status_info = client.poll_batch(b_id)
+                status = status_info["status"]
+                counts = status_info["request_counts"]
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... Status: {status}, "
+                    f"Completed: {counts.get('completed', 0)}/{counts.get('total', 0)}"
+                )
+                
+                if status == "completed":
+                    if status_info["results"]:
+                        all_results.update(status_info["results"])
+                        print(f"Batch {b_id[:25]}... completed and results collected.")
+                    # Dropped from remaining list because it's done
+                elif status in ["failed", "cancelled", "expired"]:
+                    print(f"Batch {b_id[:25]}... failed ({status}).")
+                    raise RuntimeError(f"Batch failed: {status}")
+                else:
+                    remaining.append(b_id)
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error while polling batch {b_id[:25]}... : {e}. Will retry...")
+                remaining.append(b_id)
+                
+        active_batches = remaining
+        
+        # Save state as batches complete so we don't poll them again if we crash
+        if batch_log_path:
+            with open(batch_log_path, 'w') as f:
+                json.dump(active_batches, f, indent=2)
+                
     return all_results
 
 
-def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, dict[str, int]]:
+def run_structuring_stage(df: pd.DataFrame, config: dict, base_path: str | Path = "artifacts") -> tuple[pd.DataFrame, dict[str, int]]:
     """Run the Stage 2 pipeline: Abstract Structuring."""
     stage_cfg = config.get("structured_abstracts", {})
     processing_mode = config.get("processing_mode", "simple")
@@ -238,8 +296,15 @@ def run_structuring_stage(df: pd.DataFrame, config: dict) -> tuple[pd.DataFrame,
 
     # 3. Process
     if processing_mode == "batch":
+        from edel.io.artifact import make_stage_artifact
         batch_size = stage_cfg.get("batch_size", 1000)
-        results = process_batch(df_filtered, client, batch_size, topic)
+        
+        # Determine the batch log artifact path so we can save/resume the batch IDs
+        batch_log_art = make_stage_artifact(config, Path(base_path), "structured_abstracts", "batch_log")
+        batch_log_path = batch_log_art.path_prefix.with_suffix(".json")
+        batch_log_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        results = process_batch(df_filtered, client, batch_size, topic, batch_log_path=batch_log_path)
     else:
         results = process_simple(df_filtered, client, topic)
 

@@ -20,8 +20,12 @@ def run_landscape_stage(
     py_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
     
     if px_col in df.columns:
-        x_range = (df[px_col].min(), df[px_col].max())
-        y_range = (df[py_col].min(), df[py_col].max())
+        x_min, x_max = df[px_col].min(), df[px_col].max()
+        y_min, y_max = df[py_col].min(), df[py_col].max()
+        dx_pad = (x_max - x_min) * 0.10
+        dy_pad = (y_max - y_min) * 0.10
+        x_range = (x_min - dx_pad, x_max + dx_pad)
+        y_range = (y_min - dy_pad, y_max + dy_pad)
     else:
         x_range, y_range = None, None
 

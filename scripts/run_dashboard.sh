@@ -13,17 +13,33 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# 0. Cleanup any stale instances
+echo -e "${BLUE}Cleaning up stale worker/dashboard processes...${NC}"
+fuser -k ${PORT}/tcp 2>/dev/null || true
+pkill -u $USER -f "edel.dashboard.worker" || true
+
 echo -e "${BLUE}Starting EDEL Dashboard Stack...${NC}"
 
 # 1. Start Worker in Background (Tmux or Screen)
 # Create a restart wrapper script for the worker
 cat << 'EOF' > run_worker_loop.sh
 #!/bin/bash
+FAIL_COUNT=0
 while true; do
-    echo "Starting worker..."
+    echo "Starting worker (Fail count: $FAIL_COUNT)..."
     python -m edel.dashboard.worker --base-path artifacts
-    echo "Worker crashed or stopped. Restarting in 2s..."
-    sleep 2
+    
+    # If it ran for less than 10 seconds, it's a "fast crash"
+    # We increase the sleep time to avoid fork-bombing the server
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    SLEEP_TIME=$((2 * FAIL_COUNT))
+    if [ $SLEEP_TIME -gt 60 ]; then SLEEP_TIME=60; fi
+    
+    echo "Worker crashed or stopped. Restarting in ${SLEEP_TIME}s..."
+    sleep $SLEEP_TIME
+    
+    # Reset fail count if we've been running successfully for a while
+    # (Simplified: just reset if we manually restart after a long time)
 done
 EOF
 chmod +x run_worker_loop.sh

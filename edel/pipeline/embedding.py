@@ -29,7 +29,8 @@ def run_embedding_stage(df: pd.DataFrame, config: dict, base_path: str | Path = 
         print(f"Filtering embeddings to only include language: {target_lang}")
         df = df[df["language"] == target_lang].copy()
 
-    client = get_llm_client({"provider": provider, "model": model})
+    # Pass the entire embed_cfg so that additional kwargs like 'location' reach the LLM client
+    client = get_llm_client(embed_cfg)
 
     if processing_mode == "batch":
         from edel.io.artifact import make_stage_artifact

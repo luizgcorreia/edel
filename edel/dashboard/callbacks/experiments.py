@@ -262,7 +262,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     data = pipeline.run_embedding_stage(prev_data, config)
                 elif stage_name == "dimensionality_reduction":
                     prev_art = make_stage_artifact(config, base_path, "embeddings", "embeddings")
-                    data = pipeline.run_projection_stage(load_artifact(prev_art), config)
+                    data, report = pipeline.run_projection_stage(load_artifact(prev_art), config)
                 elif stage_name == "vector_field":
                     prev_art = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
                     field = pipeline.run_vector_field_stage(load_artifact(prev_art), config)

@@ -380,9 +380,9 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             print(traceback.format_exc())
             return f"Error parsing paper data: {e}", dash.no_update, dash.no_update, search_val
 
-    # --- Download Callback ---
+    # --- Save to Artifacts Callback ---
     @app.callback(
-        Output("download-map-file", "data"),
+        Output("map-save-status", "children"),
         [Input("btn-download-png", "n_clicks"),
          Input("btn-download-html", "n_clicks")],
         [State("map-view-mode", "value"),
@@ -393,7 +393,7 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
          State("map-experiment-select", "value")],
         prevent_initial_call=True
     )
-    def download_map(png_clicks, html_clicks, view_mode, fig_3d, fig_2d, relayout_3d, relayout_2d, experiment_name):
+    def save_map_to_artifacts(png_clicks, html_clicks, view_mode, fig_3d, fig_2d, relayout_3d, relayout_2d, experiment_name):
         ctx = callback_context
         if not ctx.triggered or not experiment_name:
             raise PreventUpdate
@@ -405,7 +405,7 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
         relayout = relayout_3d if view_mode == "3d" else relayout_2d
         
         if not fig_dict:
-            raise PreventUpdate
+            return "Error: No figure to save."
             
         # Create a real Figure object from the dict
         fig = go.Figure(fig_dict)
@@ -414,7 +414,6 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
         if relayout:
             for k, v in relayout.items():
                 if k == "autosize": continue
-                # Handle nested keys like 'scene.camera' or 'xaxis.range'
                 keys = k.split('.')
                 if len(keys) == 1:
                     fig.update_layout({k: v})
@@ -423,11 +422,31 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 elif len(keys) == 3:
                     fig.update_layout({keys[0]: {keys[1]: {keys[2]: v}}})
 
-        filename_base = f"edel_{experiment_name}_{view_mode}"
+        # Construct path
+        output_dir = base_path / experiment_name / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        if triggered_id == "btn-download-html":
-            return dcc.send_string(fig.to_html(), f"{filename_base}.html")
-        else:
-            # PNG Download
-            img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
-            return dcc.send_bytes(img_bytes, f"{filename_base}.png")
+        filename_base = f"landscape_{view_mode}"
+        
+        try:
+            if triggered_id == "btn-download-html":
+                filename = f"{filename_base}.html"
+                save_path = output_dir / filename
+                fig.write_html(str(save_path))
+            else:
+                # PNG Save with conditional resolution based on view mode
+                filename = f"{filename_base}.png"
+                save_path = output_dir / filename
+                
+                if view_mode == "3d":
+                    # 20cm @ 300 DPI = ~2362px width
+                    w, h, s = 2362, 1476, 2
+                else:
+                    # 60cm @ 300 DPI = ~7087px width
+                    w, h, s = 7087, 4430, 3
+                    
+                fig.write_image(str(save_path), width=w, height=h, scale=s)
+            
+            return f"✓ Saved to {filename}"
+        except Exception as e:
+            return f"Error saving file: {str(e)}"

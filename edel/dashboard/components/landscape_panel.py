@@ -123,17 +123,18 @@ def landscape_panel_layout() -> dbc.Container:
                         html.Hr(),
                         
                         html.Div([
-                            html.H6("Export Map", className="mb-2"),
+                            html.H6("Export Map to Artifacts", className="mb-2"),
                             dcc.Loading(
                                 id="loading-export",
                                 type="circle",
                                 children=[
                                     dbc.ButtonGroup([
-                                        dbc.Button("Download PNG", id="btn-download-png", color="outline-primary", size="sm"),
-                                        dbc.Button("Download HTML", id="btn-download-html", color="outline-primary", size="sm"),
+                                        dbc.Button("Save PNG", id="btn-download-png", color="outline-primary", size="sm"),
+                                        dbc.Button("Save HTML", id="btn-download-html", color="outline-primary", size="sm"),
                                     ], className="w-100"),
                                 ]
                             ),
+                            html.Div(id="map-save-status", className="mt-2 small text-success fw-bold"),
                             dcc.Download(id="download-map-file")
                         ])
                     ])

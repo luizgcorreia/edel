@@ -185,7 +185,7 @@ def plot_landscape_3d(
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"<b>{first_author}</b><br>{year}")
+            labels.append(f"(<b>{first_author}, {year}</b>)")
             
         # Re-calculate Z for these specific points to ensure they sit on the surface
         if raw_metric in top_papers.columns:
@@ -424,7 +424,7 @@ def plot_landscape_contour(
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"<b>{first_author}</b><br>{year}")
+            labels.append(f"({first_author}, {year})")
             
         fig.add_trace(go.Scatter(
             x=top_papers[x_col],

@@ -184,8 +184,9 @@ def plot_landscape_3d(
         for _, row in top_papers.iterrows():
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
+            last_name = first_author.split()[-1] if first_author != "Unknown" else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"(<b>{first_author}, {year}</b>)")
+            labels.append(f"{last_name} ({year})")
             
         # Re-calculate Z for these specific points to ensure they sit on the surface
         if raw_metric in top_papers.columns:
@@ -200,10 +201,9 @@ def plot_landscape_3d(
             y=top_papers[y_col],
             z=tp_z_vals,
             mode='markers+text',
-            marker=dict(size=6, color='white', line=dict(width=2, color='black')),
             text=labels,
             textposition="top center",
-            textfont=dict(color="white", size=10),
+            textfont=dict(color="white", size=11, family="Arial Black"),
             name="Relevant Papers",
             showlegend=False,
             hoverinfo='skip'
@@ -423,8 +423,9 @@ def plot_landscape_contour(
         for _, row in top_papers.iterrows():
             authors_list = parse_authorships(row.get("authorships", ""))
             first_author = authors_list[0].get("name", "Unknown") if authors_list else "Unknown"
+            last_name = first_author.split()[-1] if first_author != "Unknown" else "Unknown"
             year = str(row.get("publication_year", ""))[:4]
-            labels.append(f"({first_author}, {year})")
+            labels.append(f"{last_name} ({year})")
             
         fig.add_trace(go.Scatter(
             x=top_papers[x_col],
@@ -433,7 +434,7 @@ def plot_landscape_contour(
             marker=dict(size=8, color='lightgray', line=dict(width=1, color='black')),
             text=labels,
             textposition="top center",
-            textfont=dict(color="white", size=10),
+            textfont=dict(color="white", size=12, family="Arial Black"),
             name="Relevant Papers",
             showlegend=False,
             hoverinfo='skip',

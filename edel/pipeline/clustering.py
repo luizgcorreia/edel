@@ -72,7 +72,6 @@ def run_clustering_stage(
                         if clip_y_max is not None: mask &= (out_df[y_col] <= clip_y_max)
                         
                         out_df = out_df[mask.values].copy().reset_index(drop=True)
-                        out_field = out_field[mask.values].copy().reset_index(drop=True) if not out_field.empty else out_field
                         
                         dropped = initial_len - len(out_df)
                         print(f"Clipping applied: dropped {dropped} works outside bounds.")

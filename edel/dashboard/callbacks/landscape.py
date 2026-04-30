@@ -429,20 +429,25 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
         filename_base = f"landscape_{view_mode}"
         
         try:
+            # Configure high-res download options for the HTML toolbar
+            if view_mode == "3d":
+                export_config = {'toImageButtonOptions': {'width': 2362, 'height': 1476, 'scale': 2, 'format': 'png', 'filename': f'landscape_3d_highres'}}
+            else:
+                export_config = {'toImageButtonOptions': {'width': 7087, 'height': 4430, 'scale': 3, 'format': 'png', 'filename': f'landscape_2d_highres'}}
+
             if triggered_id == "btn-download-html":
                 filename = f"{filename_base}.html"
                 save_path = output_dir / filename
-                fig.write_html(str(save_path))
+                # Embed the high-res config so the browser-side "Download as PNG" button works at 300 DPI
+                fig.write_html(str(save_path), config=export_config)
             else:
-                # PNG Save with conditional resolution based on view mode
+                # PNG Save (Server-side)
                 filename = f"{filename_base}.png"
                 save_path = output_dir / filename
                 
                 if view_mode == "3d":
-                    # 20cm @ 300 DPI = ~2362px width
                     w, h, s = 2362, 1476, 2
                 else:
-                    # 60cm @ 300 DPI = ~7087px width
                     w, h, s = 7087, 4430, 3
                     
                 fig.write_image(str(save_path), width=w, height=h, scale=s)

@@ -51,7 +51,7 @@ def scan_artifact_stages(base_path: str | Path) -> list[str]:
 # DataFrame display helpers
 # ---------------------------------------------------------------------------
 
-def df_to_dash_columns(df: pd.DataFrame, max_cols: int = 30) -> list[dict]:
+def df_to_dash_columns(df: pd.DataFrame, max_cols: int = 100) -> list[dict]:
     """Convert DataFrame columns to Dash DataTable column descriptors."""
     cols = list(df.columns)[:max_cols]
     return [{"name": c, "id": c} for c in cols]

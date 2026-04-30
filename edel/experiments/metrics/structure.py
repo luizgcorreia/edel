@@ -44,7 +44,8 @@ def structure_metrics(artifacts: dict) -> dict:
     try:
         kmeans_ops = KMeans(n_clusters=3, n_init=20, random_state=0)
         pred_ops = kmeans_ops.fit_predict(X_ops)
-        metrics["silhouette_transitions"] = float(silhouette_score(X_ops, pred_ops))
+        # Capping silhouette at 10,000 samples to avoid O(N^2) explosion with large datasets
+        metrics["silhouette_transitions"] = float(silhouette_score(X_ops, pred_ops, sample_size=10000))
     except Exception as e:
         print(f"Warning [structure_metrics]: silhouette_transitions failed: {e}")
         metrics["silhouette_transitions"] = float("nan")
@@ -58,7 +59,7 @@ def structure_metrics(artifacts: dict) -> dict:
         if len(X_feat) >= 4:  # silhouette_score needs at least k+1 samples
             kmeans_feat = KMeans(n_clusters=3, n_init=20, random_state=0)
             pred_feat = kmeans_feat.fit_predict(X_feat)
-            metrics["silhouette_features"] = float(silhouette_score(X_feat, pred_feat))
+            metrics["silhouette_features"] = float(silhouette_score(X_feat, pred_feat, sample_size=10000))
         else:
             metrics["silhouette_features"] = float("nan")
     except Exception as e:

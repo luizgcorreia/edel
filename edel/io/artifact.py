@@ -100,6 +100,11 @@ class Artifact:
         """Pickle file path for generic Python artifacts."""
         return self.path_prefix.with_suffix(".pkl")
 
+    @property
+    def json_path(self) -> Path:
+        """JSON file path for editable/human-readable artifacts."""
+        return self.path_prefix.with_suffix(".json")
+
 
 def stable_hash(config: dict) -> str:
     """Return a stable MD5 hash from a JSON-serializable config dict."""
@@ -213,6 +218,9 @@ def load_artifact(artifact: Artifact) -> Any:
     if artifact.parquet_path.exists():
         import pandas as pd
         return pd.read_parquet(artifact.parquet_path)
+    if artifact.json_path.exists():
+        with open(artifact.json_path, "r") as f:
+            return json.load(f)
     if artifact.pkl_path.exists():
         with open(artifact.pkl_path, "rb") as f:
             return pickle.load(f)

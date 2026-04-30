@@ -52,6 +52,11 @@ def run_clustering_stage(
                 continue
 
             seed = config.get("random_seed", 42)
+            
+            # Default normalization to False for projections, True for raw embeddings
+            if "normalize" not in params:
+                params["normalize"] = False if source.startswith("proj_") else True
+                
             labels = run_clustering(X, algorithm, params, random_seed=seed)
 
             colname = f"cluster_{name}"
@@ -213,9 +218,16 @@ def compute_transition_features(df: pd.DataFrame, dimensions: int) -> np.ndarray
 def run_clustering(X: np.ndarray, algorithm: str, params: dict, random_seed: int = 42) -> np.ndarray:
     """Run the specified clustering algorithm on the matrix X."""
     params = params.copy()
-    # Centering and Normalizing
-    X_norm = X - np.mean(X, axis=0)
-    X_norm = normalize(X_norm, axis=1)
+    
+    # Optional Normalization (defaults to False for projections, True for embeddings)
+    should_normalize = params.pop("normalize", False)
+    
+    if should_normalize:
+        print("Normalizing data for clustering...")
+        X_norm = X - np.mean(X, axis=0)
+        X_norm = normalize(X_norm, axis=1)
+    else:
+        X_norm = X
 
     if algorithm == "kmeans":
         if "random_state" not in params:

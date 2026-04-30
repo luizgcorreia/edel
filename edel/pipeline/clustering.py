@@ -48,10 +48,10 @@ def run_clustering_stage(
                 continue
                 
             # --- NEW CLIPPING LOGIC ---
-            clip_x_min = params.get("x_min")
-            clip_x_max = params.get("x_max")
-            clip_y_min = params.get("y_min")
-            clip_y_max = params.get("y_max")
+            clip_x_min = params.pop("x_min", None)
+            clip_x_max = params.pop("x_max", None)
+            clip_y_min = params.pop("y_min", None)
+            clip_y_max = params.pop("y_max", None)
             
             if any(v is not None for v in [clip_x_min, clip_x_max, clip_y_min, clip_y_max]):
                 if source.startswith("proj_"):
@@ -71,8 +71,8 @@ def run_clustering_stage(
                         if clip_y_min is not None: mask &= (out_df[y_col] >= clip_y_min)
                         if clip_y_max is not None: mask &= (out_df[y_col] <= clip_y_max)
                         
-                        out_df = out_df[mask].copy().reset_index(drop=True)
-                        out_field = out_field[mask].copy().reset_index(drop=True) if not out_field.empty else out_field
+                        out_df = out_df[mask.values].copy().reset_index(drop=True)
+                        out_field = out_field[mask.values].copy().reset_index(drop=True) if not out_field.empty else out_field
                         
                         dropped = initial_len - len(out_df)
                         print(f"Clipping applied: dropped {dropped} works outside bounds.")

@@ -19,7 +19,7 @@ dependencies = [
     "plotly",
     "matplotlib",
     "seaborn",
-    "kaleido",
+    "kaleido>=1.2.0",
     "nbformat",
     "tqdm",
     "pyarrow",

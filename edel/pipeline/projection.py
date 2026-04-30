@@ -65,7 +65,7 @@ def prepare_matrix(X: np.ndarray) -> np.ndarray:
     return X_norm
 
 
-def get_reducer(method: str, config: dict, global_seed: int = 42) -> Any:
+def get_reducer(method: str, config: dict, X: np.ndarray | None = None, global_seed: int = 42) -> Any:
     """Initialize a dimensionality reduction object based on config."""
     random_state = config.get("random_state", global_seed)
     n_components = config.get("n_components", 2)
@@ -85,7 +85,61 @@ def get_reducer(method: str, config: dict, global_seed: int = 42) -> Any:
     elif method == "diffusion":
         if pydiffmap is None:
             raise ImportError("pydiffmap is not installed")
-        k = pydiffmap.kernel.Kernel(epsilon=1, metric="cosine")
+            
+        k_neighbors = config.get("diffusion_k", 30)
+        adaptive_k = config.get("diffusion_adaptive_k", None)
+        epsilon_cfg = config.get("diffusion_epsilon", "bgh")
+        
+        # 1. Compute Epsilon
+        epsilon_val = epsilon_cfg
+        if epsilon_cfg == "median":
+            if X is None:
+                logger.warning("Cannot compute median epsilon without X, falling back to 'bgh'")
+                epsilon_val = "bgh"
+            else:
+                # Subsample to avoid memory explosion when computing pairwise distances
+                from sklearn.metrics import pairwise_distances
+                sample_size = min(len(X), 5000)
+                indices = np.random.RandomState(random_state).choice(len(X), sample_size, replace=False)
+                X_sample = X[indices]
+                # We use cosine distances
+                D = pairwise_distances(X_sample, metric="cosine")
+                # Median of upper triangle
+                median_d = np.median(D[np.triu_indices_from(D, k=1)])
+                epsilon_val = float(median_d ** 2)
+                logger.info(f"Computed median epsilon for diffusion: {epsilon_val:.4f}")
+                
+        # 2. Adaptive Kernel (Local Scaling)
+        bandwidth_fxn = None
+        if adaptive_k is not None:
+            class AdaptiveBandwidth:
+                def __init__(self, k_bwd):
+                    self.k_bwd = k_bwd
+                    self.neigh = None
+                    
+                def __call__(self, Z):
+                    from sklearn.neighbors import NearestNeighbors
+                    if self.neigh is None:
+                        # Fit time
+                        self.neigh = NearestNeighbors(n_neighbors=self.k_bwd, metric='cosine')
+                        self.neigh.fit(Z)
+                        distances, _ = self.neigh.kneighbors(Z)
+                        return np.maximum(distances[:, -1], 1e-6)
+                    else:
+                        # Transform time
+                        n_query = min(self.k_bwd, self.neigh.n_samples_fit_)
+                        distances, _ = self.neigh.kneighbors(Z, n_neighbors=n_query)
+                        return np.maximum(distances[:, -1], 1e-6)
+            
+            bandwidth_fxn = AdaptiveBandwidth(adaptive_k)
+            logger.info(f"Using adaptive local scaling with k={adaptive_k}")
+            
+        k = pydiffmap.kernel.Kernel(
+            epsilon=epsilon_val, 
+            metric="cosine",
+            k=k_neighbors,
+            bandwidth_type=bandwidth_fxn
+        )
         return pydiffmap.diffusion_map.DiffusionMap(
             kernel_object=k,
             alpha=0.5,
@@ -158,7 +212,7 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         X_prep = prepare_matrix(X)
         
         seed = config.get("random_seed", 42)
-        reducer = get_reducer(method, dr_cfg, global_seed=seed)
+        reducer = get_reducer(method, dr_cfg, X=X_prep, global_seed=seed)
         coords = reducer.fit_transform(X_prep)
         
         out[f"proj_{method}_x"] = coords[:, 0]
@@ -194,7 +248,7 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         X_primary_prep = prepare_matrix(X_primary)
         
         seed = config.get("random_seed", 42)
-        reducer = get_reducer(method, dr_cfg, global_seed=seed)
+        reducer = get_reducer(method, dr_cfg, X=X_primary_prep, global_seed=seed)
         coords_primary = reducer.fit_transform(X_primary_prep)
         
         # Save primary results

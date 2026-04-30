@@ -195,7 +195,7 @@ def calculate_signatures_and_magnitudes(df: pd.DataFrame, dimensions: int) -> pd
     return df
 
 
-def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, dict]:
     """Orchestrate the dimensionality reduction stage."""
     dr_cfg = config.get("dimensionality_reduction", {})
     method = dr_cfg.get("method", "umap")
@@ -204,6 +204,7 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     dimensions = config.get("embedding", {}).get("n_dimensions", 1536)
     
     out = df.copy()
+    report = {}
 
     # Determine which columns to project
     # Support both 'single' (embedding) and 'multi' (problem_embedding, etc.)
@@ -223,6 +224,9 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         reducer = get_reducer(method, dr_cfg, X=X_prep, global_seed=seed)
         coords = reducer.fit_transform(X_prep)
         
+        if method == "diffusion" and hasattr(reducer, "evals"):
+            report["evals"] = reducer.evals.tolist()
+            
         out[f"proj_{method}_x"] = coords[:, 0]
         out[f"proj_{method}_y"] = coords[:, 1]
         if coords.shape[1] > 2:
@@ -259,6 +263,9 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         reducer = get_reducer(method, dr_cfg, X=X_primary_prep, global_seed=seed)
         coords_primary = reducer.fit_transform(X_primary_prep)
         
+        if method == "diffusion" and hasattr(reducer, "evals"):
+            report["evals"] = reducer.evals.tolist()
+            
         # Save primary results
         out[f"proj_{primary_aspect}_{method}_x"] = coords_primary[:, 0]
         out[f"proj_{primary_aspect}_{method}_y"] = coords_primary[:, 1]
@@ -293,4 +300,4 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         print(f"Dropping {len(cols_to_drop)} embedding columns to save memory.")
         out = out.drop(columns=cols_to_drop)
 
-    return out
+    return out, report

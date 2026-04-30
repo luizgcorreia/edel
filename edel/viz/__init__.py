@@ -15,6 +15,7 @@ from edel.viz.projection import (
     plot_movement_magnitudes,
     plot_epistemic_transition_space,
     plot_paper_style_pca,
+    plot_diffusion_eigenvalues,
 )
 from edel.viz.vector_field import (
     plot_vector_field,

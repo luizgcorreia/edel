@@ -85,8 +85,16 @@ def run_full_pipeline(
         print("Stage 4: Loaded existing projection artifact.")
     except (FileNotFoundError, Exception):
         print("Stage 4: Running projection...")
-        df = run_projection_stage(df, config)
-        save_artifact(art_dr, df)
+        res = run_projection_stage(df, config)
+        if isinstance(res, tuple):
+            df, report = res
+            save_artifact(art_dr, df)
+            if report:
+                art_report = make_stage_artifact(config, base_path, "dimensionality_reduction", "report")
+                save_artifact(art_report, report)
+        else:
+            df = res
+            save_artifact(art_dr, df)
     final_results["projection"] = df
 
     # --- Stage 5: Vector Field ---

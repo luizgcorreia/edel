@@ -336,3 +336,42 @@ def plot_paper_style_pca(
     if ylim: plt.ylim(ylim)
     plt.tight_layout()
     plt.show()
+
+def plot_diffusion_eigenvalues(evals: list[float] | np.ndarray, title: str | None = None):
+    """
+    Plot the top eigenvalues from a diffusion map to diagnose graph connectivity.
+    """
+    set_viz_style()
+    
+    evals = np.array(evals)
+    # The eigenvalues should be sorted descending if they aren't already
+    evals = np.sort(evals)[::-1]
+    
+    plt.figure(figsize=(10, 5))
+    
+    # Plot as a bar chart
+    x = np.arange(1, len(evals) + 1)
+    bars = plt.bar(x, evals, color="#3498DB", alpha=0.8, edgecolor="black")
+    
+    # Add value labels on top of the bars
+    for bar, val in zip(bars, evals):
+        plt.text(bar.get_x() + bar.get_width()/2., val + 0.01 * max(evals),
+                 f'{val:.4f}', ha='center', va='bottom', fontsize=9, rotation=0)
+
+    plt.title(title or "Diffusion Map Eigenvalues (Spectrum)", fontsize=14, pad=15)
+    plt.xlabel("Eigenvector Index")
+    plt.ylabel("Eigenvalue Magnitude")
+    plt.xticks(x)
+    plt.grid(True, axis="y", linestyle='--', alpha=0.3)
+    
+    # Add interpretation text
+    if evals[0] >= -1e-5: # essentially zero
+        plt.text(0.95, 0.95, 'Warning: Dominant eigenvalue is ~0.\nGraph may have disconnected components.',
+                 horizontalalignment='right',
+                 verticalalignment='top',
+                 transform=plt.gca().transAxes,
+                 color='#C0392B',
+                 bbox=dict(facecolor='white', alpha=0.8, edgecolor='#C0392B'))
+    
+    plt.tight_layout()
+    plt.show()

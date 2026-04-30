@@ -44,7 +44,7 @@ CANONICAL_ARTIFACT_NAMES = {
     "data_collection": ("dataset", "filter_report", "raw"),
     "structured_abstracts": ("sa", "filter_report"),
     "embeddings": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
-    "dimensionality_reduction": ("dr",),
+    "dimensionality_reduction": ("dr", "report"),
     "vector_field": ("vf",),
     "clustering": ("clustering", "field_clustering"),
     "labeling": ("labeled", "field_labeled", "axes_labeled"),

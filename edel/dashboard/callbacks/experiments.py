@@ -314,7 +314,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 
                 # Load report if available for this stage
                 report = None
-                if (stage_name == "structured_abstracts" or stage_name == "data_collection") and len(art_names) > 1:
+                if (stage_name == "structured_abstracts" or stage_name == "data_collection" or stage_name == "dimensionality_reduction") and len(art_names) > 1:
                     try:
                         report_art = make_stage_artifact(config, base_path, stage_name, art_names[1])
                         report = load_artifact(report_art)
@@ -380,6 +380,10 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     viz_components.append(html.Div("No embedding metrics could be computed.", className="text-muted small"))
 
             elif stage_name == "dimensionality_reduction":
+                if report and "evals" in report:
+                    viz_components.append(html.H5("Diffusion Map Eigenvalues", className="mt-3"))
+                    viz_components.append(capture_matplotlib_plot(viz.plot_diffusion_eigenvalues, report["evals"]))
+                    
                 method = config.get("dimensionality_reduction", {}).get("method", "umap")
                 viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method))
                 viz_components.append(capture_matplotlib_plot(viz.plot_paper_style_pca, data))

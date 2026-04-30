@@ -199,7 +199,10 @@ Summarize the common themes and approaches in JSON format:
   "proposed_label": "1-5 words"
 }}
 
-The label must be different from: {prev_text}
+IMPORTANT INSTRUCTION FOR THE PROPOSED LABEL:
+The proposed label must be highly specific and have MINIMAL OVERLAP with the following previously generated labels:
+[{prev_text}]
+Do not generate generic variations or synonyms of these existing labels. Find the unique distinguishing feature of this specific cluster.
 
 {"Translate the JSON text to Portuguese" if language == "pt" else ""}
 

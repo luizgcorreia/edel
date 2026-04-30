@@ -124,15 +124,23 @@ def get_reducer(method: str, config: dict, X: np.ndarray | None = None, global_s
                         self.neigh = NearestNeighbors(n_neighbors=self.k_bwd, metric='cosine')
                         self.neigh.fit(Z)
                         distances, _ = self.neigh.kneighbors(Z)
-                        return np.maximum(distances[:, -1], 1e-6)
+                        # Use MEAN distance to top k neighbors for smoother scaling
+                        # This is more robust than just the k-th neighbor distance
+                        avg_dist = np.mean(distances, axis=1)
+                        return np.maximum(avg_dist, 1e-4)
                     else:
                         # Transform time
                         n_query = min(self.k_bwd, self.neigh.n_samples_fit_)
                         distances, _ = self.neigh.kneighbors(Z, n_neighbors=n_query)
-                        return np.maximum(distances[:, -1], 1e-6)
+                        avg_dist = np.mean(distances, axis=1)
+                        return np.maximum(avg_dist, 1e-4)
             
             bandwidth_fxn = AdaptiveBandwidth(adaptive_k)
-            logger.info(f"Using adaptive local scaling with k={adaptive_k}")
+            logger.info(f"Using robust adaptive local scaling with k={adaptive_k}")
+            
+            # Ensure epsilon is at least 1.0 to avoid kernel underflow when using adaptive scaling
+            if isinstance(epsilon_val, (int, float)) and epsilon_val < 1.0:
+                epsilon_val = 1.0
             
         k = pydiffmap.kernel.Kernel(
             epsilon=epsilon_val, 

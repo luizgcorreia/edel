@@ -19,6 +19,47 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+def filter_disconnected_components(df: pd.DataFrame, embs_dict: dict, k: int, primary_aspect: str = "problem") -> Tuple[pd.DataFrame, dict, dict]:
+    """
+    Remove papers that belong to disconnected components in the k-NN graph.
+    Returns the filtered dataframe, the filtered embeddings dict, and a report.
+    """
+    from sklearn.neighbors import kneighbors_graph
+    from scipy.sparse.csgraph import connected_components
+    
+    if primary_aspect not in embs_dict:
+        return df, embs_dict, {"n_components_before": 0, "n_dropped": 0}
+        
+    X = embs_dict[primary_aspect]
+    print(f"Building {k}-NN graph to detect disconnected components...")
+    
+    A = kneighbors_graph(X, n_neighbors=k, mode='connectivity', metric='cosine', include_self=True)
+    A = 0.5 * (A + A.T)
+    
+    n_components, labels = connected_components(csgraph=A, directed=False, return_labels=True)
+    
+    if n_components == 1:
+        print("Graph is fully connected. No outliers dropped.")
+        return df, embs_dict, {"n_components_before": 1, "n_dropped": 0}
+        
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    largest_component_label = unique_labels[np.argmax(counts)]
+    
+    mask = labels == largest_component_label
+    n_dropped = int((~mask).sum())
+    
+    print(f"Detected {n_components} components. Dropping {n_dropped} outlier papers.")
+    
+    filtered_df = df[mask].copy().reset_index(drop=True)
+    filtered_embs = {k_name: v_val[mask].copy() for k_name, v_val in embs_dict.items()}
+    
+    report = {
+        "n_components_before": int(n_components),
+        "n_dropped": n_dropped,
+        "largest_component_size": int(mask.sum())
+    }
+    return filtered_df, filtered_embs, report
+
 
 def load_embeddings_to_matrix(
     df: pd.DataFrame, column: str, dimensions: int, dtype=np.float32
@@ -218,6 +259,12 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
             print(f"Applying anisotropy correction ({anisotropy_method})...")
             X = apply_anisotropy_correction({"embedding": X}, method=anisotropy_method, n_components=remove_pc)["embedding"]
             
+        if method == "diffusion" and dr_cfg.get("filter_disconnected", False):
+            k = dr_cfg.get("diffusion_k", 100)
+            out, temp_dict, filt_report = filter_disconnected_components(out, {"embedding": X}, k=k, primary_aspect="embedding")
+            X = temp_dict["embedding"]
+            report["filtering"] = filt_report
+            
         X_prep = prepare_matrix(X)
         
         seed = config.get("random_seed", 42)
@@ -253,6 +300,11 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
             from edel.experiments.metrics.embedding import apply_anisotropy_correction
             print(f"Applying anisotropy correction ({anisotropy_method})...")
             embs_to_proj = apply_anisotropy_correction(embs_to_proj, method=anisotropy_method, n_components=remove_pc)
+
+        if method == "diffusion" and dr_cfg.get("filter_disconnected", False):
+            k = dr_cfg.get("diffusion_k", 100)
+            out, embs_to_proj, filt_report = filter_disconnected_components(out, embs_to_proj, k=k, primary_aspect="problem")
+            report["filtering"] = filt_report
 
         # 1. Fit on 'problem' (legacy logic: problem defines the coordinate system)
         primary_aspect = "problem"

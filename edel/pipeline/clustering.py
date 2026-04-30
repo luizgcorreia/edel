@@ -24,13 +24,14 @@ logger = logging.getLogger(__name__)
 
 def run_clustering_stage(
     df: pd.DataFrame, field: pd.DataFrame, config: dict
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Orchestrate the clustering stage."""
     cluster_cfg = config.get("clustering", {})
     dimensions = config.get("embedding", {}).get("n_dimensions", 1536)
 
     out_df = df.copy()
     out_field = field.copy()
+    reports = {}
 
     for name, cfg in cluster_cfg.items():
         source = cfg.get("source", "proj_p")
@@ -45,6 +46,44 @@ def run_clustering_stage(
                 labels = extract_labels_from_topics(out_df)
                 out_df[f"cluster_{name}"] = labels
                 continue
+                
+            # --- NEW CLIPPING LOGIC ---
+            clip_x_min = params.get("x_min")
+            clip_x_max = params.get("x_max")
+            clip_y_min = params.get("y_min")
+            clip_y_max = params.get("y_max")
+            
+            if any(v is not None for v in [clip_x_min, clip_x_max, clip_y_min, clip_y_max]):
+                if source.startswith("proj_"):
+                    # Determine columns
+                    cols = [c for c in out_df.columns if c.startswith("proj_problem_") and (c.endswith("_x") or c.endswith("_y"))]
+                    if not cols:
+                        cols = [c for c in out_df.columns if c.startswith("proj_") and (c.endswith("_x") or c.endswith("_y"))]
+                    
+                    if len(cols) >= 2:
+                        x_col, y_col = cols[0], cols[1]
+                        if x_col.endswith("_y"): x_col, y_col = y_col, x_col
+                        
+                        initial_len = len(out_df)
+                        mask = pd.Series(True, index=out_df.index)
+                        if clip_x_min is not None: mask &= (out_df[x_col] >= clip_x_min)
+                        if clip_x_max is not None: mask &= (out_df[x_col] <= clip_x_max)
+                        if clip_y_min is not None: mask &= (out_df[y_col] >= clip_y_min)
+                        if clip_y_max is not None: mask &= (out_df[y_col] <= clip_y_max)
+                        
+                        out_df = out_df[mask].copy().reset_index(drop=True)
+                        out_field = out_field[mask].copy().reset_index(drop=True) if not out_field.empty else out_field
+                        
+                        dropped = initial_len - len(out_df)
+                        print(f"Clipping applied: dropped {dropped} works outside bounds.")
+                        reports[f"{name}_clip"] = {
+                            "x_min": clip_x_min, "x_max": clip_x_max,
+                            "y_min": clip_y_min, "y_max": clip_y_max,
+                            "initial_size": initial_len,
+                            "final_size": len(out_df),
+                            "dropped": dropped
+                        }
+            # --------------------------
 
             X = get_clustering_matrix(source, out_df, out_field, dimensions)
             if X is None or len(X) == 0:
@@ -76,7 +115,7 @@ def run_clustering_stage(
         except Exception as e:
             print(f"Error during clustering {name}: {e}")
 
-    return out_df, out_field
+    return out_df, out_field, reports
 
 
 def get_clustering_matrix(

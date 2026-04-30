@@ -46,7 +46,7 @@ CANONICAL_ARTIFACT_NAMES = {
     "embeddings": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
     "dimensionality_reduction": ("dr", "report"),
     "vector_field": ("vf",),
-    "clustering": ("clustering", "field_clustering"),
+    "clustering": ("clustering", "field_clustering", "report"),
     "labeling": ("labeled", "field_labeled", "axes_labeled"),
     "output": ("landscape_results", "experiment_stats"),
 }

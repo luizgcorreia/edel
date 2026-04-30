@@ -119,9 +119,20 @@ def run_full_pipeline(
         print("Stage 6: Loaded existing clustering artifacts.")
     except (FileNotFoundError, Exception):
         print("Stage 6: Running clustering...")
-        df, field = run_clustering_stage(df, field, config)
+        res = run_clustering_stage(df, field, config)
+        if isinstance(res, tuple) and len(res) == 3:
+            df, field, report = res
+        else:
+            df, field = res
+            report = None
+            
         save_artifact(art_cls, df)
         save_artifact(art_fcls, field)
+        
+        if report:
+            art_report = make_stage_artifact(config, base_path, "clustering", "report")
+            save_artifact(art_report, report)
+            
     final_results["clustering_df"] = df
     final_results["clustering_field"] = field
 

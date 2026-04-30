@@ -270,7 +270,11 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 elif stage_name == "clustering":
                     art_df = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
                     art_field = make_stage_artifact(config, base_path, "vector_field", "vf")
-                    data, field = pipeline.run_clustering_stage(load_artifact(art_df), load_artifact(art_field), config)
+                    res = pipeline.run_clustering_stage(load_artifact(art_df), load_artifact(art_field), config)
+                    if isinstance(res, tuple) and len(res) == 3:
+                        data, field, report = res
+                    else:
+                        data, field = res
                 elif stage_name == "labeling":
                     art_df = make_stage_artifact(config, base_path, "clustering", "clustering")
                     art_field = make_stage_artifact(config, base_path, "clustering", "field_clustering")
@@ -288,6 +292,8 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 if stage_name == "clustering" and isinstance(data, pd.DataFrame) and isinstance(field, pd.DataFrame):
                     p1 = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[0]), data)
                     p2 = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[1]), field)
+                    if report is not None and len(art_names) > 2:
+                        save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[2]), report)
                     saved_info = str(p1.parent)
                 elif data is not None:
                     p = save_artifact(make_stage_artifact(config, base_path, stage_name, art_names[0]), data)

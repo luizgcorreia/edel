@@ -39,8 +39,13 @@ def run_landscape_stage(
     
     log_scale = ls_cfg.get("log_scale", True)
     terrain_scale = ls_cfg.get("scale", 1.0)
-    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale})...")
+    max_pts = ls_cfg.get("max_scatter_points", 1000)
+    seed = config.get("random_seed", 42)
+    
+    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale}, max_scatter_points={max_pts})...")
     terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range, terrain_scale)
+    terrain["max_scatter_points"] = max_pts
+    terrain["random_seed"] = seed
     
     # 1.5 Compute Cluster Regions and boundaries
     print("Computing cluster regions and boundaries...")

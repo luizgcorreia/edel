@@ -58,12 +58,17 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             show_frontier = "frontier" in layers if layers else False
             show_papers = "papers" in layers if layers else False
             
+            terrain_meta = landscape_results.get("terrain", {})
+            max_pts = terrain_meta.get("max_scatter_points", 1000)
+            seed = terrain_meta.get("random_seed", 42)
+            
             # Generate 3D
             fig_3d = plot_landscape_3d(
                 df=df, landscape_results=landscape_results, method=method,
                 color_col="cluster_domain", label_results=label_results,
                 title=f"3D Epistemic Landscape: {experiment_name}",
-                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric
+                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric,
+                max_scatter_points=max_pts, random_seed=seed
             )
             
             # Generate 2D
@@ -73,7 +78,8 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 title=f"2D Epistemic Landscape: {experiment_name}",
                 show_regions=show_regions,
                 show_frontier=show_frontier,
-                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric
+                show_papers=show_papers, top_papers_n=top_papers_n, papers_metric=papers_metric,
+                max_scatter_points=max_pts, random_seed=seed
             )
 
             def apply_layers(fig, is_2d=False):

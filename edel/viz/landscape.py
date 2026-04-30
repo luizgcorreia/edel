@@ -26,6 +26,8 @@ def plot_landscape_3d(
     show_papers: bool = False,
     top_papers_n: int = 10,
     papers_metric: str = "cited_by_count",
+    max_scatter_points: int = 1000,
+    random_seed: int = 42,
 ):
     """
     Create an interactive 3D Epistemic Landscape Surface plot.
@@ -36,6 +38,7 @@ def plot_landscape_3d(
         method: The projection method used.
         color_col: Column for dot coloring.
         symbol_col: Column for dot shapes.
+        max_scatter_points: Maximum number of papers to include in the scatter layer.
     """
     terrain = landscape_results.get("terrain", {})
     xi = terrain.get("x") if "x" in terrain else terrain.get("xi")
@@ -74,6 +77,18 @@ def plot_landscape_3d(
     )
 
     # 2. Add Scatter of papers (3D)
+    # Ensure categorical color column is string to avoid double colorbars
+    df_plot = df.copy()
+    if color_col and color_col in df_plot.columns:
+        df_plot[color_col] = df_plot[color_col].astype(str)
+
+    # Sampling for large datasets
+    if len(df_plot) > max_scatter_points:
+        print(f"Sampling {max_scatter_points} points for scatter plot (original: {len(df_plot)})...")
+        df_scatter = df_plot.sample(n=max_scatter_points, random_state=random_seed)
+    else:
+        df_scatter = df_plot
+
     # We need to map papers to their projection coordinates
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
     y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
@@ -83,37 +98,32 @@ def plot_landscape_3d(
     raw_metric = terrain.get("raw_metric", "cited_by_count")
     log_scale = terrain.get("log_scale", True)
     
-    if raw_metric in df.columns:
-        z_vals = df[raw_metric].fillna(0).values
+    if raw_metric in df_scatter.columns:
+        z_vals = df_scatter[raw_metric].fillna(0).values
         if log_scale:
             z_vals = np.log10(z_vals + 1)
     else:
-        z_vals = np.zeros(len(df))
-
-    # Ensure categorical color column is string to avoid double colorbars
-    df_plot = df.copy()
-    if color_col and color_col in df_plot.columns:
-        df_plot[color_col] = df_plot[color_col].astype(str)
+        z_vals = np.zeros(len(df_scatter))
 
     scatter = px.scatter_3d(
-        df_plot, x=x_col, y=y_col, z=z_vals,
+        df_scatter, x=x_col, y=y_col, z=z_vals,
         color=color_col, symbol=symbol_col,
         opacity=scatter_opacity,
     )
 
     # Add hover data if available (Clean hover, detailed customdata)
     hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
-    hover_cols = [c for c in hover_cols if c in df_plot.columns]
+    hover_cols = [c for c in hover_cols if c in df_scatter.columns]
     
     # Just show these on hover
     display_hover = ["title", "publication_year", "cited_by_count"]
-    display_hover = [c for c in display_hover if c in df_plot.columns]
+    display_hover = [c for c in display_hover if c in df_scatter.columns]
 
     for trace in scatter.data:
         trace.marker.size = scatter_size
         trace.showlegend = False
         if hover_cols:
-            trace.customdata = df_plot[hover_cols]
+            trace.customdata = df_scatter[hover_cols]
             # Use only a subset for the hover box to keep it readable
             trace.hovertemplate = "<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         fig.add_trace(trace)
@@ -255,6 +265,8 @@ def plot_landscape_contour(
     show_papers: bool = False,
     top_papers_n: int = 10,
     papers_metric: str = "cited_by_count",
+    max_scatter_points: int = 1000,
+    random_seed: int = 42,
 ):
     """
     Create an interactive 2D Epistemic Landscape Contour Map with optional flow overlay.
@@ -315,16 +327,23 @@ def plot_landscape_contour(
         fig.update_layout(plot_bgcolor="#440154") # Lowest Viridis color for seamless background
 
     # 2. Add Scatter (2D)
-    x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
-    y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
-
     # Ensure categorical color column is string to avoid double colorbars
     df_plot = df.copy()
     if color_col and color_col in df_plot.columns:
         df_plot[color_col] = df_plot[color_col].astype(str)
 
+    # Sampling for large datasets
+    if len(df_plot) > max_scatter_points:
+        print(f"Sampling {max_scatter_points} points for scatter plot (original: {len(df_plot)})...")
+        df_scatter = df_plot.sample(n=max_scatter_points, random_state=random_seed)
+    else:
+        df_scatter = df_plot
+
+    x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+    y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
+
     scatter = px.scatter(
-        df_plot, x=x_col, y=y_col,
+        df_scatter, x=x_col, y=y_col,
         color=color_col, symbol=symbol_col,
         opacity=0.3,
         render_mode="svg"
@@ -332,14 +351,14 @@ def plot_landscape_contour(
     
     # Add hover data if available
     hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
-    hover_cols = [c for c in hover_cols if c in df_plot.columns]
+    hover_cols = [c for c in hover_cols if c in df_scatter.columns]
     
     display_hover = ["title", "publication_year", "cited_by_count"]
-    display_hover = [c for c in display_hover if c in df_plot.columns]
+    display_hover = [c for c in display_hover if c in df_scatter.columns]
 
     if hover_cols:
         scatter.update_traces(
-            customdata=df_plot[hover_cols], 
+            customdata=df_scatter[hover_cols], 
             hovertemplate="<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         )
 

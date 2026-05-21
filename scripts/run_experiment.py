@@ -15,7 +15,7 @@ from edel.io.artifact import (
 )
 from edel.io.artifacts import save_artifacts
 from edel.pipeline.labels import apply_cluster_labels
-from edel.pipeline.run import run_pipeline
+from edel.pipeline.run import run_full_pipeline as run_pipeline
 from edel.viz.contour import make_contour_figure
 from edel.viz.field import add_vector_field_annotations
 from edel.viz.scatter import make_scatter

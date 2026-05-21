@@ -9,6 +9,7 @@ from edel.dashboard.components import (
     metrics_panel_layout,
     landscape_panel_layout,
     debugger_panel_layout,
+    trajectory_panel_layout,
 )
 
 def create_layout() -> html.Div:
@@ -19,6 +20,7 @@ def create_layout() -> html.Div:
         dcc.Store(id='experiment-store'),
         dcc.Store(id='selected-paper-store'),
         dcc.Store(id='artifact-update-store', data=0),
+        dcc.Store(id='traj-results-store'),
         
         # Navigation Bar
         dbc.NavbarSimple(
@@ -37,6 +39,7 @@ def create_layout() -> html.Div:
                 dbc.Tab(metrics_panel_layout(), label="3. Metrics Analysis", tab_id="tab-metrics"),
                 dbc.Tab(landscape_panel_layout(), label="4. Interactive Landscape", tab_id="tab-landscape"),
                 dbc.Tab(debugger_panel_layout(), label="5. Stage Debugger", tab_id="tab-debugger"),
+                dbc.Tab(trajectory_panel_layout(), label="6. Trajectory Explorer", tab_id="tab-trajectory"),
             ], id="main-tabs", active_tab="tab-metrics"),
         ], fluid=True, className="px-4"),
         

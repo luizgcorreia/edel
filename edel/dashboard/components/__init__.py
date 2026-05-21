@@ -5,6 +5,7 @@ from .job_panel import job_panel_layout
 from .metrics_panel import metrics_panel_layout
 from .landscape_panel import landscape_panel_layout
 from .debugger_panel import debugger_panel_layout
+from .trajectory_panel import trajectory_panel_layout
 
 __all__ = [
     "config_manager_layout",
@@ -12,4 +13,5 @@ __all__ = [
     "metrics_panel_layout",
     "landscape_panel_layout",
     "debugger_panel_layout",
+    "trajectory_panel_layout",
 ]

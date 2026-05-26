@@ -144,6 +144,10 @@ def landscape_panel_layout() -> dbc.Container:
             # Right Column: The Map
             dbc.Col([
                 dbc.Card([
+                    dbc.CardHeader([
+                        html.Span("Landscape Map Visualization"),
+                        dbc.Button("⛶ Fullscreen", id="map-landscape-fullscreen-btn", size="sm", color="link", className="float-end p-0 text-decoration-none text-info")
+                    ]),
                     dbc.CardBody([
                         html.Div([
                             dcc.Loading(
@@ -151,11 +155,11 @@ def landscape_panel_layout() -> dbc.Container:
                                 type="circle",
                                 children=[
                                     html.Div(
-                                        dcc.Graph(id='landscape-graph-3d', responsive=False, style={"height": "800px"}),
+                                        dcc.Graph(id='landscape-graph-3d', responsive=True, style={"height": "800px"}),
                                         id='map-container-3d'
                                     ),
                                     html.Div(
-                                        dcc.Graph(id='landscape-graph-2d', responsive=False, style={"height": "800px"}),
+                                        dcc.Graph(id='landscape-graph-2d', responsive=True, style={"height": "800px"}),
                                         id='map-container-2d',
                                         style={'display': 'none'}
                                     )
@@ -163,7 +167,7 @@ def landscape_panel_layout() -> dbc.Container:
                             )
                         ], style={"minHeight": "800px"})
                     ])
-                ])
+                ], id="map-landscape-card")
             ], md=9)
         ])
     ], fluid=True, className="mb-5")

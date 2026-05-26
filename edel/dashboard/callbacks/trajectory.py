@@ -598,7 +598,7 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
 
     # --- 3D Graph Click to select vertex ---
     @app.callback(
-        Output("traj-selected-vertex", "data"),
+        Output("traj-selected-vertex", "data", allow_duplicate=True),
         Input("traj-plot-3d", "clickData"),
         State("traj-selected-vertex", "data"),
         prevent_initial_call=True

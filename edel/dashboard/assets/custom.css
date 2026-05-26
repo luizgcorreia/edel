@@ -16,9 +16,18 @@
     height: calc(100vh - 80px) !important;
     display: flex !important;
     flex-direction: column !important;
+    width: 100% !important;
 }
 
+/* Specific layout wrappers targeting only graph container levels */
+.fullscreen-graph .card-body > div,
+.fullscreen-graph .card-body > div > div,
+.fullscreen-graph #map-container-3d,
+.fullscreen-graph #map-container-2d,
+.fullscreen-graph .dash-graph,
 .fullscreen-graph .js-plotly-plot {
     height: 100% !important;
+    width: 100% !important;
+    min-height: unset !important;
     flex-grow: 1 !important;
 }

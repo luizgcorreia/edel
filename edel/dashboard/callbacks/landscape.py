@@ -460,3 +460,22 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             return f"✓ Saved to {filename}"
         except Exception as e:
             return f"Error saving file: {str(e)}"
+
+    # --- Fullscreen toggle for Landscape Map ---
+    @app.callback(
+        [Output("map-landscape-card", "className"),
+         Output("landscape-graph-3d", "style"),
+         Output("landscape-graph-2d", "style"),
+         Output("map-landscape-fullscreen-btn", "children")],
+        Input("map-landscape-fullscreen-btn", "n_clicks"),
+        State("map-landscape-card", "className"),
+        prevent_initial_call=True
+    )
+    def toggle_landscape_fullscreen(n_clicks, current_class):
+        if not current_class:
+            current_class = ""
+        if "fullscreen-graph" in current_class:
+            return "", {"height": "800px"}, {"height": "800px"}, "⛶ Fullscreen"
+        else:
+            return "fullscreen-graph", {"height": "calc(100vh - 80px)"}, {"height": "calc(100vh - 80px)"}, "🗖 Exit Fullscreen"
+

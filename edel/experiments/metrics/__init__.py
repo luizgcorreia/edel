@@ -16,12 +16,14 @@ from edel.experiments.metrics.segmentation import segmentation_metrics
 from edel.experiments.metrics.embedding import embedding_metrics
 from edel.experiments.metrics.operators import operator_metrics
 from edel.experiments.metrics.structure import structure_metrics
+from edel.experiments.metrics.hypothesis_tests import hypothesis_metrics
 
 METRIC_REGISTRY = [
     segmentation_metrics,
     embedding_metrics,
     operator_metrics,   # must precede structure_metrics (writes _operators to context)
     structure_metrics,
+    hypothesis_metrics,
 ]
 
 __all__ = [
@@ -30,4 +32,5 @@ __all__ = [
     "embedding_metrics",
     "operator_metrics",
     "structure_metrics",
+    "hypothesis_metrics",
 ]

@@ -318,7 +318,7 @@ def analyze_trajectory(
         }
 
     # Compute operator and trajectory metrics
-    traj_metrics = compute_trajectory_metrics(df, embedding_vectors, target["proj_2d"])
+    traj_metrics = compute_trajectory_metrics(df, embedding_vectors, target["proj_2d"], paper_id=paper_id, k=k, method=method)
 
     return {
         "target": target,
@@ -333,6 +333,10 @@ def compute_trajectory_metrics(
     df: pd.DataFrame,
     embedding_vectors: dict[str, np.ndarray],
     proj_2d: dict[str, list[float] | None],
+    *,
+    paper_id: str | None = None,
+    k: int = 5,
+    method: str = "diffusion",
 ) -> dict:
     """Compute operator and trajectory metrics for raw embeddings, L2 normalized embeddings, and 2D projections."""
     def cosine_similarity(v1, v2):
@@ -363,13 +367,44 @@ def compute_trajectory_metrics(
             "cos_pm_mf": cosine_similarity(pm, mf),
             "cos_pm_fi": cosine_similarity(pm, fi),
             "cos_mf_fi": cosine_similarity(mf, fi),
+            "cycle_closure_norm": float(np.linalg.norm(i_vec - p_vec)),
+            "net_epistemic_displacement_norm": 0.0,
         }
+
+        # Calculate E[P|I] (expected future problem bar_p) using interpretation-space nearest neighbors
+        prob_vecs = []
+        interp_vecs = []
+        for _, row_val in df.iterrows():
+            row_id = row_val.get("id")
+            if paper_id and row_id == paper_id:
+                continue
+            p_val = parse_embedding_vector(row_val.get("problem_embedding"))
+            i_val = parse_embedding_vector(row_val.get("interpretation_embedding"))
+            if p_val is not None and i_val is not None:
+                prob_vecs.append(p_val)
+                interp_vecs.append(i_val)
+
+        if interp_vecs:
+            all_interp = np.vstack(interp_vecs)
+            all_prob = np.vstack(prob_vecs)
+            target_i = i_vec.reshape(1, -1)
+            dists = cdist(target_i, all_interp, metric="cosine")[0]
+            k_resolved = min(k, len(dists))
+            if k_resolved > 0:
+                nn_indices = np.argsort(dists)[:k_resolved]
+                bar_p = np.mean(all_prob[nn_indices], axis=0)
+                metrics["embedding_raw"]["net_epistemic_displacement_norm"] = float(np.linalg.norm(bar_p - p_vec))
+            else:
+                bar_p = p_vec
+        else:
+            bar_p = p_vec
 
         # 2. Normalized Embeddings (unit norm)
         p_norm = p_vec / np.linalg.norm(p_vec) if np.linalg.norm(p_vec) > 0 else p_vec
         m_norm = m_vec / np.linalg.norm(m_vec) if np.linalg.norm(m_vec) > 0 else m_vec
         f_norm = f_vec / np.linalg.norm(f_vec) if np.linalg.norm(f_vec) > 0 else f_vec
         i_norm = i_vec / np.linalg.norm(i_vec) if np.linalg.norm(i_vec) > 0 else i_vec
+        bar_p_norm = bar_p / np.linalg.norm(bar_p) if np.linalg.norm(bar_p) > 0 else bar_p
 
         pm_n = m_norm - p_norm
         mf_n = f_norm - m_norm
@@ -383,6 +418,8 @@ def compute_trajectory_metrics(
             "cos_pm_mf": cosine_similarity(pm_n, mf_n),
             "cos_pm_fi": cosine_similarity(pm_n, fi_n),
             "cos_mf_fi": cosine_similarity(mf_n, fi_n),
+            "cycle_closure_norm": float(np.linalg.norm(i_norm - p_norm)),
+            "net_epistemic_displacement_norm": float(np.linalg.norm(bar_p_norm - p_norm)),
         }
 
     # 3. 2D Projections
@@ -409,7 +446,37 @@ def compute_trajectory_metrics(
             "cos_pm_mf": cosine_similarity(pm_p, mf_p),
             "cos_pm_fi": cosine_similarity(pm_p, fi_p),
             "cos_mf_fi": cosine_similarity(mf_p, fi_p),
+            "cycle_closure_norm": float(np.linalg.norm(i_p - p_p)),
+            "net_epistemic_displacement_norm": 0.0,
         }
+
+        proj_p_coords = []
+        proj_i_coords = []
+        x_col_p = f"proj_problem_{method}_x"
+        y_col_p = f"proj_problem_{method}_y"
+        x_col_i = f"proj_interpretation_{method}_x"
+        y_col_i = f"proj_interpretation_{method}_y"
+
+        if x_col_p in df.columns and y_col_p in df.columns and x_col_i in df.columns and y_col_i in df.columns:
+            for _, row_val in df.iterrows():
+                row_id = row_val.get("id")
+                if paper_id and row_id == paper_id:
+                    continue
+                xp, yp = row_val.get(x_col_p), row_val.get(y_col_p)
+                xi, yi = row_val.get(x_col_i), row_val.get(y_col_i)
+                if pd.notna(xp) and pd.notna(yp) and pd.notna(xi) and pd.notna(yi):
+                    proj_p_coords.append([float(xp), float(yp)])
+                    proj_i_coords.append([float(xi), float(yi)])
+
+            if proj_i_coords:
+                all_proj_i = np.array(proj_i_coords)
+                all_proj_p = np.array(proj_p_coords)
+                dists_proj = cdist([i_p], all_proj_i, metric="euclidean")[0]
+                k_res_proj = min(k, len(dists_proj))
+                if k_res_proj > 0:
+                    nn_indices_proj = np.argsort(dists_proj)[:k_res_proj]
+                    bar_p_proj = np.mean(all_proj_p[nn_indices_proj], axis=0)
+                    metrics["projection_2d"]["net_epistemic_displacement_norm"] = float(np.linalg.norm(bar_p_proj - p_p))
 
     return metrics
 

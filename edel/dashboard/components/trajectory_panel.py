@@ -182,34 +182,92 @@ def trajectory_panel_layout() -> dbc.Container:
             # ----------------------------------------------------------------
             dbc.Col([
 
-                # 2D Trajectory Plot
+                # Plots Row (2D and 3D)
+                dcc.Store(id="traj-selected-vertex", data="problem"),
+                dbc.Row([
+                    # 2D Trajectory Plot
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                html.Span("2D Epistemic Displacement (P Space)"),
+                                dbc.Button("⛶ Fullscreen", id="traj-plot-fullscreen-btn", size="sm", color="link", className="float-end p-0 text-decoration-none text-info")
+                            ]),
+                            dbc.CardBody([
+                                dcc.Graph(
+                                    id="traj-plot",
+                                    figure={"data": [], "layout": {
+                                        "template": "plotly_dark",
+                                        "paper_bgcolor": "#1a1a2e",
+                                        "plot_bgcolor": "#16213e",
+                                        "height": 380,
+                                        "annotations": [{
+                                            "text": "Run an analysis to see the 2D displacement.",
+                                            "xref": "paper", "yref": "paper",
+                                            "x": 0.5, "y": 0.5,
+                                            "showarrow": False,
+                                            "font": {"color": "#aaa", "size": 14}
+                                        }]
+                                    }},
+                                    style={"height": "380px"},
+                                    config={"displayModeBar": False}
+                                ),
+                                html.Small(
+                                    "Note: 2D projection is only available for Work ID inputs where coordinates exist.",
+                                    className="text-muted mt-1"
+                                )
+                            ])
+                        ], id="traj-plot-2d-card", className="mb-3")
+                    ], md=6),
+
+                    # 3D Tetrahedron Plot
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardHeader([
+                                html.Span("3D Epistemic Simplex (Tetrahedron)"),
+                                dbc.Button("⛶ Fullscreen", id="traj-plot-3d-fullscreen-btn", size="sm", color="link", className="float-end p-0 text-decoration-none text-info")
+                            ]),
+                            dbc.CardBody([
+                                dcc.Graph(
+                                    id="traj-plot-3d",
+                                    figure={"data": [], "layout": {
+                                        "template": "plotly_dark",
+                                        "paper_bgcolor": "#1a1a2e",
+                                        "plot_bgcolor": "#16213e",
+                                        "height": 380,
+                                        "annotations": [{
+                                            "text": "Run an analysis to see the 3D Simplex.",
+                                            "xref": "paper", "yref": "paper",
+                                            "x": 0.5, "y": 0.5,
+                                            "showarrow": False,
+                                            "font": {"color": "#aaa", "size": 14}
+                                        }]
+                                    }},
+                                    style={"height": "380px"},
+                                    config={"displayModeBar": True}
+                                ),
+                                html.Small(
+                                    "Tip: Click on a vertex (P, M, F, I) to inspect its discourse space & neighbors.",
+                                    className="text-muted mt-1"
+                                )
+                            ])
+                        ], id="traj-plot-3d-card", className="mb-3")
+                    ], md=6)
+                ], className="mb-3"),
+
+                # Selected Vertex Segment Text Display
                 dbc.Card([
-                    dbc.CardHeader("2D Trajectory Visualisation"),
+                    dbc.CardHeader([
+                        "Active Simplex Space: ",
+                        html.Span("Problem", id="traj-selected-vertex-label", className="badge bg-warning ms-1 text-dark")
+                    ]),
                     dbc.CardBody([
-                        dcc.Graph(
-                            id="traj-plot",
-                            figure={"data": [], "layout": {
-                                "template": "plotly_dark",
-                                "paper_bgcolor": "#1a1a2e",
-                                "plot_bgcolor": "#16213e",
-                                "height": 350,
-                                "annotations": [{
-                                    "text": "Run an analysis to see the trajectory plot.",
-                                    "xref": "paper", "yref": "paper",
-                                    "x": 0.5, "y": 0.5,
-                                    "showarrow": False,
-                                    "font": {"color": "#aaa", "size": 14}
-                                }]
-                            }},
-                            style={"height": "350px"},
-                            config={"displayModeBar": False}
-                        ),
-                        html.Small(
-                            "Note: 2D projection is only available for Work ID inputs where coordinates exist in the dataset.",
-                            className="text-muted mt-1"
+                        html.P(
+                            id="traj-selected-segment-text",
+                            className="mb-0 text-white font-monospace small",
+                            style={"whiteSpace": "pre-wrap"}
                         )
                     ])
-                ], className="mb-3"),
+                ], id="traj-selected-vertex-container", className="mb-3", style={"display": "none"}),
 
                 # Trajectory & Operator Metrics
                 dbc.Card([

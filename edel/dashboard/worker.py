@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from edel.pipeline.run import run_full_pipeline
+from edel.experiments.runner import run_experiments
 
 logger = logging.getLogger("edel.worker")
 
@@ -257,8 +257,8 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
             _mark_running(job, dirs)
             logger.info(f"[{job_id}] Pipeline starting...")
 
-            run_full_pipeline(
-                config=job["config"],
+            run_experiments(
+                configs=[job["config"]],
                 base_path=base_path,
                 force=False,
             )

@@ -350,28 +350,33 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             patched_3d["data"][-1]["y"] = [ys[0]]
             patched_3d["data"][-1]["z"] = [zs[0]]
             patched_3d["data"][-1]["visible"] = True
-            patched_3d["data"][-2]["x"] = xs
-            patched_3d["data"][-2]["y"] = ys
-            patched_3d["data"][-2]["z"] = zs
+            patched_3d["data"][-2]["x"] = [xs[0], xs[3]]
+            patched_3d["data"][-2]["y"] = [ys[0], ys[3]]
+            patched_3d["data"][-2]["z"] = [zs[0], zs[3]]
             patched_3d["data"][-2]["visible"] = True
             
             # Update 2D Patch
             patched_2d["data"][-1]["x"] = [xs[0]]
             patched_2d["data"][-1]["y"] = [ys[0]]
             patched_2d["data"][-1]["visible"] = True
-            patched_2d["data"][-2]["x"] = xs
-            patched_2d["data"][-2]["y"] = ys
+            patched_2d["data"][-2]["x"] = [xs[0], xs[3]]
+            patched_2d["data"][-2]["y"] = [ys[0], ys[3]]
             patched_2d["data"][-2]["visible"] = True
             
-            # Update Annotations for Arrows in 2D
-            for i in range(3):
-                idx = -(3 - i)
-                patched_2d["layout"]["annotations"][idx]["x"] = xs[i+1]
-                patched_2d["layout"]["annotations"][idx]["y"] = ys[i+1]
-                patched_2d["layout"]["annotations"][idx]["ax"] = xs[i]
-                patched_2d["layout"]["annotations"][idx]["ay"] = ys[i]
-                patched_2d["layout"]["annotations"][idx]["showarrow"] = True
-                patched_2d["layout"]["annotations"][idx]["visible"] = True
+            # Update Annotations for Arrows in 2D (only show 1 arrow from p to i)
+            # Arrow 1: p -> i
+            patched_2d["layout"]["annotations"][-3]["x"] = xs[3]
+            patched_2d["layout"]["annotations"][-3]["y"] = ys[3]
+            patched_2d["layout"]["annotations"][-3]["ax"] = xs[0]
+            patched_2d["layout"]["annotations"][-3]["ay"] = ys[0]
+            patched_2d["layout"]["annotations"][-3]["showarrow"] = True
+            patched_2d["layout"]["annotations"][-3]["visible"] = True
+            
+            # Arrows 2 & 3: hidden
+            patched_2d["layout"]["annotations"][-2]["showarrow"] = False
+            patched_2d["layout"]["annotations"][-2]["visible"] = False
+            patched_2d["layout"]["annotations"][-1]["showarrow"] = False
+            patched_2d["layout"]["annotations"][-1]["visible"] = False
             
             return html.Div(info), patched_3d, patched_2d, search_val
             

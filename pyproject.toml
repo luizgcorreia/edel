@@ -24,6 +24,7 @@ dependencies = [
     "tqdm",
     "pyarrow",
     "requests",
+    "POT",
     
     "nltk",
     "wordfreq",

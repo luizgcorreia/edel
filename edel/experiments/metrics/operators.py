@@ -86,6 +86,22 @@ def operator_metrics(artifacts: dict) -> dict:
     metrics["cos_pm_fi"] = float(cos_pm_fi.mean())
     metrics["cos_mf_fi"] = float(cos_mf_fi.mean())
 
+    # ── Cycle Closure & Net Epistemic Displacement ───────────────────────────
+    cycle_closure_dist = np.linalg.norm(emb_i - emb_p, axis=1)
+    metrics["cycle_closure_norm"] = float(cycle_closure_dist.mean())
+
+    N_papers = emb_i.shape[0]
+    sim_matrix = emb_i @ emb_i.T
+    np.fill_diagonal(sim_matrix, -np.inf)
+    k_nn = min(5, N_papers - 1)
+    if k_nn > 0:
+        nn_indices = np.argpartition(sim_matrix, -k_nn, axis=1)[:, -k_nn:]
+        bar_p = emb_p[nn_indices].mean(axis=1)
+        net_displacement_dist = np.linalg.norm(bar_p - emb_p, axis=1)
+    else:
+        net_displacement_dist = np.zeros(N_papers)
+    metrics["net_epistemic_displacement_norm"] = float(net_displacement_dist.mean())
+
     # ── Feature distributions (per-paper) ────────────────────────────────────
     features["norm_pm_dist"] = norm_pm.astype(np.float32)
     features["norm_mf_dist"] = norm_mf.astype(np.float32)
@@ -93,6 +109,8 @@ def operator_metrics(artifacts: dict) -> dict:
     features["cos_pm_mf_dist"] = cos_pm_mf.astype(np.float32)
     features["cos_pm_fi_dist"] = cos_pm_fi.astype(np.float32)
     features["cos_mf_fi_dist"] = cos_mf_fi.astype(np.float32)
+    features["cycle_closure_dist"] = cycle_closure_dist.astype(np.float32)
+    features["net_displacement_dist"] = net_displacement_dist.astype(np.float32)
 
     # ── 6-dim transition feature matrix (N, 6) ───────────────────────────────
     transition_features = np.column_stack([

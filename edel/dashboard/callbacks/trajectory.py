@@ -70,7 +70,7 @@ def _segment_badge(label: str, text: str, color: str = "secondary") -> html.Div:
 
 
 def _neighbor_card(n: dict, rank: int, aspect: str) -> dbc.Card:
-    """Build a rich neighbour card with expandable segments."""
+    """Build a rich neighbour card with expandable segments following D(Y|x) notation."""
     year = n.get("publication_year", "")
     cits = n.get("cited_by_count", "")
     doi = n.get("doi", "")
@@ -85,10 +85,18 @@ def _neighbor_card(n: dict, rank: int, aspect: str) -> dbc.Card:
     if year:
         header_children.insert(2, html.Small(f" ({year})", className="text-muted"))
 
+    # Map aspects to Y_x mathematical notation
+    aspect_math_map = {
+        "problem": "Y_p (Problem)",
+        "method": "Y_m (Method)",
+        "finding": "Y_f (Finding)",
+        "interpretation": "Y_i (Interpretation)"
+    }
+
     # Segment rows — show current aspect segment first and prominently
     segment_items = [
         dbc.ListGroupItem([
-            html.Strong(f"{asp.capitalize()}: "),
+            html.Strong(f"{aspect_math_map[asp]}: "),
             html.Span(n.get(asp, "(empty)"), className="small text-muted")
         ], color="info" if asp == aspect else None)
         for asp in ASPECTS
@@ -170,106 +178,276 @@ def _aspect_accordion_item(asp: str, asp_result: dict, target_segment: str) -> d
 # Trajectory plot builder
 # ---------------------------------------------------------------------------
 
-def _build_trajectory_plot(df: pd.DataFrame, result: dict, method: str) -> go.Figure:
-    """Build the 2D scatter plot with trajectory arrows.
-
-    For Work ID mode: overlay the four projection points connected by arrows.
-    For synthetic mode: just show the scatter background (no trajectory).
-    """
+def _build_trajectory_plot_2d(df: pd.DataFrame | None, result: dict, method: str) -> go.Figure:
+    """Build the 2D scatter plot with a single p->i vector on the P space."""
     target = result["target"]
     aspects_data = result["aspects"]
 
-    # Background scatter (sample for speed)
-    sample_size = min(2000, len(df))
-    df_sample = df.sample(n=sample_size, random_state=42)
-
-    x_col = f"proj_problem_{method}_x"
-    y_col = f"proj_problem_{method}_y"
-
     fig = go.Figure()
 
-    if x_col in df_sample.columns and y_col in df_sample.columns:
+    if df is not None:
+        # Background scatter (sample for speed)
+        sample_size = min(2000, len(df))
+        df_sample = df.sample(n=sample_size, random_state=42)
+
+        x_col = f"proj_problem_{method}_x"
+        y_col = f"proj_problem_{method}_y"
+
+        if x_col in df_sample.columns and y_col in df_sample.columns:
+            fig.add_trace(go.Scatter(
+                x=df_sample[x_col],
+                y=df_sample[y_col],
+                mode="markers",
+                marker=dict(size=3, color="rgba(100,120,200,0.25)"),
+                name="All Papers",
+                hoverinfo="skip",
+            ))
+
+    # Net displacement vector p -> i (Problem to Interpretation)
+    p_coords = aspects_data.get("problem", {}).get("target_vec_2d")
+    i_coords = aspects_data.get("interpretation", {}).get("target_vec_2d")
+
+    if p_coords and i_coords:
+        xs = [p_coords[0], i_coords[0]]
+        ys = [p_coords[1], i_coords[1]]
+
+        # Draw the displacement line
         fig.add_trace(go.Scatter(
-            x=df_sample[x_col],
-            y=df_sample[y_col],
-            mode="markers",
-            marker=dict(size=3, color="rgba(100,120,200,0.25)"),
-            name="All Papers",
-            hoverinfo="skip",
+            x=xs, y=ys,
+            mode="lines+markers+text",
+            line=dict(color="cyan", width=3, dash="dot"),
+            marker=dict(size=[12, 10], color=["gold", "tomato"], symbol=["circle", "diamond"]),
+            text=["p (Start)", "i (End)"],
+            textposition="top center",
+            textfont=dict(family="Arial Black", size=11, color="white"),
+            name="Net Displacement (p -> i)",
         ))
 
-    # Trajectory path (only for Work ID where coords exist)
-    if result["mode"] == "paper_id":
-        traj_xs, traj_ys, traj_labels = [], [], []
-        for asp in ASPECTS:
-            coords = aspects_data.get(asp, {}).get("target_vec_2d")
-            if coords:
-                traj_xs.append(coords[0])
-                traj_ys.append(coords[1])
-                traj_labels.append(asp.capitalize())
-
-        if traj_xs:
-            # Lines
-            fig.add_trace(go.Scatter(
-                x=traj_xs, y=traj_ys,
-                mode="lines+markers+text",
-                line=dict(color="gold", width=2),
-                marker=dict(size=10, color="gold", symbol="circle"),
-                text=traj_labels,
-                textposition="top center",
-                textfont=dict(family="Arial Black", size=11, color="white"),
-                name="Trajectory",
-            ))
-
-            # Arrows between consecutive positions
-            for i in range(len(traj_xs) - 1):
-                fig.add_annotation(
-                    x=traj_xs[i + 1], y=traj_ys[i + 1],
-                    ax=traj_xs[i], ay=traj_ys[i],
-                    xref="x", yref="y", axref="x", ayref="y",
-                    showarrow=True,
-                    arrowhead=3, arrowsize=1.5,
-                    arrowwidth=2, arrowcolor="gold",
-                )
-
-    # Neighbours overlay (first aspect with 2D coords)
-    for asp in ASPECTS:
-        asp_result = aspects_data.get(asp, {})
-        neighbours = asp_result.get("neighbors", [])
-        asp_x_col = f"proj_{asp}_{method}_x"
-        asp_y_col = f"proj_{asp}_{method}_y"
-        n_xs, n_ys, n_texts = [], [], []
-        for n in neighbours:
-            n_data = df[df["id"] == n["id"]]
-            if n_data.empty:
-                continue
-            n_row = n_data.iloc[0]
-            if asp_x_col in df.columns and pd.notna(n_row.get(asp_x_col)):
-                n_xs.append(float(n_row[asp_x_col]))
-                n_ys.append(float(n_row[asp_y_col]))
-                n_texts.append(n.get("title", "")[:40])
-        if n_xs:
-            fig.add_trace(go.Scatter(
-                x=n_xs, y=n_ys,
-                mode="markers",
-                marker=dict(size=8, color="tomato", symbol="diamond", opacity=0.7),
-                text=n_texts,
-                hoverinfo="text",
-                name=f"{asp.capitalize()} neighbours",
-            ))
-            break  # Only first aspect to avoid clutter; full detail is in the cards
+        # Add single arrow annotation pointing from p to i
+        fig.add_annotation(
+            x=i_coords[0], y=i_coords[1],
+            ax=p_coords[0], ay=p_coords[1],
+            xref="x", yref="y", axref="x", ayref="y",
+            showarrow=True,
+            arrowhead=3, arrowsize=1.5,
+            arrowwidth=3, arrowcolor="cyan",
+        )
 
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#16213e",
         margin=dict(l=10, r=10, t=10, b=10),
-        height=350,
+        height=380,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
     )
     return fig
+
+
+def _build_trajectory_simplex_plot_3d(
+    df: pd.DataFrame | None,
+    result: dict,
+    method: str,
+    selected_vertex: str
+) -> go.Figure:
+    """Build the 3D tetrahedron (3-simplex) plot bridging the 4 discourse spaces.
+
+    Z values map to: Problem=0, Method=1, Finding=2, Interpretation=3.
+    """
+    aspects_data = result["aspects"]
+    fig = go.Figure()
+
+    z_map = {"problem": 0, "method": 1, "finding": 2, "interpretation": 3}
+    
+    vertex_xs, vertex_ys, vertex_zs, vertex_names, vertex_keys = [], [], [], [], []
+    for asp in ASPECTS:
+        coords = aspects_data.get(asp, {}).get("target_vec_2d")
+        if coords:
+            vertex_xs.append(coords[0])
+            vertex_ys.append(coords[1])
+            vertex_zs.append(z_map[asp])
+            vertex_names.append(f"{asp.capitalize()}")
+            vertex_keys.append(asp)
+
+    if not vertex_xs:
+        return fig
+
+    # Draw sequential trajectory edges: P -> M -> F -> I (solid gold)
+    fig.add_trace(go.Scatter3d(
+        x=vertex_xs, y=vertex_ys, z=vertex_zs,
+        mode="lines",
+        line=dict(color="gold", width=6),
+        name="Sequential Trajectory",
+        hoverinfo="skip"
+    ))
+
+    # Draw cross-cutting simplex edges: P->F, P->I, M->I (dashed white)
+    cross_xs, cross_ys, cross_zs = [], [], []
+    connections = [("problem", "finding"), ("problem", "interpretation"), ("method", "interpretation")]
+    for u, v in connections:
+        if u in vertex_keys and v in vertex_keys:
+            idx_u = vertex_keys.index(u)
+            idx_v = vertex_keys.index(v)
+            cross_xs.extend([vertex_xs[idx_u], vertex_xs[idx_v], None])
+            cross_ys.extend([vertex_ys[idx_u], vertex_ys[idx_v], None])
+            cross_zs.extend([vertex_zs[idx_u], vertex_zs[idx_v], None])
+
+    fig.add_trace(go.Scatter3d(
+        x=cross_xs, y=cross_ys, z=cross_zs,
+        mode="lines",
+        line=dict(color="rgba(255, 255, 255, 0.4)", width=3, dash="dash"),
+        name="Simplex Structure",
+        hoverinfo="skip"
+    ))
+
+    # Draw markers for vertices with custom labels and selection highlight
+    marker_sizes = []
+    marker_colors = []
+    marker_symbols = []
+    for asp in ASPECTS:
+        if asp == selected_vertex:
+            marker_sizes.append(15)
+            marker_colors.append("orange")
+            marker_symbols.append("circle")
+        else:
+            marker_sizes.append(10)
+            marker_colors.append("white")
+            marker_symbols.append("circle")
+
+    fig.add_trace(go.Scatter3d(
+        x=vertex_xs, y=vertex_ys, z=vertex_zs,
+        mode="markers+text",
+        marker=dict(
+            size=marker_sizes,
+            color=marker_colors,
+            symbol=marker_symbols,
+            line=dict(color="black", width=2)
+        ),
+        text=vertex_names,
+        textposition="top center",
+        textfont=dict(color="white", size=12, family="Arial Black"),
+        customdata=vertex_keys,
+        name="Spaces",
+        hovertemplate="<b>%{text} Space</b><br>Click to inspect<extra></extra>"
+    ))
+
+    # Overlay neighbors' trajectories across all four spaces (D(Y|x))
+    selected_asp_data = aspects_data.get(selected_vertex, {})
+    neighbors = selected_asp_data.get("neighbors", [])
+    
+    neighbor_colors = [
+        "rgba(255, 99, 71, 0.7)",   # Tomato
+        "rgba(30, 144, 255, 0.7)",  # DodgerBlue
+        "rgba(46, 139, 87, 0.7)",   # SeaGreen
+        "rgba(218, 112, 214, 0.7)", # Orchid
+        "rgba(255, 215, 0, 0.7)",   # Gold
+    ]
+
+    for idx_n, n in enumerate(neighbors):
+        if df is None:
+            continue
+        n_data = df[df["id"] == n["id"]]
+        if n_data.empty:
+            continue
+        n_row = n_data.iloc[0]
+
+        # Extract coordinates for each of the four spaces
+        n_xs, n_ys, n_zs, n_hovertexts = [], [], [], []
+        valid = True
+        for asp in ASPECTS:
+            asp_x_col = f"proj_{asp}_{method}_x"
+            asp_y_col = f"proj_{asp}_{method}_y"
+            if asp_x_col in df.columns and pd.notna(n_row.get(asp_x_col)):
+                n_xs.append(float(n_row[asp_x_col]))
+                n_ys.append(float(n_row[asp_y_col]))
+                n_zs.append(z_map[asp])
+                n_hovertexts.append(
+                    f"Neighbor {idx_n+1}: {n.get('title', 'Unknown')[:50]}...<br>"
+                    f"Discourse Space: {asp.capitalize()}<br>"
+                    f"Distance to target in {selected_vertex.capitalize()}: {n['distance']:.4f}"
+                )
+            else:
+                valid = False
+                break
+
+        if valid and len(n_xs) == 4:
+            # Consistent color for this neighbor
+            color = neighbor_colors[idx_n % len(neighbor_colors)]
+            
+            # Add line trace for the neighbor simplex trajectory
+            fig.add_trace(go.Scatter3d(
+                x=n_xs, y=n_ys, z=n_zs,
+                mode="lines+markers",
+                line=dict(color=color, width=2, dash="dash"),
+                marker=dict(size=4, symbol="diamond", color=color),
+                name=f"Neighbor: {n.get('title', 'Unknown')[:15]}...",
+                hovertemplate="%{text}<extra></extra>",
+                text=n_hovertexts,
+                legendgroup=f"neighbor_{idx_n}",
+            ))
+
+    # 3D layout
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#1a1a2e",
+        plot_bgcolor="#16213e",
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=380,
+        scene=dict(
+            xaxis=dict(showgrid=False, showbackground=False, showaxeslabels=False, showticklabels=False, title=""),
+            yaxis=dict(showgrid=False, showbackground=False, showaxeslabels=False, showticklabels=False, title=""),
+            zaxis=dict(
+                tickvals=[0, 1, 2, 3],
+                ticktext=["P (Problem)", "M (Method)", "F (Finding)", "I (Interpretation)"],
+                backgroundcolor="rgba(0,0,0,0.2)",
+                gridcolor="rgba(255,255,255,0.1)",
+                title=""
+            ),
+            camera=dict(
+                eye=dict(x=1.8, y=1.8, z=1.2)
+            )
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
+def _build_neighborhood_results_html(df: pd.DataFrame | None, result: dict, selected_vertex: str) -> list:
+    """Build neighborhood results section formatted according to D(Y|x) notation."""
+    aspect_result = result["aspects"].get(selected_vertex, {})
+    target = result["target"]
+    neighbors = aspect_result.get("neighbors", [])
+    error = aspect_result.get("error")
+
+    target_header = dbc.Card([
+        dbc.CardBody([
+            html.H6([
+                html.Strong(target.get("title", "(Synthetic Paper)")),
+                dbc.Badge(
+                    f"{target.get('publication_year', '')} · {target.get('cited_by_count', '')} citations",
+                    color="dark", className="ms-2"
+                ),
+            ], className="mb-1"),
+            html.Div([
+                html.Span("Conditioning vertex: ", className="text-muted"),
+                html.Strong(f"x = {selected_vertex.capitalize()}", className="text-warning")
+            ], className="small mt-1")
+        ])
+    ], color="dark", className="mb-3")
+
+    body = [target_header]
+
+    if error:
+        body.append(dbc.Alert(f"Conditioning Space Error: {error}", color="warning"))
+    elif not neighbors:
+        body.append(html.P(f"No neighbors found for x = {selected_vertex}.", className="text-muted"))
+    else:
+        body.append(html.H5(f"Neighbor distribution D(Y | x = {selected_vertex.capitalize()})", className="mb-3 small text-muted text-uppercase"))
+        body.extend([_neighbor_card(n, i + 1, selected_vertex) for i, n in enumerate(neighbors)])
+
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -315,12 +493,11 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
 
     # --- Main analysis callback ---
     @app.callback(
-        [Output("traj-plot", "figure"),
-         Output("traj-results-container", "children"),
-         Output("traj-status-msg", "children"),
+        [Output("traj-status-msg", "children"),
          Output("traj-download-btn", "style"),
          Output("traj-results-store", "data"),
-         Output("traj-metrics-container", "children")],
+         Output("traj-metrics-container", "children"),
+         Output("traj-selected-vertex", "data")],
         Input("traj-run-btn", "n_clicks"),
         [State("traj-experiment-select", "value"),
          State("traj-method-select", "value"),
@@ -349,15 +526,15 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
         try:
             df = _load_dr_df(experiment_name, base_path)
         except Exception as e:
-            return dash.no_update, dash.no_update, f"Failed to load dataset: {e}", {"display": "none"}, None, dash.no_update
+            return f"Failed to load dataset: {e}", {"display": "none"}, None, dash.no_update, dash.no_update
 
         try:
             if input_mode == "work_id":
                 if not paper_id or not paper_id.strip():
-                    return dash.no_update, dash.no_update, "Please enter a Work ID.", {"display": "none"}, None, dash.no_update
+                    return "Please enter a Work ID.", {"display": "none"}, None, dash.no_update, dash.no_update
                 paper_id = paper_id.strip()
                 if paper_id not in df["id"].values:
-                    return dash.no_update, dash.no_update, f"Work ID not found: {paper_id}", {"display": "none"}, None, dash.no_update
+                    return f"Work ID not found: {paper_id}", {"display": "none"}, None, dash.no_update, dash.no_update
 
                 result = analyze_trajectory(
                     df, paper_id=paper_id,
@@ -373,7 +550,7 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
                     "interpretation": (seg_interpretation or "").strip(),
                 }
                 if not any(segments.values()):
-                    return dash.no_update, dash.no_update, "Please enter at least one text segment.", {"display": "none"}, None, dash.no_update
+                    return "Please enter at least one text segment.", {"display": "none"}, None, dash.no_update, dash.no_update
 
                 # Load config and embedding client
                 config = get_experiment(experiment_name)
@@ -400,36 +577,7 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
         except Exception as e:
             import traceback
             logger.error(traceback.format_exc())
-            return dash.no_update, dash.no_update, f"Analysis error: {e}", {"display": "none"}, None, dash.no_update
-
-        # Build plot
-        try:
-            fig = _build_trajectory_plot(df, result, method)
-        except Exception as e:
-            fig = go.Figure()
-            logger.warning("Could not build trajectory plot: %s", e)
-
-        # Build result accordion
-        target = result["target"]
-        accordion_items = [
-            _aspect_accordion_item(asp, result["aspects"].get(asp, {}), target.get(asp, ""))
-            for asp in ASPECTS
-        ]
-
-        target_header = dbc.Alert([
-            html.H6([
-                html.Strong(target.get("title", "(Synthetic Paper)")),
-                dbc.Badge(
-                    f"{target.get('publication_year', '')} · {target.get('cited_by_count', '')} citations",
-                    color="dark", className="ms-2"
-                ),
-            ], className="mb-1"),
-        ], color="dark", className="mb-3")
-
-        results_children = [
-            target_header,
-            dbc.Accordion(accordion_items, start_collapsed=False, always_open=True),
-        ]
+            return f"Analysis error: {e}", {"display": "none"}, None, dash.no_update, dash.no_update
 
         # Prepare serializable result for store (convert numpy arrays/scalars to lists/native types)
         def _json_serial(obj):
@@ -446,7 +594,80 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
         store_result = json.loads(json.dumps(result, default=_json_serial))
         metrics_table = _build_metrics_table(result)
 
-        return fig, results_children, "", {"display": "block"}, store_result, metrics_table
+        return "", {"display": "block"}, store_result, metrics_table, "problem"
+
+    # --- 3D Graph Click to select vertex ---
+    @app.callback(
+        Output("traj-selected-vertex", "data"),
+        Input("traj-plot-3d", "clickData"),
+        State("traj-selected-vertex", "data"),
+        prevent_initial_call=True
+    )
+    def select_vertex_from_click(click_data, current_vertex):
+        if not click_data:
+            raise PreventUpdate
+        try:
+            point = click_data["points"][0]
+            clicked_vertex = point.get("customdata")
+            if clicked_vertex in ["problem", "method", "finding", "interpretation"]:
+                return clicked_vertex
+        except Exception as e:
+            logger.warning(f"Error extracting clicked vertex: {e}")
+        raise PreventUpdate
+
+    # --- Render trajectory plots and neighborhood results ---
+    @app.callback(
+        [Output("traj-plot", "figure"),
+         Output("traj-plot-3d", "figure"),
+         Output("traj-selected-vertex-label", "children"),
+         Output("traj-selected-segment-text", "children"),
+         Output("traj-selected-vertex-container", "style"),
+         Output("traj-results-container", "children")],
+        [Input("traj-results-store", "data"),
+         Input("traj-selected-vertex", "data")],
+        [State("traj-experiment-select", "value"),
+         State("traj-method-select", "value")],
+    )
+    def render_trajectory_results(result, selected_vertex, experiment_name, method):
+        if not result or not experiment_name:
+            empty_fig = go.Figure(layout={
+                "template": "plotly_dark",
+                "paper_bgcolor": "#1a1a2e",
+                "plot_bgcolor": "#16213e",
+                "height": 380,
+                "xaxis": {"visible": False},
+                "yaxis": {"visible": False}
+            })
+            return (
+                empty_fig, empty_fig, "Problem",
+                "Run an analysis to inspect trajectory.",
+                {"display": "none"},
+                html.P("Run an analysis to see results.", className="text-muted")
+            )
+
+        try:
+            df = _load_dr_df(experiment_name, base_path)
+        except Exception:
+            df = None
+
+        selected_vertex = (selected_vertex or "problem").lower()
+        target = result.get("target", {})
+        
+        segment_text = target.get(selected_vertex, "(empty)")
+        vertex_label = selected_vertex.upper()
+        
+        fig_2d = _build_trajectory_plot_2d(df, result, method)
+        fig_3d = _build_trajectory_simplex_plot_3d(df, result, method, selected_vertex)
+        results_children = _build_neighborhood_results_html(df, result, selected_vertex)
+
+        return (
+            fig_2d,
+            fig_3d,
+            vertex_label,
+            segment_text,
+            {"display": "block"},
+            results_children
+        )
 
     # --- Download callback ---
     @app.callback(
@@ -476,6 +697,40 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
         
         return dict(content=report_md, filename=filename)
 
+    # --- Fullscreen toggle for 2D plot ---
+    @app.callback(
+        [Output("traj-plot-2d-card", "className"),
+         Output("traj-plot", "style"),
+         Output("traj-plot-fullscreen-btn", "children")],
+        Input("traj-plot-fullscreen-btn", "n_clicks"),
+        State("traj-plot-2d-card", "className"),
+        prevent_initial_call=True
+    )
+    def toggle_fullscreen_2d(n_clicks, current_class):
+        if not current_class:
+            current_class = ""
+        if "fullscreen-graph" in current_class:
+            return "mb-3", {"height": "380px"}, "⛶ Fullscreen"
+        else:
+            return "fullscreen-graph", {"height": "calc(100vh - 80px)"}, "🗖 Exit Fullscreen"
+
+    # --- Fullscreen toggle for 3D plot ---
+    @app.callback(
+        [Output("traj-plot-3d-card", "className"),
+         Output("traj-plot-3d", "style"),
+         Output("traj-plot-3d-fullscreen-btn", "children")],
+        Input("traj-plot-3d-fullscreen-btn", "n_clicks"),
+        State("traj-plot-3d-card", "className"),
+        prevent_initial_call=True
+    )
+    def toggle_fullscreen_3d(n_clicks, current_class):
+        if not current_class:
+            current_class = ""
+        if "fullscreen-graph" in current_class:
+            return "mb-3", {"height": "380px"}, "⛶ Fullscreen"
+        else:
+            return "fullscreen-graph", {"height": "calc(100vh - 80px)"}, "🗖 Exit Fullscreen"
+
 
 def _build_metrics_table(result: dict) -> dbc.Table:
     """Build a comparison table of trajectory and operator metrics."""
@@ -493,13 +748,20 @@ def _build_metrics_table(result: dict) -> dbc.Table:
         return f"{val:.4f}"
 
     table_rows = [
-        # Novelty
+        # Cycle Closure & Net Epistemic Displacement
         html.Tr([
-            html.Td(html.Strong("Novelty (||i - p||)")),
-            html.Td(fmt(raw.get("novelty"))),
-            html.Td(fmt(norm.get("novelty"))),
-            html.Td(fmt(proj.get("novelty"))),
+            html.Td(html.Strong("Cycle Closure (||i - p||)")),
+            html.Td(fmt(raw.get("cycle_closure_norm"))),
+            html.Td(fmt(norm.get("cycle_closure_norm"))),
+            html.Td(fmt(proj.get("cycle_closure_norm"))),
         ], style={"backgroundColor": "rgba(255, 193, 7, 0.05)"}),
+
+        html.Tr([
+            html.Td(html.Strong("Net Epistemic Displacement (||p̄ - p||)")),
+            html.Td(fmt(raw.get("net_epistemic_displacement_norm"))),
+            html.Td(fmt(norm.get("net_epistemic_displacement_norm"))),
+            html.Td(fmt(proj.get("net_epistemic_displacement_norm"))),
+        ], style={"backgroundColor": "rgba(40, 167, 69, 0.05)"}),
 
         # Header for Step Sizes
         html.Tr([
@@ -572,8 +834,11 @@ def _build_metrics_table(result: dict) -> dbc.Table:
         ),
         html.Div([
             html.Small([
-                html.Strong("Novelty (||i - p||): "),
-                "Measures the distance between Interpretation and Problem. Higher indicates a more substantial departure (higher potential novelty/new problems opened), while lower suggests incremental confirmation.",
+                html.Strong("Cycle Closure (||i - p||): "),
+                "Measures the distance between the final Interpretation and the starting Problem. Higher values indicate a larger gap (open-ended inquiry/high novelty), while lower values suggest a tightly closed cycle.",
+                html.Br(),
+                html.Strong("Net Epistemic Displacement (||p̄ - p||): "),
+                "Measures the distance from the starting problem to the average problem opened by similar interpretations, representing the expected future intellectual direction.",
                 html.Br(),
                 html.Strong("Operator Magnitudes (Step Sizes): "),
                 "The L2 distance moved during each stage of the paper's trajectory.",

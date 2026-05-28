@@ -109,6 +109,7 @@ def plot_landscape_3d(
         df_scatter, x=x_col, y=y_col, z=z_vals,
         color=color_col, symbol=symbol_col,
         opacity=scatter_opacity,
+        color_discrete_sequence=px.colors.qualitative.Set1
     )
 
     # Add hover data if available (Clean hover, detailed customdata)
@@ -346,7 +347,8 @@ def plot_landscape_contour(
         df_scatter, x=x_col, y=y_col,
         color=color_col, symbol=symbol_col,
         opacity=0.3,
-        render_mode="svg"
+        render_mode="svg",
+        color_discrete_sequence=px.colors.qualitative.Set1
     )
     
     # Add hover data if available
@@ -550,7 +552,7 @@ def _add_manual_legends_3d(fig, df, color_col, symbol_col, label_results=None):
     symbols = ["circle", "diamond", "square", "cross", "x", "triangle-up"]
     
     if color_col and color_col in df.columns:
-        labels = df[color_col].unique()
+        labels = sorted([l for l in df[color_col].unique() if pd.notna(l)], key=str)
         for i, lab in enumerate(labels):
             name = str(lab)
             if name == "-1" or name == "-1.0":
@@ -587,7 +589,7 @@ def _add_manual_legends_2d(fig, df, color_col, symbol_col, label_results=None):
     symbols = ["circle", "diamond", "square", "cross", "x", "triangle-up"]
     
     if color_col and color_col in df.columns:
-        labels = df[color_col].unique()
+        labels = sorted([l for l in df[color_col].unique() if pd.notna(l)], key=str)
         for i, lab in enumerate(labels):
             name = str(lab)
             if name == "-1" or name == "-1.0":

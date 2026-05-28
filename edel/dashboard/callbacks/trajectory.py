@@ -238,7 +238,6 @@ def _build_trajectory_plot_2d(df: pd.DataFrame | None, result: dict, method: str
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#16213e",
         margin=dict(l=10, r=10, t=10, b=10),
-        height=380,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
@@ -394,7 +393,6 @@ def _build_trajectory_simplex_plot_3d(
         paper_bgcolor="#1a1a2e",
         plot_bgcolor="#16213e",
         margin=dict(l=0, r=0, t=0, b=0),
-        height=380,
         scene=dict(
             xaxis=dict(showgrid=False, showbackground=False, showaxeslabels=False, showticklabels=False, title=""),
             yaxis=dict(showgrid=False, showbackground=False, showaxeslabels=False, showticklabels=False, title=""),
@@ -634,7 +632,6 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
                 "template": "plotly_dark",
                 "paper_bgcolor": "#1a1a2e",
                 "plot_bgcolor": "#16213e",
-                "height": 380,
                 "xaxis": {"visible": False},
                 "yaxis": {"visible": False}
             })

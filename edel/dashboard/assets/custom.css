@@ -20,10 +20,12 @@
 }
 
 /* Specific layout wrappers targeting only graph container levels */
-.fullscreen-graph .card-body > div,
-.fullscreen-graph .card-body > div > div,
-.fullscreen-graph #map-container-3d,
-.fullscreen-graph #map-container-2d,
+.fullscreen-graph .card-body > #map-container-3d,
+.fullscreen-graph .card-body > #map-container-2d,
+.fullscreen-graph .card-body > #map-container-3d > #landscape-graph-3d,
+.fullscreen-graph .card-body > #map-container-2d > #landscape-graph-2d,
+.fullscreen-graph .card-body > #traj-plot,
+.fullscreen-graph .card-body > #traj-plot-3d,
 .fullscreen-graph .dash-graph,
 .fullscreen-graph .js-plotly-plot {
     height: 100% !important;

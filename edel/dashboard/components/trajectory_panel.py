@@ -199,7 +199,6 @@ def trajectory_panel_layout() -> dbc.Container:
                                         "template": "plotly_dark",
                                         "paper_bgcolor": "#1a1a2e",
                                         "plot_bgcolor": "#16213e",
-                                        "height": 380,
                                         "annotations": [{
                                             "text": "Run an analysis to see the 2D displacement.",
                                             "xref": "paper", "yref": "paper",
@@ -208,6 +207,7 @@ def trajectory_panel_layout() -> dbc.Container:
                                             "font": {"color": "#aaa", "size": 14}
                                         }]
                                     }},
+                                    responsive=True,
                                     style={"height": "380px"},
                                     config={"displayModeBar": False}
                                 ),
@@ -233,7 +233,6 @@ def trajectory_panel_layout() -> dbc.Container:
                                         "template": "plotly_dark",
                                         "paper_bgcolor": "#1a1a2e",
                                         "plot_bgcolor": "#16213e",
-                                        "height": 380,
                                         "annotations": [{
                                             "text": "Run an analysis to see the 3D Simplex.",
                                             "xref": "paper", "yref": "paper",
@@ -242,6 +241,7 @@ def trajectory_panel_layout() -> dbc.Container:
                                             "font": {"color": "#aaa", "size": 14}
                                         }]
                                     }},
+                                    responsive=True,
                                     style={"height": "380px"},
                                     config={"displayModeBar": True}
                                 ),

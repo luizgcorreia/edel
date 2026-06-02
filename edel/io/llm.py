@@ -455,6 +455,74 @@ class MockClient(LLMClient):
         }
 
 
+class NullClient(LLMClient):
+    """Null provider that slices abstracts into four equal segments."""
+
+    def __init__(self, **kwargs):
+        self.batches = {}
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        import re
+        abstract_text = ""
+        # Search for "Abstract:" case-insensitively followed by optional spaces and newline
+        match_start = re.search(r'(?i)\babstract:\s*\n', prompt)
+        if match_start:
+            content_from_abstract = prompt[match_start.end():]
+            # Find where the abstract ends - usually at "Keywords:" or "JSON Answer:" or "Rules:"
+            match_end = re.search(r'(?i)\n(?:keywords|json answer|rules):\s*\n', content_from_abstract)
+            if match_end:
+                abstract_text = content_from_abstract[:match_end.start()].strip()
+            else:
+                # If no ending marker found, take up to "JSON Answer:" or "Keywords:" without requiring the exact format
+                match_end_fallback = re.search(r'(?i)\n(?:keywords|json answer)\b', content_from_abstract)
+                if match_end_fallback:
+                    abstract_text = content_from_abstract[:match_end_fallback.start()].strip()
+                else:
+                    abstract_text = content_from_abstract.strip()
+        else:
+            # Fallback: if we can't find the section, use the prompt itself
+            abstract_text = prompt.strip()
+
+        n = len(abstract_text)
+        w1 = n // 4
+        w2 = (2 * n) // 4
+        w3 = (3 * n) // 4
+
+        data = {
+            "problem": abstract_text[:w1].strip(),
+            "method": abstract_text[w1:w2].strip(),
+            "finding": abstract_text[w2:w3].strip(),
+            "interpretation": abstract_text[w3:].strip()
+        }
+        return json.dumps(data)
+
+    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+        import numpy as np
+        dim = kwargs.get("dimensions", 1536)
+        return np.random.rand(dim).tolist()
+
+    def create_batch(
+        self, prompts_with_ids: dict[str, str], endpoint: str = "/v1/chat/completions", **kwargs
+    ) -> str:
+        batch_id = f"null-batch-{time.time()}"
+        self.batches[batch_id] = (prompts_with_ids, endpoint)
+        return batch_id
+
+    def poll_batch(self, batch_id: str) -> dict[str, Any]:
+        data = self.batches.get(batch_id)
+        if not data:
+            return {"id": batch_id, "status": "failed", "results": None}
+        
+        prompts, endpoint = data
+        results = {cid: self.generate(prompt) for cid, prompt in prompts.items()}
+        return {
+            "id": batch_id,
+            "status": "completed",
+            "request_counts": {"completed": len(prompts), "total": len(prompts)},
+            "results": results,
+        }
+
+
 def get_llm_client(config: dict) -> LLMClient:
     """Factory to create the appropriate LLM client."""
     provider = config.get("provider", "openai")
@@ -468,5 +536,7 @@ def get_llm_client(config: dict) -> LLMClient:
         return GeminiClient(**config)
     elif provider == "mock":
         return MockClient()
+    elif provider == "null":
+        return NullClient(**config)
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")

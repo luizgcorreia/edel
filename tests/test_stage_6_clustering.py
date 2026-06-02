@@ -55,7 +55,7 @@ def test_clustering_kmeans_proj(df_results, field_results):
             }
         },
     }
-    df_c, field_c = run_clustering_stage(df_results, field_results, config)
+    df_c, field_c, _ = run_clustering_stage(df_results, field_results, config)
     assert "cluster_domains" in df_c.columns
     assert len(df_c["cluster_domains"].unique()) <= 2
 
@@ -71,7 +71,7 @@ def test_clustering_hdbscan_emb(df_results, field_results):
             }
         },
     }
-    df_c, field_c = run_clustering_stage(df_results, field_results, config)
+    df_c, field_c, _ = run_clustering_stage(df_results, field_results, config)
     assert "cluster_hdb" in df_c.columns
 
 
@@ -86,7 +86,7 @@ def test_clustering_features(df_results, field_results):
             }
         },
     }
-    df_c, field_c = run_clustering_stage(df_results, field_results, config)
+    df_c, field_c, _ = run_clustering_stage(df_results, field_results, config)
     assert "cluster_styles" in df_c.columns
 
 
@@ -100,5 +100,30 @@ def test_clustering_field(df_results, field_results):
             }
         },
     }
-    df_c, field_c = run_clustering_stage(df_results, field_results, config)
+    df_c, field_c, _ = run_clustering_stage(df_results, field_results, config)
     assert "cluster_flow" in field_c.columns
+
+
+def test_clustering_no_mutation(df_results, field_results):
+    import copy
+    config = {
+        "embedding": {"n_dimensions": 4},
+        "clustering": {
+            "domains": {
+                "source": "proj_p",
+                "algorithm": "kmeans",
+                "params": {
+                    "n_clusters": 2,
+                    "random_state": 42,
+                    "n_init": 10,
+                    "x_min": -2.0,
+                    "x_max": 2.0,
+                    "y_min": -2.0,
+                    "y_max": 2.0,
+                },
+            }
+        },
+    }
+    config_original = copy.deepcopy(config)
+    run_clustering_stage(df_results, field_results, config)
+    assert config == config_original

@@ -36,7 +36,7 @@ def run_clustering_stage(
     for name, cfg in cluster_cfg.items():
         source = cfg.get("source", "proj_p")
         algorithm = cfg.get("algorithm", "kmeans")
-        params = cfg.get("params", {})
+        params = cfg.get("params", {}).copy()
 
         print(f"Running clustering: {name} (source: {source}, algorithm: {algorithm})...")
 

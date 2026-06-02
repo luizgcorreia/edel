@@ -3,7 +3,7 @@
 import os
 import pandas as pd
 import pytest
-from edel.io.artifact import load_artifact, make_stage_artifact
+from edel.io.artifact import load_artifact, make_stage_artifact, save_artifact
 from edel.pipeline.data import run_data_stage
 from edel.pipeline.structuring import run_structuring_stage
 
@@ -34,7 +34,8 @@ def ensure_stage_1_artifacts(config, base_path):
     """Run Stage 1 only if artifacts are missing."""
     artifact = make_stage_artifact(config, base_path, "data_collection", "dataset")
     if not artifact.parquet_path.exists():
-        run_data_stage(config["data"], artifact_root=base_path)
+        df, _ = run_data_stage(config["data"])
+        save_artifact(artifact, df)
     return load_artifact(artifact)
 
 
@@ -45,7 +46,7 @@ def test_structuring_stage_mock(run_config, tmp_path):
     assert len(df_stage1) == 5
 
     # 2. Run Stage 2
-    df_stage2 = run_structuring_stage(df_stage1, run_config)
+    df_stage2, report = run_structuring_stage(df_stage1, run_config)
 
     # 3. Verify results
     assert isinstance(df_stage2, pd.DataFrame)
@@ -97,7 +98,7 @@ def test_abstract_filtering():
     )
 
     # Filter with min_sentences=2, min_tokens=5
-    df_filtered = filter_abstracts(df, min_sentences=2, min_tokens=5)
+    df_filtered, report = filter_abstracts(df, min_sentences=2, min_tokens=5)
 
     assert len(df_filtered) == 1
     assert "It should pass" in df_filtered["abstract_text"].iloc[0]
@@ -113,7 +114,7 @@ def test_structuring_stage_batch_chunking(run_config, tmp_path):
     assert len(df_stage1) == 5
 
     # 2. Run Stage 2
-    df_stage2 = run_structuring_stage(df_stage1, run_config)
+    df_stage2, report = run_structuring_stage(df_stage1, run_config)
 
     # 3. Verify results
     assert isinstance(df_stage2, pd.DataFrame)
@@ -161,7 +162,7 @@ def test_structuring_openai_integration(tmp_path):
     }
 
     df_stage1 = ensure_stage_1_artifacts(config, tmp_path)
-    df_stage2 = run_structuring_stage(df_stage1, config)
+    df_stage2, report = run_structuring_stage(df_stage1, config)
 
     assert len(df_stage2) == 5
     # Verify that we got some non-mock content
@@ -196,6 +197,40 @@ def test_structuring_lmstudio_integration(tmp_path):
         pytest.skip("LM Studio server not found at " + base_url)
 
     df_stage1 = ensure_stage_1_artifacts(config, tmp_path)
-    df_stage2 = run_structuring_stage(df_stage1, config)
+    df_stage2, report = run_structuring_stage(df_stage1, config)
 
     assert len(df_stage2) == 5
+
+
+def test_structuring_stage_null(run_config, tmp_path):
+    """Test Stage 2 using the null slicer provider."""
+    # 1. Update config to use null provider
+    run_config["structured_abstracts"]["provider"] = "null"
+    run_config["structured_abstracts"]["model"] = "null-model"
+
+    # 2. Setup Stage 1 dependency
+    df_stage1 = ensure_stage_1_artifacts(run_config, tmp_path)
+    assert len(df_stage1) == 5
+
+    # Force a known abstract text for testing slicing precisely, and clear other aspects
+    test_abstract = "A B C D " * 20  # Length 160, 80 tokens
+    df_stage1.loc[df_stage1.index[0], "abstract_text"] = test_abstract
+    for col in ["problem", "method", "finding", "interpretation"]:
+        df_stage1.loc[df_stage1.index[0], col] = ""
+
+    # 3. Run Stage 2
+    df_stage2, report = run_structuring_stage(df_stage1, run_config)
+
+    # 4. Verify results
+    assert isinstance(df_stage2, pd.DataFrame)
+    assert len(df_stage2) == 5
+    
+    first_row = df_stage2.iloc[0]
+    
+    # Check that abstract is sliced into four equal parts of length 40
+    # Merging logic adds "abstract:\n" and strips the snippets.
+    expected_snippet = ("A B C D " * 5).strip()
+    assert first_row["problem"] == f"abstract:\n{expected_snippet}"
+    assert first_row["method"] == f"abstract:\n{expected_snippet}"
+    assert first_row["finding"] == f"abstract:\n{expected_snippet}"
+    assert first_row["interpretation"] == f"abstract:\n{expected_snippet}"

@@ -89,6 +89,16 @@ def plot_landscape_3d(
     else:
         df_scatter = df_plot
 
+    # Resolve projection method fallback if missing
+    x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+    requested_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+    if requested_col not in df.columns and x_cols:
+        fallback_col = x_cols[0]
+        if fallback_col.startswith("proj_problem_"):
+            method = fallback_col[len("proj_problem_"):-2]
+        else:
+            method = fallback_col[len("proj_"):-2]
+
     # We need to map papers to their projection coordinates
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
     y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
@@ -105,13 +115,6 @@ def plot_landscape_3d(
     else:
         z_vals = np.zeros(len(df_scatter))
 
-    scatter = px.scatter_3d(
-        df_scatter, x=x_col, y=y_col, z=z_vals,
-        color=color_col, symbol=symbol_col,
-        opacity=scatter_opacity,
-        color_discrete_sequence=px.colors.qualitative.Set1
-    )
-
     # Add hover data if available (Clean hover, detailed customdata)
     hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
     hover_cols = [c for c in hover_cols if c in df_scatter.columns]
@@ -120,11 +123,18 @@ def plot_landscape_3d(
     display_hover = ["title", "publication_year", "cited_by_count"]
     display_hover = [c for c in display_hover if c in df_scatter.columns]
 
+    scatter = px.scatter_3d(
+        df_scatter, x=x_col, y=y_col, z=z_vals,
+        color=color_col, symbol=symbol_col,
+        opacity=scatter_opacity,
+        color_discrete_sequence=px.colors.qualitative.Set1,
+        hover_data=hover_cols
+    )
+
     for trace in scatter.data:
         trace.marker.size = scatter_size
         trace.showlegend = False
         if hover_cols:
-            trace.customdata = df_scatter[hover_cols]
             # Use only a subset for the hover box to keep it readable
             trace.hovertemplate = "<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         fig.add_trace(trace)
@@ -340,17 +350,19 @@ def plot_landscape_contour(
     else:
         df_scatter = df_plot
 
+    # Resolve projection method fallback if missing
+    x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+    requested_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+    if requested_col not in df.columns and x_cols:
+        fallback_col = x_cols[0]
+        if fallback_col.startswith("proj_problem_"):
+            method = fallback_col[len("proj_problem_"):-2]
+        else:
+            method = fallback_col[len("proj_"):-2]
+
     x_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
     y_col = f"proj_problem_{method}_y" if f"proj_problem_{method}_y" in df.columns else f"proj_{method}_y"
 
-    scatter = px.scatter(
-        df_scatter, x=x_col, y=y_col,
-        color=color_col, symbol=symbol_col,
-        opacity=0.3,
-        render_mode="svg",
-        color_discrete_sequence=px.colors.qualitative.Set1
-    )
-    
     # Add hover data if available
     hover_cols = ["title", "publication_year", "cited_by_count", "id", "problem", "method", "finding", "interpretation", "doi"]
     hover_cols = [c for c in hover_cols if c in df_scatter.columns]
@@ -358,15 +370,20 @@ def plot_landscape_contour(
     display_hover = ["title", "publication_year", "cited_by_count"]
     display_hover = [c for c in display_hover if c in df_scatter.columns]
 
-    if hover_cols:
-        scatter.update_traces(
-            customdata=df_scatter[hover_cols], 
-            hovertemplate="<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
-        )
+    scatter = px.scatter(
+        df_scatter, x=x_col, y=y_col,
+        color=color_col, symbol=symbol_col,
+        opacity=0.3,
+        render_mode="svg",
+        color_discrete_sequence=px.colors.qualitative.Set1,
+        hover_data=hover_cols
+    )
 
     for tr in scatter.data:
         tr.marker.size = 6
         tr.showlegend = False
+        if hover_cols:
+            tr.hovertemplate = "<br>".join([f"<b>{c}:</b> %{{customdata[{hover_cols.index(c)}]}}" for c in display_hover]) + "<extra></extra>"
         fig.add_trace(tr)
         
     # 2.5 Add Relevant Papers ("Cities")

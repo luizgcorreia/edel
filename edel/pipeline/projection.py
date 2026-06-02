@@ -64,11 +64,25 @@ def filter_disconnected_components(df: pd.DataFrame, embs_dict: dict, k: int, pr
 def load_embeddings_to_matrix(
     df: pd.DataFrame, column: str, dimensions: int, dtype=np.float32
 ) -> np.ndarray:
-    """Efficiently load JSON-string embeddings into a NumPy matrix."""
+    """Efficiently load JSON-string embeddings into a NumPy matrix with fallback support."""
     num_rows = len(df)
     matrix = np.empty((num_rows, dimensions), dtype=dtype)
 
-    for i, val in enumerate(df[column]):
+    aspects_fallback = ["problem_embedding", "method_embedding", "finding_embedding", "interpretation_embedding"]
+
+    for i, row in enumerate(df.itertuples(index=False)):
+        val = getattr(row, column, None)
+        
+        # If target column embedding is missing, try fallback aspects in this row
+        if pd.isna(val) or val is None:
+            for fallback_col in aspects_fallback:
+                if fallback_col == column:
+                    continue
+                f_val = getattr(row, fallback_col, None)
+                if not (pd.isna(f_val) or f_val is None):
+                    val = f_val
+                    break
+
         if pd.isna(val) or val is None:
             matrix[i, :] = 0.0
             continue

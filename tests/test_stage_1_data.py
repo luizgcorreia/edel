@@ -20,7 +20,7 @@ def test_lexicon_null_provider_direct():
         }
     }
     
-    df = generate_lexicon_null(config)
+    df, _ = generate_lexicon_null(config)
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 10
@@ -45,8 +45,8 @@ def test_lexicon_null_determinism():
         }
     }
     
-    df1 = generate_lexicon_null(config)
-    df2 = generate_lexicon_null(config)
+    df1, _ = generate_lexicon_null(config)
+    df2, _ = generate_lexicon_null(config)
     
     pd.testing.assert_frame_equal(df1, df2)
 
@@ -57,7 +57,7 @@ def test_run_data_stage_lexicon_null(base_run_config):
     config["data"]["provider"]["type"] = "lexicon_null"
     config["data"]["provider"]["params"]["n_documents"] = 3
     
-    df = run_data_stage(config["data"])
+    df, _ = run_data_stage(config["data"])
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 3
@@ -77,7 +77,7 @@ def test_syntax_null_provider_direct():
         }
     }
     
-    df = generate_syntax_null(config)
+    df, _ = generate_syntax_null(config)
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 5
@@ -100,8 +100,8 @@ def test_syntax_null_determinism():
         }
     }
     
-    df1 = generate_syntax_null(config)
-    df2 = generate_syntax_null(config)
+    df1, _ = generate_syntax_null(config)
+    df2, _ = generate_syntax_null(config)
     
     pd.testing.assert_frame_equal(df1, df2)
 
@@ -117,7 +117,7 @@ def test_scigen_null_provider_direct():
         }
     }
     
-    df = generate_scigen_null(config)
+    df, _ = generate_scigen_null(config)
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 5
@@ -140,7 +140,7 @@ def test_openalex_provider_direct():
         }
     }
     
-    df = generate_openalex(config)
+    df, _ = generate_openalex(config)
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) <= 10  # Might be less if topic is small or filters are strict
@@ -165,7 +165,7 @@ def test_afp_provider_direct():
         }
     }
     
-    df = generate_afp(config)
+    df, _ = generate_afp(config)
     
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 5
@@ -174,7 +174,7 @@ def test_afp_provider_direct():
     
     assert "abstract_text" in df.columns
     assert "title" in df.columns
-    assert all(df["source_provider"] == "afp")
+    assert all(df["source_provider"].str.startswith("afp"))
     # Check that some semantic aspects were filled
     assert any(df["method"] != "")
     assert any(df["finding"] != "")

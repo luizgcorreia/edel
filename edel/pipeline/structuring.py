@@ -147,7 +147,7 @@ def compute_segmentation_metrics(df: pd.DataFrame) -> dict[str, float]:
 
 
 def process_simple(
-    df: pd.DataFrame, client: LLMClient, topic: str | None = None
+    df: pd.DataFrame, client: LLMClient, topic: str | None = None, definitions: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Process abstracts one by one (simple mode)."""
     results = {}
@@ -157,6 +157,7 @@ def process_simple(
             abstract_text=row["abstract_text"],
             keywords=row.get("keywords", []),
             topic=topic,
+            definitions=definitions,
         )
         try:
             results[f"request-{idx}"] = client.generate(prompt)
@@ -167,7 +168,7 @@ def process_simple(
 
 
 def process_batch(
-    df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None, batch_log_path: Path | None = None
+    df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None, batch_log_path: Path | None = None, definitions: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Process abstracts using Batch API with optimal chunking and resume capabilities."""
     
@@ -183,7 +184,7 @@ def process_batch(
         except Exception as e:
             print(f"Warning: Failed to load batch log: {e}")
 
-    # 1. Initial poll of existing batches to see what's done
+    # 1. Poll of existing batches
     remaining_batches = []
     for b_id in active_batches:
         try:
@@ -201,7 +202,7 @@ def process_batch(
             
     active_batches = remaining_batches
 
-    # 2. Find missing items that were not recovered from existing completed batches
+    # 2. Find missing items
     missing_indices = [idx for idx in df.index if f"request-{idx}" not in all_results]
     
     if missing_indices:
@@ -222,6 +223,7 @@ def process_batch(
                     abstract_text=row["abstract_text"],
                     keywords=row.get("keywords", []),
                     topic=topic,
+                    definitions=definitions,
                 )
             
             try:
@@ -231,14 +233,14 @@ def process_batch(
             except Exception as e:
                 print(f"Failed to submit batch chunk {i+1}: {e}")
                 
-        # Save updated active batches to disk immediately
+        # Save updated active batches
         if batch_log_path:
             with open(batch_log_path, 'w') as f:
                 json.dump(active_batches, f, indent=2)
     else:
         print("All items successfully recovered from log! No new batches needed.")
 
-    # 3. Continuous Poll loop for all active batches
+    # 3. Continuous Poll loop
     while active_batches:
         print(f"Waiting for {len(active_batches)} batch(es) to complete... next check in 60s")
         time.sleep(60)
@@ -258,7 +260,6 @@ def process_batch(
                     if status_info["results"]:
                         all_results.update(status_info["results"])
                         print(f"Batch {b_id[:25]}... completed and results collected.")
-                    # Dropped from remaining list because it's done
                 elif status in ["failed", "cancelled", "expired"]:
                     print(f"Batch {b_id[:25]}... failed ({status}).")
                     raise RuntimeError(f"Batch failed: {status}")
@@ -269,8 +270,6 @@ def process_batch(
                 remaining.append(b_id)
                 
         active_batches = remaining
-        
-        # Save state as batches complete so we don't poll them again if we crash
         if batch_log_path:
             with open(batch_log_path, 'w') as f:
                 json.dump(active_batches, f, indent=2)
@@ -283,6 +282,7 @@ def run_structuring_stage(df: pd.DataFrame, config: dict, base_path: str | Path 
     stage_cfg = config.get("structured_abstracts", {})
     processing_mode = config.get("processing_mode", "simple")
     target_lang = stage_cfg.get("language")
+    definitions = stage_cfg.get("aspect_definitions")
     
     # 1. Filter
     min_sentences = stage_cfg.get("min_sentences", 4)
@@ -312,14 +312,13 @@ def run_structuring_stage(df: pd.DataFrame, config: dict, base_path: str | Path 
         from edel.io.artifact import make_stage_artifact
         batch_size = stage_cfg.get("batch_size", 1000)
         
-        # Determine the batch log artifact path so we can save/resume the batch IDs
         batch_log_art = make_stage_artifact(config, Path(base_path), "structured_abstracts", "batch_log")
         batch_log_path = batch_log_art.path_prefix.with_suffix(".json")
         batch_log_path.parent.mkdir(parents=True, exist_ok=True)
         
-        results = process_batch(df_filtered, client, batch_size, topic, batch_log_path=batch_log_path)
+        results = process_batch(df_filtered, client, batch_size, topic, batch_log_path=batch_log_path, definitions=definitions)
     else:
-        results = process_simple(df_filtered, client, topic)
+        results = process_simple(df_filtered, client, topic, definitions=definitions)
 
     # 4. Parse & Merge
     df_structured = parse_and_merge_results(df_filtered, results)

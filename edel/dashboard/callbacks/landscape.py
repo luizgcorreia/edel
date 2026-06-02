@@ -184,7 +184,8 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
         [Output("map-selected-paper-info", "children"),
          Output("landscape-graph-3d", "figure", allow_duplicate=True),
          Output("landscape-graph-2d", "figure", allow_duplicate=True),
-         Output("map-paper-search", "value")],
+         Output("map-paper-search", "value"),
+         Output("map-paper-search", "options", allow_duplicate=True)],
         [Input("landscape-graph-3d", "clickData"),
          Input("landscape-graph-2d", "clickData"),
          Input("map-paper-search", "value")],
@@ -236,7 +237,7 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
                 try: p2["layout"]["annotations"][-i]["visible"] = False
                 except: pass
                 
-            return "Select a paper to view its trajectory.", p3, p2, None
+            return "Select a paper to view its trajectory.", p3, p2, None, []
             
         try:
             # We need the full dataframe for trajectory coordinates
@@ -248,8 +249,18 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             df = _DATASET_CACHE[experiment_name]
             matches = df[df["id"] == paper_id]
             if matches.empty:
-                return "Paper not found in dataset.", dash.no_update, search_val
+                return "Paper not found in dataset.", dash.no_update, dash.no_update, search_val, dash.no_update
                 
+            # Resolve projection method fallback if missing
+            x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+            requested_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+            if requested_col not in df.columns and x_cols:
+                fallback_col = x_cols[0]
+                if fallback_col.startswith("proj_problem_"):
+                    method = fallback_col[len("proj_problem_"):-2]
+                else:
+                    method = fallback_col[len("proj_"):-2]
+
             row = matches.iloc[0]
             
             title = row.get("title", "Unknown Title")
@@ -378,12 +389,18 @@ def register_landscape_callbacks(app: Dash, base_path: Path) -> None:
             patched_2d["layout"]["annotations"][-1]["showarrow"] = False
             patched_2d["layout"]["annotations"][-1]["visible"] = False
             
-            return html.Div(info), patched_3d, patched_2d, search_val
+            # If triggered from map click, provide the clicked paper in the options
+            if triggered_id != "map-paper-search":
+                options = [{"label": title, "value": paper_id}]
+            else:
+                options = dash.no_update
+                
+            return html.Div(info), patched_3d, patched_2d, search_val, options
             
         except Exception as e:
             import traceback
             print(traceback.format_exc())
-            return f"Error parsing paper data: {e}", dash.no_update, dash.no_update, search_val
+            return f"Error parsing paper data: {e}", dash.no_update, dash.no_update, search_val, dash.no_update
 
     # --- Save to Artifacts Callback ---
     @app.callback(

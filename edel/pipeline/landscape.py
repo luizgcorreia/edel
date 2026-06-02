@@ -42,8 +42,9 @@ def run_landscape_stage(
     max_pts = ls_cfg.get("max_scatter_points", 1000)
     seed = config.get("random_seed", 42)
     
-    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale}, max_scatter_points={max_pts})...")
-    terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range, terrain_scale)
+    aggregation = grid_cfg.get("aggregation", "mean")
+    print(f"Computing terrain using metric: {z_metric} (log_scale={log_scale}, scale={terrain_scale}, max_scatter_points={max_pts}, aggregation={aggregation})...")
+    terrain = compute_terrain(df, method, z_metric, num_bins, sigma, log_scale, x_range, y_range, terrain_scale, aggregation=aggregation)
     terrain["max_scatter_points"] = max_pts
     terrain["random_seed"] = seed
     
@@ -79,7 +80,8 @@ def compute_terrain(
     log_scale: bool = True,
     x_range: tuple | None = None,
     y_range: tuple | None = None,
-    scale: float = 1.0
+    scale: float = 1.0,
+    aggregation: str = "mean"
 ) -> Dict[str, np.ndarray]:
     """Calculate the 3D terrain grid (Z values) based on a metric."""
     
@@ -113,23 +115,29 @@ def compute_terrain(
     y_min, y_max = y_range if y_range else (Y.min(), Y.max())
     
     xi = np.linspace(x_min, x_max, num_bins)
-    yi = np.linspace(y_min, y_max, num_bins)
+    yi = np.linspace(y_max, y_min, num_bins)  # Note: top-to-bottom for correct visual layout matching meshgrid/imshow
     xi_grid, yi_grid = np.meshgrid(xi, yi)
     
     zi_grid = np.zeros_like(xi_grid)
     
     dx = xi[1] - xi[0] if len(xi) > 1 else 1.0
-    dy = yi[1] - yi[0] if len(yi) > 1 else 1.0
+    dy = yi[0] - yi[1] if len(yi) > 1 else 1.0  # Positive difference
 
     # Optimized binning
     for i in range(num_bins):
         for j in range(num_bins):
-            x_min, x_max = xi[i] - dx / 2, xi[i] + dx / 2
-            y_min, y_max = yi[j] - dy / 2, yi[j] + dy / 2
+            # Calculate coordinates correctly based on linear spacing
+            bx_min, bx_max = xi[i] - dx / 2, xi[i] + dx / 2
+            by_min, by_max = yi[j] - dy / 2, yi[j] + dy / 2
             
-            mask = (X >= x_min) & (X < x_max) & (Y >= y_min) & (Y < y_max)
+            mask = (X >= bx_min) & (X < bx_max) & (Y >= by_min) & (Y < by_max)
             if mask.any():
-                zi_grid[j, i] = Z[mask].mean()
+                if aggregation == "max":
+                    zi_grid[j, i] = Z[mask].max()
+                elif aggregation == "sum":
+                    zi_grid[j, i] = Z[mask].sum()
+                else:
+                    zi_grid[j, i] = Z[mask].mean()
 
     # Smoothing
     if sigma > 0:
@@ -144,7 +152,8 @@ def compute_terrain(
         "z": zi_grid,
         "metric": label,
         "raw_metric": metric,
-        "log_scale": log_scale
+        "log_scale": log_scale,
+        "aggregation": aggregation
     }
 
 

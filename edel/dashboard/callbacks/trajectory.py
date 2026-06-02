@@ -527,6 +527,16 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
             return f"Failed to load dataset: {e}", {"display": "none"}, None, dash.no_update, dash.no_update
 
         try:
+            # Resolve projection method fallback if missing
+            x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+            requested_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+            if requested_col not in df.columns and x_cols:
+                fallback_col = x_cols[0]
+                if fallback_col.startswith("proj_problem_"):
+                    method = fallback_col[len("proj_problem_"):-2]
+                else:
+                    method = fallback_col[len("proj_"):-2]
+
             if input_mode == "work_id":
                 if not paper_id or not paper_id.strip():
                     return "Please enter a Work ID.", {"display": "none"}, None, dash.no_update, dash.no_update
@@ -644,6 +654,16 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
 
         try:
             df = _load_dr_df(experiment_name, base_path)
+            if df is not None:
+                # Resolve projection method fallback if missing
+                x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+                requested_col = f"proj_problem_{method}_x" if f"proj_problem_{method}_x" in df.columns else f"proj_{method}_x"
+                if requested_col not in df.columns and x_cols:
+                    fallback_col = x_cols[0]
+                    if fallback_col.startswith("proj_problem_"):
+                        method = fallback_col[len("proj_problem_"):-2]
+                    else:
+                        method = fallback_col[len("proj_"):-2]
         except Exception:
             df = None
 

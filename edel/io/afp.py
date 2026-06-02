@@ -99,31 +99,74 @@ def load_afp_metadata(
     return metadata
 
 
-def parse_afp_root(root_file: Path) -> tuple[str | None, list[str], list[str]]:
-    """Parse an Isabelle ROOT file for session name, imports, and theories."""
+def parse_afp_root(root_file: Path) -> tuple[list[str], list[str], list[str]]:
+    """Parse an Isabelle ROOT file for session names, imports, and theories."""
     if not root_file.exists():
-        return None, [], []
+        return [], [], []
 
     text = root_file.read_text(errors="ignore")
 
-    # Session name
-    s = re.search(r'session\s+"(.+?)"', text)
-    session_name = s.group(1) if s else None
+    # Strip comments (* ... *)
+    while True:
+        new_text = re.sub(r'\(\*(?:[^*]|\*(?!\)))*\*\)', '', text, flags=re.DOTALL)
+        if new_text == text:
+            break
+        text = new_text
 
-    # Imports (base sessions)
-    imports = re.findall(r'"([^"]+)"', text)
+    # Find all session blocks
+    session_starts = [m.start() for m in re.finditer(r'\bsession\b', text)]
+    session_blocks = []
+    for i, start_idx in enumerate(session_starts):
+        end_idx = session_starts[i+1] if i+1 < len(session_starts) else len(text)
+        session_blocks.append(text[start_idx:end_idx])
 
-    # Theories block
-    tblock = re.search(r"theories(.+?)document_files", text, re.S)
-    if not tblock:
-        # fallback if no document_files
-        tblock = re.search(r"theories(.+?)$", text, re.S)
+    session_names = []
+    all_imports = []
+    all_theories = []
 
-    theories = []
-    if tblock:
-        theories = re.findall(r"[A-Za-z0-9_]+", tblock.group(1))
+    keywords = ['options', 'sessions', 'directories', 'theories', 'document_files', 'document_theories']
 
-    return session_name, imports, theories
+    for block in session_blocks:
+        if '=' not in block:
+            continue
+        
+        header, rest = block.split('=', 1)
+        
+        session_name_match = re.search(r'\bsession\s+([A-Za-z0-9_\-\"\']+)', header)
+        if not session_name_match:
+            continue
+        session_name = session_name_match.group(1).strip('"\'')
+        session_names.append(session_name)
+        
+        keyword_pattern = r'\b(?:' + '|'.join(keywords) + r')\b'
+        base_sessions_part = re.split(keyword_pattern, rest, maxsplit=1)[0]
+        
+        for part in base_sessions_part.split('+'):
+            dep = part.strip().strip('"\'')
+            if dep and dep not in all_imports:
+                all_imports.append(dep)
+                
+        sessions_matches = list(re.finditer(r'\bsessions\b', rest))
+        for m in sessions_matches:
+            sub_rest = rest[m.end():]
+            sessions_part = re.split(keyword_pattern, sub_rest, maxsplit=1)[0]
+            tokens = re.findall(r'[A-Za-z0-9_\-\"\']+', sessions_part)
+            for tok in tokens:
+                dep = tok.strip('"\'')
+                if dep and dep not in all_imports:
+                    all_imports.append(dep)
+                    
+        theories_matches = list(re.finditer(r'\btheories\b', rest))
+        for m in theories_matches:
+            sub_rest = rest[m.end():]
+            theories_part = re.split(keyword_pattern, sub_rest, maxsplit=1)[0]
+            tokens = re.findall(r'[A-Za-z0-9_\-\.\/\"\'\\]+', theories_part)
+            for tok in tokens:
+                thy = tok.strip('"\'')
+                if thy and thy not in all_theories:
+                    all_theories.append(thy)
+
+    return session_names, all_imports, all_theories
 
 
 def parse_thy_entities(theory_dir: Path) -> tuple[list[str], list[str]]:

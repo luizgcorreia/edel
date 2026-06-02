@@ -233,6 +233,17 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
         rng = random.Random(sampling_seed)
         sorted_entry_ids = rng.sample(sorted_entry_ids, min(limit, len(sorted_entry_ids)))
 
+    # Build session_to_entry mapping
+    session_to_entry = {}
+    for eid in sorted_entry_ids:
+        entry_dir = thys_path / eid
+        if not entry_dir.exists():
+            continue
+        root_file = entry_dir / "ROOT"
+        session_names, _, _ = parse_afp_root(root_file)
+        for session in session_names:
+            session_to_entry[session] = eid
+
     print(f"Parsing {len(sorted_entry_ids)} AFP entries...")
     
     for entry_id in tqdm(sorted_entry_ids, desc="Parsing AFP"):
@@ -268,8 +279,9 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
         
         # Build dependency graph
         for dep in entry_data["imports"]:
-            if dep in entry_ids:
-                dependency_graph[dep].add(entry_id)
+            target_entry_id = session_to_entry.get(dep)
+            if target_entry_id and target_entry_id != entry_id:
+                dependency_graph[target_entry_id].add(entry_id)
 
     # 3. Compute Citations & Dynamic Acronym Promotion
     cited_by = defaultdict(int)

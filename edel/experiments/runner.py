@@ -20,6 +20,7 @@ from edel.io.artifact import (
     get_experiment_label,
     make_stage_artifact,
     save_artifact,
+    stable_hash,
 )
 from edel.pipeline.run import run_full_pipeline
 
@@ -71,7 +72,7 @@ def run_experiments(
     records = []
 
     for i, config in enumerate(configs):
-        experiment_id = get_experiment_label(config)
+        experiment_id = _get_experiment_id(config, base_path)
         logger.info(f"[{i+1}/{len(configs)}] Running experiment: {experiment_id}")
         print(f"\n{'='*60}")
         print(f"Experiment {i+1}/{len(configs)}: {experiment_id}")
@@ -109,16 +110,76 @@ def run_experiments(
     return records
 
 
+def _get_experiment_id(config: dict, base_path: Path) -> str:
+    """Derive unique experiment ID. Try to match stable hash in registry.json first, fallback to label."""
+    from edel.experiments.registry import list_experiments, get_experiment, init_registry
+    try:
+        config_dir = base_path / "configs"
+        init_registry(config_dir)
+        h = stable_hash(config)
+        for name in list_experiments():
+            if stable_hash(get_experiment(name)) == h:
+                return name
+    except Exception:
+        pass
+    return get_experiment_label(config)
+
+
 def load_registry(base_path: str | Path = "artifacts") -> list[dict]:
     """Load the persisted experiment registry.
 
     Returns an empty list if no registry exists yet.
     """
+    base_path = Path(base_path)
     path = _registry_path(base_path)
-    if not path.exists():
-        return []
-    with path.open("rb") as f:
-        return pickle.load(f)
+    
+    # Load existing from pkl
+    existing: dict[str, dict] = {}
+    if path.exists():
+        try:
+            with path.open("rb") as f:
+                for rec in pickle.load(f):
+                    # Normalize/map existing records' experiment_ids to config names if possible
+                    eid = rec["experiment_id"]
+                    config = rec.get("config", {})
+                    config_name = _get_experiment_id(config, base_path)
+                    rec["experiment_id"] = config_name
+                    existing[config_name] = rec
+        except Exception as e:
+            logger.warning(f"Failed to load registry pickle: {e}")
+
+    # Dynamic scan of registered configs to check if they are processed but missing from registry.pkl
+    try:
+        from edel.experiments.registry import list_experiments, get_experiment, init_registry
+        config_dir = base_path / "configs"
+        init_registry(config_dir)
+        
+        updated = False
+        for name in list_experiments():
+            config = get_experiment(name)
+            
+            # Check if this config name is not in the pickle registry, but has a completed output artifact
+            if name not in existing:
+                art_land = make_stage_artifact(config, base_path, "output", "landscape_results")
+                if art_land.pkl_path.exists():
+                    # Re-derive all artifact refs for this config
+                    artifact_refs = _build_artifact_refs(config, base_path)
+                    existing[name] = {
+                        "experiment_id": name,
+                        "config": config,
+                        "artifact_refs": artifact_refs,
+                    }
+                    updated = True
+                    logger.info(f"Auto-registered completed experiment: {name}")
+
+        if updated:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("wb") as f:
+                pickle.dump(list(existing.values()), f)
+    except Exception as e:
+        logger.warning(f"Error during auto-registration scan in load_registry: {e}")
+
+    return list(existing.values())
 
 
 # ---------------------------------------------------------------------------

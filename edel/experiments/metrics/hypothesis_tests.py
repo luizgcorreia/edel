@@ -54,16 +54,19 @@ def compute_h2_for_transition(
     X: np.ndarray,
     Y: np.ndarray,
     k: int = 10,
-    B: int = 20,
+    B: int = 1000,
     max_queries: int = 50,
-) -> tuple[float, float]:
-    """Compute observed neighborhood Wasserstein distance and permuted significance.
+) -> tuple[float, float, float]:
+    """Compute observed neighborhood Wasserstein distance, permuted significance, and z-score.
 
-    Lower Wasserstein distance compared to random target sets indicates local clustering/organization.
+    Returns:
+        W_obs:  Mean observed neighborhood Wasserstein distance.
+        p_val:  Empirical p-value from bootstrap permutation test.
+        z_score: Effect size z = (W_obs - mu_rand) / sigma_rand.
     """
     N = X.shape[0]
     if N < k + 1:
-        return 0.0, 1.0
+        return 0.0, 1.0, 0.0
 
     # Distance matrix in X space (use cosine since they are normalized)
     sim = X @ X.T
@@ -83,25 +86,137 @@ def compute_h2_for_transition(
 
     W_obs = float(np.mean(obs_w_dists))
 
-    # Permutation test
-    perm_W_vals = []
+    # Pre-generate a pool of random Wasserstein distances under the null hypothesis.
+    # Under the null, both neighbor and random target sets are random samples of size k from Y.
+    pool_size = 500
+    pool_distances = []
+    for _ in range(pool_size):
+        idx1 = np.random.choice(N, size=k, replace=False)
+        idx2 = np.random.choice(N, size=k, replace=False)
+        pool_distances.append(compute_wasserstein(Y[idx1], Y[idx2]))
+    pool_distances = np.array(pool_distances)
+
+    # Bootstrap B times by drawing max_queries samples with replacement from the pool
+    # and taking their mean
+    draws = np.random.choice(pool_distances, size=(B, len(query_indices)))
+    perm_W_vals = np.mean(draws, axis=1)
+
+    # Empirical p-value: fraction of permutations where Wasserstein distance is >= observed
+    p_val = float((1.0 + np.sum(perm_W_vals >= W_obs)) / (1.0 + B))
+
+    # Effect size: z-score relative to the null distribution
+    mu_rand = float(np.mean(perm_W_vals))
+    sigma_rand = float(np.std(perm_W_vals))
+    z_score = float((W_obs - mu_rand) / sigma_rand) if sigma_rand > 0 else 0.0
+
+    return W_obs, p_val, z_score
+
+
+def compute_h2b_for_pair(
+    X: np.ndarray,
+    Y: np.ndarray,
+    k: int = 10,
+    B: int = 200,
+) -> dict:
+    """Compute local transition asymmetry metrics and permutation significance.
+
+    Calculates:
+      - Forward average entropy and effective branching factor (X -> Y).
+      - Reverse average entropy and effective branching factor (Y -> X).
+      - Entropy difference (Forward - Reverse).
+      - Permutation p-value under null hypothesis of symmetry (by randomly swapping X and Y directions).
+    """
+    N = X.shape[0]
+    if N < k + 1:
+        return {
+            "entropy_forward": 0.0,
+            "entropy_reverse": 0.0,
+            "branching_forward": 1.0,
+            "branching_reverse": 1.0,
+            "diff": 0.0,
+            "pvalue": 1.0,
+        }
+
+    # Sub-sample queries to prevent performance bottlenecks on large datasets
+    max_queries = 300
+    if N > max_queries:
+        # Fix the seed for reproducibility of sub-sampling within the function call
+        rng = np.random.default_rng(42)
+        query_indices = rng.choice(N, size=max_queries, replace=False)
+    else:
+        query_indices = np.arange(N)
+
+    epsilon = 1e-5
+    xy_stacked = np.stack([X, Y], axis=0) # Shape: (2, N, d)
+
+    # Precompute dot products for fast vectorized neighbor calculations
+    dot_XX = X[query_indices] @ X.T
+    dot_XY = X[query_indices] @ Y.T
+    dot_YX = Y[query_indices] @ X.T
+    dot_YY = Y[query_indices] @ Y.T
+
+    # Helper function for observed/non-permuted metrics
+    def compute_directed_metrics(src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, float, float]:
+        sim = src[query_indices] @ src.T
+        sim[np.arange(len(query_indices)), query_indices] = -np.inf
+        neighbors = np.argpartition(sim, -k, axis=1)[:, -k:]
+        tgt_neighbors = tgt[neighbors]
+        centroids = np.mean(tgt_neighbors, axis=1)
+        dispersion = np.clip(1.0 - np.sum(centroids ** 2, axis=1), 0.0, None)
+        entropies = 0.5 * (1.0 + np.log(2.0 * np.pi * np.e * (dispersion + epsilon)))
+        avg_entropy = float(np.mean(entropies))
+        branching_factor = float(np.exp(avg_entropy))
+        return entropies, avg_entropy, branching_factor
+
+    # 1. Observed metrics
+    _, avg_ent_f, branch_f = compute_directed_metrics(X, Y)
+    _, avg_ent_r, branch_r = compute_directed_metrics(Y, X)
+    diff_obs = avg_ent_f - avg_ent_r
+
+    # 2. Permutation test using fast precomputed dot products
+    perm_diffs = []
     for _ in range(B):
-        perm_idx = np.random.permutation(N)
-        Y_perm = Y[perm_idx]
-
-        perm_w_dists = []
-        for j in query_indices:
-            neighbors = np.argsort(sim[j])[-k:]
-            Y_neighbors = Y_perm[neighbors]
-            random_idx = np.random.choice(N, size=k, replace=False)
-            Y_random = Y_perm[random_idx]
-            perm_w_dists.append(compute_wasserstein(Y_neighbors, Y_random))
-
-        perm_W_vals.append(np.mean(perm_w_dists))
-
-    # Empirical p-value: fraction of permutations where Wasserstein distance is smaller/equal to observed
-    p_val = float((1.0 + np.sum(np.array(perm_W_vals) <= W_obs)) / (1.0 + B))
-    return W_obs, p_val
+        swap_mask = np.random.rand(N) < 0.5
+        X_perm = xy_stacked[swap_mask.astype(int), np.arange(N)]
+        Y_perm = xy_stacked[(~swap_mask).astype(int), np.arange(N)]
+        
+        q_mask = swap_mask[query_indices]
+        
+        # Forward: X_perm as source, Y_perm as target
+        sim_f = np.where(q_mask[:, None], np.where(swap_mask, dot_YY, dot_YX), np.where(swap_mask, dot_XY, dot_XX))
+        sim_f[np.arange(len(query_indices)), query_indices] = -np.inf
+        neighbors_f = np.argpartition(sim_f, -k, axis=1)[:, -k:]
+        tgt_neighbors_f = Y_perm[neighbors_f]
+        centroids_f = np.mean(tgt_neighbors_f, axis=1)
+        dispersion_f = np.clip(1.0 - np.sum(centroids_f ** 2, axis=1), 0.0, None)
+        avg_ent_f_perm = 0.5 * (1.0 + np.mean(np.log(2.0 * np.pi * np.e * (dispersion_f + epsilon))))
+        
+        # Reverse: Y_perm as source, X_perm as target
+        inv_q_mask = ~q_mask
+        inv_swap_mask = ~swap_mask
+        sim_r = np.where(inv_q_mask[:, None], np.where(inv_swap_mask, dot_YY, dot_YX), np.where(inv_swap_mask, dot_XY, dot_XX))
+        sim_r[np.arange(len(query_indices)), query_indices] = -np.inf
+        neighbors_r = np.argpartition(sim_r, -k, axis=1)[:, -k:]
+        tgt_neighbors_r = X_perm[neighbors_r]
+        centroids_r = np.mean(tgt_neighbors_r, axis=1)
+        dispersion_r = np.clip(1.0 - np.sum(centroids_r ** 2, axis=1), 0.0, None)
+        avg_ent_r_perm = 0.5 * (1.0 + np.mean(np.log(2.0 * np.pi * np.e * (dispersion_r + epsilon))))
+        
+        perm_diffs.append(avg_ent_f_perm - avg_ent_r_perm)
+        
+    perm_diffs = np.array(perm_diffs)
+    
+    # Two-sided empirical p-value
+    p_val = float((1.0 + np.sum(np.abs(perm_diffs) >= np.abs(diff_obs))) / (1.0 + B))
+    
+    return {
+        "entropy_forward": avg_ent_f,
+        "entropy_reverse": avg_ent_r,
+        "branching_forward": branch_f,
+        "branching_reverse": branch_r,
+        "diff": diff_obs,
+        "pvalue": p_val,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -212,19 +327,48 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     run_ks(cos_mf_fi, cos_mf_fi_s, "cos_mf_fi")
 
     # -----------------------------------------------------------------------
-    # H2 Test: Local Transition Organization
+    # H2a Test: Local Transition Organization
     # -----------------------------------------------------------------------
-    # Test for P -> M, M -> F, F -> I
-    w_pm, p_pm = compute_h2_for_transition(emb_p, emb_m)
-    w_mf, p_mf = compute_h2_for_transition(emb_m, emb_f)
-    w_fi, p_fi = compute_h2_for_transition(emb_f, emb_i)
+    # Test for all 12 directional aspect-to-aspect transitions
+    transitions = [
+        ("pm", emb_p, emb_m),
+        ("pf", emb_p, emb_f),
+        ("pi", emb_p, emb_i),
+        ("mp", emb_m, emb_p),
+        ("mf", emb_m, emb_f),
+        ("mi", emb_m, emb_i),
+        ("fp", emb_f, emb_p),
+        ("fm", emb_f, emb_m),
+        ("fi", emb_f, emb_i),
+        ("ip", emb_i, emb_p),
+        ("im", emb_i, emb_m),
+        ("if", emb_i, emb_f),
+    ]
+    for key, X_emb, Y_emb in transitions:
+        w_obs, p_val, z_score = compute_h2_for_transition(X_emb, Y_emb)
+        metrics[f"h2a_w_dist_{key}"] = w_obs
+        metrics[f"h2a_pvalue_{key}"] = p_val
+        metrics[f"h2a_z_{key}"] = z_score
 
-    metrics["h2_w_dist_pm"] = w_pm
-    metrics["h2_pvalue_pm"] = p_pm
-    metrics["h2_w_dist_mf"] = w_mf
-    metrics["h2_pvalue_mf"] = p_mf
-    metrics["h2_w_dist_fi"] = w_fi
-    metrics["h2_pvalue_fi"] = p_fi
+    # -----------------------------------------------------------------------
+    # H2b Test: Local Transition Asymmetry
+    # -----------------------------------------------------------------------
+    asym_pairs = [
+        ("pm", emb_p, emb_m),
+        ("mf", emb_m, emb_f),
+        ("fi", emb_f, emb_i),
+        ("pf", emb_p, emb_f),
+        ("pi", emb_p, emb_i),
+        ("mi", emb_m, emb_i),
+    ]
+    for key, X_emb, Y_emb in asym_pairs:
+        res_h2b = compute_h2b_for_pair(X_emb, Y_emb)
+        metrics[f"h2b_entropy_forward_{key}"] = res_h2b["entropy_forward"]
+        metrics[f"h2b_entropy_reverse_{key}"] = res_h2b["entropy_reverse"]
+        metrics[f"h2b_branching_forward_{key}"] = res_h2b["branching_forward"]
+        metrics[f"h2b_branching_reverse_{key}"] = res_h2b["branching_reverse"]
+        metrics[f"h2b_diff_{key}"] = res_h2b["diff"]
+        metrics[f"h2b_pvalue_{key}"] = res_h2b["pvalue"]
 
     # -----------------------------------------------------------------------
     # H3 Test: Predictive Transition Capacity
@@ -272,10 +416,39 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # Global Wasserstein evaluation
     w_edel = compute_wasserstein(P_pred, P_fut)
     w_baseline = compute_wasserstein(P_hist, P_fut)
+    obs_gain = w_baseline - w_edel
 
     metrics["h3_w_edel"] = w_edel
     metrics["h3_w_baseline"] = w_baseline
-    metrics["h3_predictive_gain"] = float(w_baseline - w_edel)
+    metrics["h3_predictive_gain"] = float(obs_gain)
+
+    # Temporal permutation significance test for H3 (Option 1)
+    n_hist = hist_mask.sum()
+    B_h3 = 100
+    rng = np.random.default_rng(42)
+    shuf_gains = []
+    
+    for _ in range(B_h3):
+        shuf_idx = rng.permutation(N)
+        hist_idx_b = shuf_idx[:n_hist]
+        fut_idx_b = shuf_idx[n_hist:]
+        
+        I_hist_b = emb_i[hist_idx_b]
+        P_hist_b = emb_p[hist_idx_b]
+        I_fut_b = emb_i[fut_idx_b]
+        P_fut_b = emb_p[fut_idx_b]
+        
+        reg_b = Ridge(alpha=1.0)
+        reg_b.fit(I_hist_b, P_hist_b)
+        P_pred_b = reg_b.predict(I_fut_b)
+        
+        w_edel_b = compute_wasserstein(P_pred_b, P_fut_b)
+        w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b)
+        shuf_gains.append(w_baseline_b - w_edel_b)
+        
+    shuf_gains = np.array(shuf_gains)
+    h3_gain_pvalue = float((1 + np.sum(shuf_gains >= obs_gain)) / (B_h3 + 1))
+    metrics["h3_gain_pvalue"] = h3_gain_pvalue
 
     # Spatial predictive alignment using KMeans and Bivariate Moran's I
     n_clusters = min(10, N)
@@ -310,6 +483,50 @@ def hypothesis_metrics(artifacts: dict) -> dict:
 
     I_obs = compute_morans_i(x, y, w)
     metrics["h3_moran_i"] = I_obs
+
+    # Centroid 2D projection
+    centroids_2d = None
+    proj_x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+    if proj_x_cols:
+        col_x = proj_x_cols[0]
+        col_y = col_x[:-2] + "_y"
+        if col_y in df.columns:
+            labels = kmeans.labels_
+            centroids_2d = np.zeros((n_clusters, 2))
+            for c_idx in range(n_clusters):
+                mask = (labels == c_idx)
+                if mask.any():
+                    centroids_2d[c_idx, 0] = df.loc[mask, col_x].mean()
+                    centroids_2d[c_idx, 1] = df.loc[mask, col_y].mean()
+                else:
+                    centroids_2d[c_idx] = centroids[c_idx][:2]
+    if centroids_2d is None:
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=2, random_state=42)
+        centroids_2d = pca.fit_transform(centroids)
+
+    x_mean = np.mean(x)
+    y_mean = np.mean(y)
+    z_x = x - x_mean
+    z_y = y - y_mean
+    x_std = np.std(x)
+    y_std = np.std(y)
+    z_x_std = z_x / x_std if x_std > 0 else z_x
+    z_y_std = z_y / y_std if y_std > 0 else z_y
+    lag_z_y = w @ z_y
+    lag_z_y_std = w @ z_y_std
+
+    features["h3_moran"] = {
+        "x_raw": x.astype(np.float32),
+        "y_raw": y.astype(np.float32),
+        "z_x": z_x.astype(np.float32),
+        "z_y": z_y.astype(np.float32),
+        "lag_z_y": lag_z_y.astype(np.float32),
+        "z_x_std": z_x_std.astype(np.float32),
+        "lag_z_y_std": lag_z_y_std.astype(np.float32),
+        "centroids_2d": centroids_2d.astype(np.float32),
+        "moran_i": float(I_obs),
+    }
 
     # Moran's I permutation significance
     B_moran = 50

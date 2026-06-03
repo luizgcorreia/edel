@@ -85,17 +85,32 @@ def test_hypothesis_metrics(synthetic_artifacts):
         assert f"h1_ks_pvalue_{key}" in metrics
         assert 0.0 <= metrics[f"h1_ks_pvalue_{key}"] <= 1.0
 
-    # H2 Wasserstein keys
-    for key in ["pm", "mf", "fi"]:
-        assert f"h2_w_dist_{key}" in metrics
-        assert f"h2_pvalue_{key}" in metrics
-        assert 0.0 <= metrics[f"h2_pvalue_{key}"] <= 1.0
+    # H2a Wasserstein keys
+    h2_keys = ["pm", "pf", "pi", "mp", "mf", "mi", "fp", "fm", "fi", "ip", "im", "if"]
+    for key in h2_keys:
+        assert f"h2a_w_dist_{key}" in metrics
+        assert f"h2a_pvalue_{key}" in metrics
+        assert f"h2a_z_{key}" in metrics
+        assert 0.0 <= metrics[f"h2a_pvalue_{key}"] <= 1.0
+
+    # H2b Transition Asymmetry keys
+    h2b_keys = ["pm", "mf", "fi", "pf", "pi", "mi"]
+    for key in h2b_keys:
+        assert f"h2b_entropy_forward_{key}" in metrics
+        assert f"h2b_entropy_reverse_{key}" in metrics
+        assert f"h2b_branching_forward_{key}" in metrics
+        assert f"h2b_branching_reverse_{key}" in metrics
+        assert f"h2b_diff_{key}" in metrics
+        assert f"h2b_pvalue_{key}" in metrics
+        assert 0.0 <= metrics[f"h2b_pvalue_{key}"] <= 1.0
 
     # H3 Predictive keys
     assert "h3_w_edel" in metrics
     assert "h3_w_baseline" in metrics
     assert "h3_predictive_gain" in metrics
+    assert "h3_gain_pvalue" in metrics
     assert "h3_moran_i" in metrics
     assert "h3_moran_pvalue" in metrics
     assert -1.0 <= metrics["h3_moran_i"] <= 1.0
     assert 0.0 <= metrics["h3_moran_pvalue"] <= 1.0
+    assert 0.0 <= metrics["h3_gain_pvalue"] <= 1.0

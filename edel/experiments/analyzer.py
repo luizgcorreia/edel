@@ -193,7 +193,10 @@ def _load_artifacts(artifact_refs: dict[str, Artifact]) -> dict:
     context: dict[str, Any] = {}
     for key, artifact in artifact_refs.items():
         try:
-            context[key] = load_artifact(artifact)
+            val = load_artifact(artifact)
+            if isinstance(val, tuple) and len(val) > 0 and isinstance(val[0], pd.DataFrame):
+                val = val[0]
+            context[key] = val
         except FileNotFoundError:
             logger.debug(f"Artifact '{key}' not found — skipping.")
     return context

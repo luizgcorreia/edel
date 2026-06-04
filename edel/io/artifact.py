@@ -43,7 +43,7 @@ STAGE_CONFIG_KEYS = {
 CANONICAL_ARTIFACT_NAMES = {
     "data_collection": ("dataset", "filter_report", "raw"),
     "structured_abstracts": ("sa", "filter_report"),
-    "embeddings": ("embeddings", "embeddings_intermidiate", "embeddings_batch"),
+    "embeddings": ("embeddings", "filter_report", "embeddings_intermidiate", "embeddings_batch"),
     "dimensionality_reduction": ("dr", "report"),
     "vector_field": ("vf",),
     "clustering": ("clustering", "field_clustering", "report"),

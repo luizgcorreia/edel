@@ -396,8 +396,9 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             h2b_supported = sum(p < 0.05 for p in h2b_pvals) >= 1
 
             # H3: Supported if predictive gain is positive AND the temporal permutation p-value < 0.05
-            _h3_gain_p = hyp_metrics.get("h3_gain_pvalue", 1.0)
-            h3_supported = (hyp_metrics.get("h3_predictive_gain", -1) > 0) and (_h3_gain_p < 0.05)
+            # NOTE: h3_gain_pvalue may not be in the cache for older experiments; h3_supported is
+            # finalized after the on-the-fly fallback resolves hyp_gain_p (see below).
+            h3_supported = False  # will be recomputed after fallback resolves hyp_gain_p
 
             report_children = []
 
@@ -407,40 +408,6 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                 else:
                     return dbc.Badge("NOT SUPPORTED", color="danger", className="px-2 py-1")
 
-            # Validation Dashboard Summary Card
-            report_children.append(html.Div([
-                html.H4("Validation Summary Dashboard", className="border-bottom pb-2 mb-3"),
-                dbc.Row([
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H5("H1: Structural Shift", className="card-title"),
-                            html.Div([make_badge(h1_supported)]),
-                            html.P("Trajectories differ significantly from random aspect-shuffling.", className="small text-muted mt-2 mb-0")
-                        ])
-                    ], color="success" if h1_supported else "light", outline=True), md=3),
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H5("H2a: Local Clustering", className="card-title"),
-                            html.Div([make_badge(h2a_supported)]),
-                            html.P("Transitions show neighborhood-level spatial organization.", className="small text-muted mt-2 mb-0")
-                        ])
-                    ], color="success" if h2a_supported else "light", outline=True), md=3),
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H5("H2b: Asymmetry", className="card-title"),
-                            html.Div([make_badge(h2b_supported)]),
-                            html.P("Local transitions constrain source/target differently.", className="small text-muted mt-2 mb-0")
-                        ])
-                    ], color="success" if h2b_supported else "light", outline=True), md=3),
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H5("H3: Predictive Power", className="card-title"),
-                            html.Div([make_badge(h3_supported)]),
-                            html.P("Historical model predicts future locations better than persistence (gain > 0, p < 0.05).", className="small text-muted mt-2 mb-0")
-                        ])
-                    ], color="success" if h3_supported else "light", outline=True), md=3),
-                ], className="mb-4")
-            ]))
 
             # H1 Details Section
             h1_rows = []
@@ -611,7 +578,43 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             if ctrl_gain_p is None:
                 ctrl_gain_p = 1.0
 
-            # H3 Details Section
+            # Finalize h3_supported now that hyp_gain_p is fully resolved (incl. fallback)
+            h3_supported = (hyp_metrics.get("h3_predictive_gain", -1) > 0) and (hyp_gain_p < 0.05)
+
+            # Validation Dashboard Summary Card (built here so h3_supported is fully resolved)
+            report_children.insert(0, html.Div([
+                html.H4("Validation Summary Dashboard", className="border-bottom pb-2 mb-3"),
+                dbc.Row([
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H5("H1: Structural Shift", className="card-title"),
+                            html.Div([make_badge(h1_supported)]),
+                            html.P("Trajectories differ significantly from random aspect-shuffling.", className="small text-muted mt-2 mb-0")
+                        ])
+                    ], color="success" if h1_supported else "light", outline=True), md=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H5("H2a: Local Clustering", className="card-title"),
+                            html.Div([make_badge(h2a_supported)]),
+                            html.P("Transitions show neighborhood-level spatial organization.", className="small text-muted mt-2 mb-0")
+                        ])
+                    ], color="success" if h2a_supported else "light", outline=True), md=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H5("H2b: Asymmetry", className="card-title"),
+                            html.Div([make_badge(h2b_supported)]),
+                            html.P("Local transitions constrain source/target differently.", className="small text-muted mt-2 mb-0")
+                        ])
+                    ], color="success" if h2b_supported else "light", outline=True), md=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H5("H3: Predictive Power", className="card-title"),
+                            html.Div([make_badge(h3_supported)]),
+                            html.P("Historical model predicts future locations better than persistence (gain > 0, p < 0.05).", className="small text-muted mt-2 mb-0")
+                        ])
+                    ], color="success" if h3_supported else "light", outline=True), md=3),
+                ], className="mb-4")
+            ]))
             h3_rows = [
                 html.Tr([
                     html.Td("Global W_EDEL (Wasserstein prediction error)"),

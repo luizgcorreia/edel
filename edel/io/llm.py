@@ -136,25 +136,45 @@ class OpenAIClient(LLMClient):
         }
 
         if job.status == "completed" and job.output_file_id:
-            content = self.client.files.content(job.output_file_id).text
-            results = {}
-            for line in content.strip().split("\n"):
-                data = json.loads(line)
-                custom_id = data.get("custom_id")
-                if data.get("response") and data["response"].get("status_code") == 200:
-                    body = data["response"]["body"]
-                    if "choices" in body:
-                        results[custom_id] = body["choices"][0]["message"]["content"]
-                    elif "data" in body:
-                        # Return the embedding list directly
-                        results[custom_id] = body["data"][0]["embedding"]
-                    else:
-                        results[custom_id] = body
-                else:
-                    results[custom_id] = json.dumps({"error": "batch_failed", "details": data.get("error")})
-            status_info["results"] = results
+            import tempfile
+            import os
+            
+            # Use raw response to stream bytes to a temp file
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                
+            try:
+                # Stream the download using SDK's write_to_file
+                response = self.client.files.content(job.output_file_id)
+                response.write_to_file(tmp_path)
+                
+                # Parse the file line by line
+                results = {}
+                with open(tmp_path, "r") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        custom_id = data.get("custom_id")
+                        if data.get("response") and data["response"].get("status_code") == 200:
+                            body = data["response"]["body"]
+                            if "choices" in body:
+                                results[custom_id] = body["choices"][0]["message"]["content"]
+                            elif "data" in body:
+                                results[custom_id] = body["data"][0]["embedding"]
+                            else:
+                                results[custom_id] = body
+                        else:
+                            results[custom_id] = json.dumps({"error": "batch_failed", "details": data.get("error")})
+                status_info["results"] = results
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
         
         return status_info
+
+
 
 
 class LMStudioClient(OpenAIClient):
@@ -278,12 +298,17 @@ class GeminiClient(LLMClient):
     def create_batch(self, prompts_with_ids: dict[str, str], **kwargs) -> str:
         import json
         import uuid
+        import hashlib
         from google.genai.types import CreateBatchJobConfig
         
         bucket_name, storage_client = self._get_or_create_bucket()
         job_uuid = str(uuid.uuid4())
         
-        # 1. Create JSONL and Map
+        # 1. Create JSONL and content-hash based ID Map
+        # NOTE: Vertex AI Batch API does NOT guarantee output order matches input.
+        # We use a content hash of each prompt to build a reverse lookup so that
+        # output lines (which include the echoed request) can be matched back to
+        # their original custom_id regardless of shuffling.
         requests = []
         id_map = {}
         is_embedding = "embedding" in self.model or kwargs.get("endpoint") == "/v1/embeddings"
@@ -301,7 +326,9 @@ class GeminiClient(LLMClient):
                         "contents": [{"role": "user", "parts": [{"text": prompt}]}]
                     }
                 })
-            id_map[str(idx)] = custom_id
+            # Key by content hash instead of positional index
+            prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            id_map[prompt_hash] = custom_id
             
         jsonl_content = "\n".join([json.dumps(req) for req in requests])
         
@@ -326,6 +353,7 @@ class GeminiClient(LLMClient):
 
     def poll_batch(self, batch_id_composite: str) -> dict[str, Any]:
         import json
+        import hashlib
         parts = batch_id_composite.split("::")
         batch_id = parts[0]
         job_uuid = parts[1] if len(parts) > 1 else ""
@@ -357,22 +385,65 @@ class GeminiClient(LLMClient):
             bucket_name, storage_client = self._get_or_create_bucket()
             bucket = storage_client.bucket(bucket_name)
             
-            # Download id_map
+            # Download id_map (keyed by content hash)
             map_blob = bucket.blob(f"batch_jobs/{job_uuid}/id_map.json")
             id_map = json.loads(map_blob.download_as_string())
             
-            # Download output files
+            # Detect id_map format: legacy (positional) vs new (content-hash)
+            # Legacy maps have small integer string keys like "0", "1", "2"
+            sample_keys = list(id_map.keys())[:3]
+            is_legacy_map = all(k.isdigit() and len(k) < 10 for k in sample_keys)
+            
+            if is_legacy_map:
+                # Legacy format: need to download input.jsonl to rebuild
+                # content-hash lookup from the original prompts
+                input_blob = bucket.blob(f"batch_jobs/{job_uuid}/input.jsonl")
+                input_content = input_blob.download_as_string().decode("utf-8")
+                input_lines = [l for l in input_content.split("\n") if l.strip()]
+                
+                hash_to_custom_id = {}
+                for i, input_line in enumerate(input_lines):
+                    inp_data = json.loads(input_line)
+                    req = inp_data.get("request", {})
+                    # Extract prompt text from either generation or embedding format
+                    if "contents" in req:
+                        prompt_text = req["contents"][0]["parts"][0]["text"]
+                    elif "content" in req:
+                        prompt_text = req["content"]["parts"][0]["text"]
+                    else:
+                        continue
+                    prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+                    custom_id = id_map.get(str(i))
+                    if custom_id:
+                        hash_to_custom_id[prompt_hash] = custom_id
+            else:
+                # New format: id_map is already keyed by content hash
+                hash_to_custom_id = id_map
+            
+            # Download output files and match by content hash
             results = {}
             blobs = bucket.list_blobs(prefix=f"batch_jobs/{job_uuid}/output/")
             for blob in blobs:
                 if blob.name.endswith(".jsonl"):
                     content = blob.download_as_string().decode('utf-8')
                     lines = [line for line in content.split('\n') if line.strip()]
-                    # Vertex AI guarantees order in the output JSONL matches input
-                    for i, line in enumerate(lines):
+                    for line in lines:
                         try:
                             data = json.loads(line)
                             res = data.get("response", {})
+                            
+                            # Extract prompt from the echoed request to compute hash
+                            req = data.get("request", {})
+                            if "contents" in req:
+                                prompt_text = req["contents"][0]["parts"][0]["text"]
+                            elif "content" in req:
+                                prompt_text = req["content"]["parts"][0]["text"]
+                            else:
+                                continue
+                            prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+                            custom_id = hash_to_custom_id.get(prompt_hash)
+                            if not custom_id:
+                                continue
                             
                             # Check if it's an embedding response
                             if "embeddings" in res and res["embeddings"]:
@@ -385,9 +456,7 @@ class GeminiClient(LLMClient):
                                 else:
                                     parsed_val = "{}"
                                 
-                            custom_id = id_map.get(str(i))
-                            if custom_id:
-                                results[custom_id] = parsed_val
+                            results[custom_id] = parsed_val
                         except Exception as e:
                             print(f"Error parsing batch output line: {e}")
                             

@@ -73,8 +73,16 @@ def run_full_pipeline(
         print("Stage 3: Loaded existing embeddings artifact.")
     except (FileNotFoundError, Exception):
         print("Stage 3: Running embedding...")
-        df = run_embedding_stage(df, config)
-        save_artifact(art_emb, df)
+        res = run_embedding_stage(df, config, base_path=base_path, return_report=True)
+        if isinstance(res, tuple):
+            df, report = res
+            save_artifact(art_emb, df)
+            if report:
+                art_report = make_stage_artifact(config, base_path, "embeddings", "filter_report")
+                save_artifact(art_report, report)
+        else:
+            df = res
+            save_artifact(art_emb, df)
     final_results["embedding"] = df
 
     # --- Stage 4: Dimensionality Reduction ---

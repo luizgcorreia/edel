@@ -82,18 +82,13 @@ def test_embedding_stage_batch_multi(df_structured, base_run_config):
 
 
 def test_embedding_stage_empty_texts(base_run_config):
-    """Test Stage 3 with some empty fields."""
+    """Test Stage 3 filters out rows with empty fields."""
     df = pd.DataFrame([
         {"problem": "P1", "method": "", "finding": "F1", "interpretation": " "},
     ])
     df_embedded = run_embedding_stage(df, base_run_config)
     
-    assert df_embedded["problem_embedding"].iloc[0] is not None
-    # Empty fields should be None (as JSON string "null" or Python None depending on impl)
-    # My impl: col_data.append(json.dumps(res) if res is not None else None)
-    # So it should be Python None
-    assert df_embedded["method_embedding"].iloc[0] is None
-    assert df_embedded["interpretation_embedding"].iloc[0] is None
+    assert len(df_embedded) == 0
 
 
 @pytest.mark.skipif(
@@ -141,3 +136,51 @@ def test_embedding_lmstudio_integration():
     emb = json.loads(df_embedded["problem_embedding"].iloc[0])
     # Verify dimensions (user mentioned 1024 for Qwen3)
     assert len(emb) == 1024
+
+
+def test_embedding_stage_filtering():
+    """Test that empty or missing aspects are filtered and the report is generated correctly."""
+    # Create test dataframe with a mix of valid and invalid/missing entries
+    df = pd.DataFrame([
+        # 1. Completely valid
+        {"title": "Valid", "problem": "P1", "method": "M1", "finding": "F1", "interpretation": "I1"},
+        # 2. Missing method (empty string)
+        {"title": "Missing method", "problem": "P2", "method": "", "finding": "F2", "interpretation": "I2"},
+        # 3. Missing problem (NaN)
+        {"title": "Missing problem", "problem": None, "method": "M3", "finding": "F3", "interpretation": "I3"},
+        # 4. Missing interpretation (whitespace only)
+        {"title": "Missing interpretation", "problem": "P4", "method": "M4", "finding": "F4", "interpretation": "   "},
+    ])
+    
+    config = {
+        "processing_mode": "simple",
+        "embedding": {
+            "provider": "mock",
+            "model": "text-embedding-ada-002",
+            "mode": "multi",
+        },
+    }
+    
+    # Run with return_report=True
+    df_embedded, report = run_embedding_stage(df, config, return_report=True)
+    
+    # Only the first entry should stay
+    assert len(df_embedded) == 1
+    assert df_embedded["title"].iloc[0] == "Valid"
+    
+    # Check report content
+    assert report["initial_count"] == 4
+    assert report["final_count"] == 1
+    assert report["total_filtered"] == 3
+    
+    # Aspect specific coverage
+    cov = report["aspect_coverage"]
+    assert cov["problem"]["filtered"] == 1
+    assert cov["problem"]["stayed"] == 3
+    assert cov["method"]["filtered"] == 1
+    assert cov["method"]["stayed"] == 3
+    assert cov["finding"]["filtered"] == 0
+    assert cov["finding"]["stayed"] == 4
+    assert cov["interpretation"]["filtered"] == 1
+    assert cov["interpretation"]["stayed"] == 3
+

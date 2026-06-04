@@ -259,7 +259,11 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     prev_data = load_artifact(prev_art)
                     if isinstance(prev_data, tuple):
                         prev_data = prev_data[0]
-                    data = pipeline.run_embedding_stage(prev_data, config)
+                    res = pipeline.run_embedding_stage(prev_data, config, return_report=True)
+                    if isinstance(res, tuple):
+                        data, report = res
+                    else:
+                        data = res
                 elif stage_name == "dimensionality_reduction":
                     prev_art = make_stage_artifact(config, base_path, "embeddings", "embeddings")
                     data, report = pipeline.run_projection_stage(load_artifact(prev_art), config)
@@ -320,7 +324,7 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 
                 # Load report if available for this stage
                 report = None
-                if (stage_name == "structured_abstracts" or stage_name == "data_collection" or stage_name == "dimensionality_reduction") and len(art_names) > 1:
+                if (stage_name == "structured_abstracts" or stage_name == "data_collection" or stage_name == "dimensionality_reduction" or stage_name == "embeddings") and len(art_names) > 1:
                     try:
                         report_art = make_stage_artifact(config, base_path, stage_name, art_names[1])
                         report = load_artifact(report_art)
@@ -357,6 +361,42 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     viz_components.append(capture_matplotlib_plot(viz.plot_language_dist, data))
             
             elif stage_name == "embeddings":
+                if report and "aspect_coverage" in report:
+                    card_body = [
+                        html.P(f"Initial: {report.get('initial_count', 0):,} → Final: {report.get('final_count', 0):,} ({report.get('total_filtered', 0):,} filtered)", className="fw-bold mb-2")
+                    ]
+                    
+                    rows = []
+                    for aspect, cov in report["aspect_coverage"].items():
+                        filtered = cov.get("filtered", 0)
+                        stayed = cov.get("stayed", 0)
+                        total = filtered + stayed
+                        pct = (stayed / total * 100) if total > 0 else 0
+                        rows.append(html.Tr([
+                            html.Td(aspect.capitalize(), style={"fontWeight": "bold"}),
+                            html.Td(f"{filtered:,}"),
+                            html.Td(f"{stayed:,}"),
+                            html.Td(f"{pct:.1f}%")
+                        ]))
+                    
+                    tbl = html.Table(
+                        [html.Thead(html.Tr([html.Th("Aspect"), html.Th("Filtered"), html.Th("Stayed"), html.Th("Coverage Ratio")]))] + 
+                        [html.Tbody(rows)],
+                        className="table table-sm table-hover table-striped small border mb-3",
+                        style={"maxWidth": "600px"}
+                    )
+                    card_body.append(tbl)
+                    
+                    card_body.append(dbc.Accordion([
+                        dbc.AccordionItem(
+                            html.Pre(json.dumps(report, indent=2), className="p-3 bg-dark text-white rounded small"),
+                            title="View Raw JSON Report"
+                        )
+                    ], start_collapsed=True, className="mb-4"))
+                    
+                    viz_components.append(html.H5("Aspect Coverage Summary", className="mt-3"))
+                    viz_components.append(html.Div(card_body))
+
                 from edel.experiments.metrics.embedding import embedding_metrics
                 n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
                 m_res = embedding_metrics(

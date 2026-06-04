@@ -247,6 +247,19 @@ def calculate_signatures_and_magnitudes(df: pd.DataFrame, dimensions: int) -> pd
     df["cos_mf_fi"] = row_wise_cosine(mf, fi)
     df["cos_pm_fi"] = row_wise_cosine(pm, fi)
 
+    # Assign NaN where corresponding input embeddings are zero/null
+    zero_p = np.all(emb_p == 0.0, axis=1)
+    zero_m = np.all(emb_m == 0.0, axis=1)
+    zero_f = np.all(emb_f == 0.0, axis=1)
+    zero_i = np.all(emb_i == 0.0, axis=1)
+
+    df.loc[zero_p | zero_m, "mag_pm"] = np.nan
+    df.loc[zero_m | zero_f, "mag_mf"] = np.nan
+    df.loc[zero_f | zero_i, "mag_fi"] = np.nan
+    df.loc[zero_p | zero_m | zero_f, "cos_pm_mf"] = np.nan
+    df.loc[zero_m | zero_f | zero_i, "cos_mf_fi"] = np.nan
+    df.loc[zero_p | zero_m | zero_f | zero_i, "cos_pm_fi"] = np.nan
+
     return df
 
 
@@ -261,6 +274,9 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
     out = df.copy()
     report = {}
 
+    # Add temporary column to track original index
+    out["_orig_index"] = out.index
+
     # Determine which columns to project
     # Support both 'single' (embedding) and 'multi' (problem_embedding, etc.)
     if "embedding" in out.columns:
@@ -268,30 +284,51 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
         print(f"Projecting 'embedding' column using {method}...")
         X = load_embeddings_to_matrix(out, "embedding", dimensions)
         
-        if anisotropy_method != "none":
-            from edel.experiments.metrics.embedding import apply_anisotropy_correction
-            print(f"Applying anisotropy correction ({anisotropy_method})...")
-            X = apply_anisotropy_correction({"embedding": X}, method=anisotropy_method, n_components=remove_pc)["embedding"]
-            
-        if method == "diffusion" and dr_cfg.get("filter_disconnected", False):
-            k = dr_cfg.get("diffusion_k", 100)
-            out, temp_dict, filt_report = filter_disconnected_components(out, {"embedding": X}, k=k, primary_aspect="embedding")
-            X = temp_dict["embedding"]
-            report["filtering"] = filt_report
-            
-        X_prep = prepare_matrix(X)
+        valid_mask = ~np.all(X == 0.0, axis=1)
         
-        seed = config.get("random_seed", 42)
-        reducer = get_reducer(method, dr_cfg, X=X_prep, global_seed=seed)
-        coords = reducer.fit_transform(X_prep)
-        
-        if method == "diffusion" and hasattr(reducer, "evals"):
-            report["evals"] = reducer.evals.tolist()
+        # Initialize coordinates with NaN
+        out[f"proj_{method}_x"] = np.nan
+        out[f"proj_{method}_y"] = np.nan
+        # Determine components
+        n_comp = dr_cfg.get("n_components", 2)
+        if n_comp > 2:
+            out[f"proj_{method}_z"] = np.nan
             
-        out[f"proj_{method}_x"] = coords[:, 0]
-        out[f"proj_{method}_y"] = coords[:, 1]
-        if coords.shape[1] > 2:
-            out[f"proj_{method}_z"] = coords[:, 2]
+        if np.any(valid_mask):
+            X_valid = X[valid_mask]
+            df_valid = out[valid_mask].copy().reset_index(drop=True)
+            
+            if anisotropy_method != "none":
+                from edel.experiments.metrics.embedding import apply_anisotropy_correction
+                print(f"Applying anisotropy correction ({anisotropy_method})...")
+                X_valid = apply_anisotropy_correction({"embedding": X_valid}, method=anisotropy_method, n_components=remove_pc)["embedding"]
+                
+            if method == "diffusion" and dr_cfg.get("filter_disconnected", False):
+                k = dr_cfg.get("diffusion_k", 100)
+                df_valid, temp_dict, filt_report = filter_disconnected_components(df_valid, {"embedding": X_valid}, k=k, primary_aspect="embedding")
+                X_valid = temp_dict["embedding"]
+                report["filtering"] = filt_report
+                
+                # Drop rows from out that were primary-valid but dropped as disconnected
+                kept_indices = set(df_valid["_orig_index"])
+                all_valid_indices = set(out[valid_mask].index)
+                dropped_indices = all_valid_indices - kept_indices
+                out = out.drop(index=dropped_indices)
+                
+            if len(df_valid) > 0:
+                X_prep = prepare_matrix(X_valid)
+                seed = config.get("random_seed", 42)
+                reducer = get_reducer(method, dr_cfg, X=X_prep, global_seed=seed)
+                coords = reducer.fit_transform(X_prep)
+                
+                if method == "diffusion" and hasattr(reducer, "evals"):
+                    report["evals"] = reducer.evals.tolist()
+                    
+                # Map back using original index
+                out.loc[df_valid["_orig_index"], f"proj_{method}_x"] = coords[:, 0]
+                out.loc[df_valid["_orig_index"], f"proj_{method}_y"] = coords[:, 1]
+                if coords.shape[1] > 2:
+                    out.loc[df_valid["_orig_index"], f"proj_{method}_z"] = coords[:, 2]
             
     elif "problem_embedding" in out.columns:
         # Multi mode (Epistemic Aspects)
@@ -300,6 +337,8 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
         
         if not available_aspects:
             print("No aspect embeddings found to project.")
+            if "_orig_index" in out.columns:
+                out = out.drop(columns=["_orig_index"])
             return out
             
         print(f"Projecting {len(available_aspects)} aspects into common {method} space...")
@@ -310,55 +349,93 @@ def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, 
             for a in available_aspects
         }
         
+        # Initial validity masks
+        valid_masks = {
+            a: ~np.all(embs_to_proj[a] == 0.0, axis=1)
+            for a in available_aspects
+        }
+        
         if anisotropy_method != "none":
             from edel.experiments.metrics.embedding import apply_anisotropy_correction
             print(f"Applying anisotropy correction ({anisotropy_method})...")
-            embs_to_proj = apply_anisotropy_correction(embs_to_proj, method=anisotropy_method, n_components=remove_pc)
+            # Apply only to non-zero vectors to prevent noise contamination
+            for a in available_aspects:
+                mask = valid_masks[a]
+                if np.any(mask):
+                    sub_dict = {a: embs_to_proj[a][mask]}
+                    corrected = apply_anisotropy_correction(sub_dict, method=anisotropy_method, n_components=remove_pc)
+                    embs_to_proj[a][mask] = corrected[a]
+
+        primary_aspect = "problem"
+        primary_mask = valid_masks[primary_aspect]
+        
+        sub_out = out[primary_mask].copy().reset_index(drop=True)
+        sub_embs = {a: embs_to_proj[a][primary_mask] for a in available_aspects}
 
         if method == "diffusion" and dr_cfg.get("filter_disconnected", False):
             k = dr_cfg.get("diffusion_k", 100)
-            out, embs_to_proj, filt_report = filter_disconnected_components(out, embs_to_proj, k=k, primary_aspect="problem")
+            sub_out, sub_embs, filt_report = filter_disconnected_components(sub_out, sub_embs, k=k, primary_aspect=primary_aspect)
             report["filtering"] = filt_report
+            
+            # Drop rows from out that were primary-valid but dropped as disconnected
+            kept_indices = set(sub_out["_orig_index"])
+            all_valid_indices = set(out[primary_mask].index)
+            dropped_indices = all_valid_indices - kept_indices
+            out = out.drop(index=dropped_indices)
 
-        # 1. Fit on 'problem' (legacy logic: problem defines the coordinate system)
-        primary_aspect = "problem"
-        X_primary = embs_to_proj[primary_aspect]
-        X_primary_prep = prepare_matrix(X_primary)
-        
-        seed = config.get("random_seed", 42)
-        reducer = get_reducer(method, dr_cfg, X=X_primary_prep, global_seed=seed)
-        coords_primary = reducer.fit_transform(X_primary_prep)
-        
-        if method == "diffusion" and hasattr(reducer, "evals"):
-            report["evals"] = reducer.evals.tolist()
-            
-        # Save primary results
-        out[f"proj_{primary_aspect}_{method}_x"] = coords_primary[:, 0]
-        out[f"proj_{primary_aspect}_{method}_y"] = coords_primary[:, 1]
-        
-        # 2. Transform other aspects using the SAME reducer
+        # Initialize projection columns with NaN
         for aspect in available_aspects:
-            if aspect == primary_aspect:
-                continue
-                
-            print(f"Transforming {aspect} aspect...")
-            X_a = embs_to_proj[aspect]
-            X_a_prep = prepare_matrix(X_a)
+            out[f"proj_{aspect}_{method}_x"] = np.nan
+            out[f"proj_{aspect}_{method}_y"] = np.nan
+
+        # 1. Fit on 'problem' (primary aspect) using the connected valid subset
+        if len(sub_out) > 0:
+            X_primary = sub_embs[primary_aspect]
+            X_primary_prep = prepare_matrix(X_primary)
             
-            # transform() might not be available for all methods (e.g. t-SNE)
-            try:
-                coords_a = reducer.transform(X_a_prep)
-                out[f"proj_{aspect}_{method}_x"] = coords_a[:, 0]
-                out[f"proj_{aspect}_{method}_y"] = coords_a[:, 1]
-            except AttributeError:
-                print(f"Warning: {method} does not support transform(). Refitting for {aspect}...")
-                coords_a = reducer.fit_transform(X_a_prep)
-                out[f"proj_{aspect}_{method}_x"] = coords_a[:, 0]
-                out[f"proj_{aspect}_{method}_y"] = coords_a[:, 1]
+            seed = config.get("random_seed", 42)
+            reducer = get_reducer(method, dr_cfg, X=X_primary_prep, global_seed=seed)
+            coords_primary = reducer.fit_transform(X_primary_prep)
+            
+            if method == "diffusion" and hasattr(reducer, "evals"):
+                report["evals"] = reducer.evals.tolist()
+                
+            # Save primary results
+            out.loc[sub_out["_orig_index"], f"proj_{primary_aspect}_{method}_x"] = coords_primary[:, 0]
+            out.loc[sub_out["_orig_index"], f"proj_{primary_aspect}_{method}_y"] = coords_primary[:, 1]
+            
+            # 2. Transform other aspects using the SAME reducer
+            for aspect in available_aspects:
+                if aspect == primary_aspect:
+                    continue
+                    
+                print(f"Transforming {aspect} aspect...")
+                
+                # Get the embeddings for the remaining rows in out
+                embs_a = embs_to_proj[aspect][out.index]
+                mask_a = ~np.all(embs_a == 0.0, axis=1)
+                
+                if np.any(mask_a):
+                    X_a_valid = embs_a[mask_a]
+                    X_a_prep = prepare_matrix(X_a_valid)
+                    
+                    try:
+                        coords_a = reducer.transform(X_a_prep)
+                        out.loc[out.index[mask_a], f"proj_{aspect}_{method}_x"] = coords_a[:, 0]
+                        out.loc[out.index[mask_a], f"proj_{aspect}_{method}_y"] = coords_a[:, 1]
+                    except AttributeError:
+                        print(f"Warning: {method} does not support transform(). Refitting for {aspect}...")
+                        coords_a = reducer.fit_transform(X_a_prep)
+                        out.loc[out.index[mask_a], f"proj_{aspect}_{method}_x"] = coords_a[:, 0]
+                        out.loc[out.index[mask_a], f"proj_{aspect}_{method}_y"] = coords_a[:, 1]
 
         # 3. Calculate Signatures & Magnitudes (Research Style Features)
         print("Calculating transition signatures and magnitudes...")
         out = calculate_signatures_and_magnitudes(out, dimensions)
+
+    # Cleanup temp column
+    if "_orig_index" in out.columns:
+        out = out.drop(columns=["_orig_index"])
 
     # Memory efficiency: Drop the large embedding columns if requested
     if dr_cfg.get("drop_embeddings", False):

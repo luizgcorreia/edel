@@ -7,6 +7,7 @@ from .landscape_panel import landscape_panel_layout
 from .debugger_panel import debugger_panel_layout
 from .trajectory_panel import trajectory_panel_layout
 from .hypothesis_panel import hypothesis_panel_layout
+from .convergence_panel import convergence_panel_layout
 
 __all__ = [
     "config_manager_layout",
@@ -16,4 +17,5 @@ __all__ = [
     "debugger_panel_layout",
     "trajectory_panel_layout",
     "hypothesis_panel_layout",
+    "convergence_panel_layout",
 ]

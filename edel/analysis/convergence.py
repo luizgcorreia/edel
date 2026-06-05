@@ -233,8 +233,10 @@ def run_convergence_analysis(
     def get_w_dist(X, Y):
         if len(X) > 1000:
             idx_x = np.random.choice(len(X), size=1000, replace=False)
+            X = X[idx_x]
+        if len(Y) > 1000:
             idx_y = np.random.choice(len(Y), size=1000, replace=False)
-            return compute_wasserstein(X[idx_x], Y[idx_y])
+            Y = Y[idx_y]
         return compute_wasserstein(X, Y)
         
     w_edel_full = get_w_dist(P_pred_full, P_fut)

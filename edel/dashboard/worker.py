@@ -68,9 +68,16 @@ def submit_job(config: dict, base_path: str | Path = "artifacts") -> str:
     base_path = Path(base_path)
     dirs = _dirs(base_path)
 
+    from edel.experiments.runner import _get_experiment_id
+    try:
+        experiment_id = _get_experiment_id(config, base_path)
+    except Exception:
+        experiment_id = "unknown"
+
     job_id = f"job_{uuid.uuid4().hex[:8]}"
     record = {
         "job_id":        job_id,
+        "experiment_id": experiment_id,
         "config":        config,
         "submitted_at":  _now(),
         "started_at":    None,
@@ -134,6 +141,12 @@ def list_jobs(base_path: str | Path = "artifacts") -> list[dict]:
             try:
                 record = json.loads(path.read_text())
                 record["status"] = state
+                if "experiment_id" not in record and "config" in record:
+                    from edel.experiments.runner import _get_experiment_id
+                    try:
+                        record["experiment_id"] = _get_experiment_id(record["config"], base_path)
+                    except Exception:
+                        record["experiment_id"] = "unknown"
                 jobs.append(record)
             except Exception:
                 pass
@@ -223,6 +236,60 @@ def _set_nested(d: dict, dotted_path: str, value: Any) -> None:
     cur[keys[-1]] = value
 
 
+class TeeStdout:
+    def __init__(self, log_path: Path):
+        self.log_path = log_path
+        self.original_stdout = sys.stdout
+        self.file = None
+
+    def __enter__(self):
+        self.file = open(self.log_path, "a", encoding="utf-8")
+        sys.stdout = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout = self.original_stdout
+        if self.file:
+            self.file.close()
+
+    def write(self, message):
+        self.file.write(message)
+        self.file.flush()
+        self.original_stdout.write(message)
+        self.original_stdout.flush()
+
+    def flush(self):
+        self.file.flush()
+        self.original_stdout.flush()
+
+
+class TeeStderr:
+    def __init__(self, log_path: Path):
+        self.log_path = log_path
+        self.original_stderr = sys.stderr
+        self.file = None
+
+    def __enter__(self):
+        self.file = open(self.log_path, "a", encoding="utf-8")
+        sys.stderr = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stderr = self.original_stderr
+        if self.file:
+            self.file.close()
+
+    def write(self, message):
+        self.file.write(message)
+        self.file.flush()
+        self.original_stderr.write(message)
+        self.original_stderr.flush()
+
+    def flush(self):
+        self.file.flush()
+        self.original_stderr.flush()
+
+
 # ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------
@@ -252,16 +319,18 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
 
         # Attach per-job file log
         handler = _setup_job_logger(job_id, dirs)
+        log_file_path = dirs["logs"] / f"{job_id}.log"
 
         try:
             _mark_running(job, dirs)
             logger.info(f"[{job_id}] Pipeline starting...")
 
-            run_experiments(
-                configs=[job["config"]],
-                base_path=base_path,
-                force=False,
-            )
+            with TeeStdout(log_file_path), TeeStderr(log_file_path):
+                run_experiments(
+                    configs=[job["config"]],
+                    base_path=base_path,
+                    force=False,
+                )
 
             _mark_done(job, dirs)
             logger.info(f"[{job_id}] ✅ Done.")

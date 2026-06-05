@@ -9,7 +9,7 @@ from dash import dash_table
 
 from edel.experiments.registry import get_experiment
 from edel.experiments.snippets import get_snippets, save_snippet, STAGE_KEYS, STAGE_LIST
-from edel.dashboard.worker import submit_job, list_jobs
+from edel.dashboard.worker import submit_job, list_jobs, get_job_log
 from edel.io.artifact import make_stage_artifact, load_artifact, save_artifact, CANONICAL_ARTIFACT_NAMES
 from edel.dashboard.utils import df_to_dash_columns, df_to_dash_records
 import edel.pipeline as pipeline
@@ -131,6 +131,34 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 "submitted_at": j.get("submitted_at", "").split("T")[0] + " " + j.get("submitted_at", "").split("T")[1][:8] if "T" in j.get("submitted_at", "") else j.get("submitted_at", "")
             })
         return table_data
+
+    @app.callback(
+        [Output("selected-job-info", "children"),
+         Output("job-log-display", "children")],
+        [Input("job-queue-table", "selected_rows"),
+         Input("job-queue-interval", "n_intervals")],
+        [State("job-queue-table", "data")]
+    )
+    def update_job_logs(selected_rows, n_intervals, table_data):
+        """Display logs and details for the selected job in the table."""
+        if not selected_rows or not table_data:
+            return "No job selected", "Select a job from the table to view its execution logs."
+            
+        row_idx = selected_rows[0]
+        if row_idx >= len(table_data):
+            return "No job selected", "Select a job from the table to view its execution logs."
+            
+        job_info = table_data[row_idx]
+        job_id = job_info.get("job_id")
+        status = job_info.get("status")
+        experiment_id = job_info.get("experiment_id")
+        
+        log_text = get_job_log(job_id, base_path, tail=100)
+        if not log_text:
+            log_text = "No log messages generated yet or log file does not exist."
+            
+        header = f"Job: {job_id} ({experiment_id}) — Status: {status.upper()}"
+        return header, log_text
 
     # --- Snippet Management Callbacks ---
 

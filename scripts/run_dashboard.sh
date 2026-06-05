@@ -21,22 +21,30 @@ pkill -u $USER -f "edel.dashboard.worker" || true
 echo -e "${BLUE}Starting EDEL Dashboard Stack...${NC}"
 
 # 1. Start Worker in Background (Tmux or Screen)
+# Determine python executable to use inside the screen/tmux shell
+PYTHON_EXEC="python"
+if [ -n "$CONDA_PREFIX" ]; then
+    PYTHON_EXEC="$CONDA_PREFIX/bin/python"
+elif [ -f "$HOME/.miniforge3/envs/edel/bin/python" ]; then
+    PYTHON_EXEC="$HOME/.miniforge3/envs/edel/bin/python"
+fi
+
 # Create a restart wrapper script for the worker
-cat << 'EOF' > run_worker_loop.sh
+cat << EOF > run_worker_loop.sh
 #!/bin/bash
 FAIL_COUNT=0
 while true; do
-    echo "Starting worker (Fail count: $FAIL_COUNT)..."
-    python -m edel.dashboard.worker --base-path artifacts
+    echo "Starting worker (Fail count: \$FAIL_COUNT)..."
+    OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 NUMEXPR_NUM_THREADS=2 $PYTHON_EXEC -m edel.dashboard.worker --base-path artifacts
     
     # If it ran for less than 10 seconds, it's a "fast crash"
     # We increase the sleep time to avoid fork-bombing the server
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    SLEEP_TIME=$((2 * FAIL_COUNT))
-    if [ $SLEEP_TIME -gt 60 ]; then SLEEP_TIME=60; fi
+    FAIL_COUNT=\$((FAIL_COUNT + 1))
+    SLEEP_TIME=\$((2 * FAIL_COUNT))
+    if [ \$SLEEP_TIME -gt 60 ]; then SLEEP_TIME=60; fi
     
-    echo "Worker crashed or stopped. Restarting in ${SLEEP_TIME}s..."
-    sleep $SLEEP_TIME
+    echo "Worker crashed or stopped. Restarting in \${SLEEP_TIME}s..."
+    sleep \$SLEEP_TIME
     
     # Reset fail count if we've been running successfully for a while
     # (Simplified: just reset if we manually restart after a long time)
@@ -61,7 +69,8 @@ if [ "$USE_TMUX" = true ]; then
     fi
 else
     # Fallback to Screen
-    if screen -list | grep -q "\.edel_worker"; then
+    screen -wipe >/dev/null 2>&1 || true
+    if screen -list | grep -q "\.edel_worker[[:space:]]*(Detached\|Attached)"; then
         echo -e "${GREEN}✓ screen session 'edel_worker' already running.${NC}"
     else
         echo "Starting new screen session 'edel_worker'..."

@@ -129,91 +129,250 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
 
     filters = ",".join(filter_parts)
 
-    # Pre-flight request to get total count
-    try:
-        initial_data = openalex_request(filters, per_page=1, cursor="*")
-        total_count = initial_data.get("meta", {}).get("count", 0)
-    except Exception as e:
-        print(f"Failed to fetch initial metadata from OpenAlex: {e}")
-        total_count = 0
-
-    if limit is None:
-        limit = total_count
-        print(f"No limit specified. Attempting to harvest all {limit} documents.")
-    else:
-        limit = min(limit, total_count)
-        print(f"Harvesting up to {limit} documents (total available: {total_count}).")
-
-    # 2. Harvest Records
-    all_records = []
-    seen_ids = set()
-    
-    print(f"Starting OpenAlex harvesting for topic {topic_id}...")
-    pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit > 0 else None
-
-    try:
-        # Cursor-based harvesting for both probabilistic and deterministic modes
-        current_cursor = "*"
-        
-        # Only sort by citation if deterministic
-        sort_param = "cited_by_count:desc" if (limit and sampling_strategy == "deterministic") else None
-        
-        while True:
-            fetch_count = 200
-            if limit:
-                remaining = limit - len(all_records)
-                if remaining <= 0:
-                    break
-                fetch_count = min(200, remaining)
-
-            try:
-                data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor, sort=sort_param)
-            except Exception as e:
-                print(f"\nError fetching page (cursor: {current_cursor}): {e}. Retrying in 5s...")
-                import time
-                time.sleep(5)
-                continue
-
-            page_results = data.get("results", [])
-            if not page_results:
-                break
+    # Pre-flight request to get total count / group by year
+    if sampling_strategy.startswith("proportional_temporal"):
+        sample_percentage = params.get("sample_percentage")
+        if sample_percentage is None:
+            sample_percentage = params.get("percentage")
             
-            for work in page_results:
-                if work.get("id") in seen_ids:
-                    continue
+        if sample_percentage is None:
+            raise ValueError("sample_percentage (e.g. 0.05 or 5) must be specified in provider params when using proportional_temporal sampling strategy.")
+            
+        if isinstance(sample_percentage, str):
+            if sample_percentage.endswith("%"):
+                try:
+                    sample_percentage = float(sample_percentage.rstrip("%")) / 100.0
+                except ValueError:
+                    raise ValueError(f"Invalid sample_percentage format: {sample_percentage}")
+            else:
+                try:
+                    sample_percentage = float(sample_percentage)
+                except ValueError:
+                    raise ValueError(f"Invalid sample_percentage format: {sample_percentage}")
+        
+        try:
+            sample_percentage = float(sample_percentage)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid sample_percentage format: {sample_percentage}")
+            
+        if sample_percentage > 1.0:
+            sample_percentage = sample_percentage / 100.0
+            
+        if not (0.0 < sample_percentage <= 1.0):
+            raise ValueError(f"sample_percentage must be between 0 and 1 (or 0% and 100%): {sample_percentage}")
+
+        # Fetch group_by for publication_year
+        print(f"Fetching publication year counts for topic {topic_id}...")
+        try:
+            group_by_res = openalex_request(filters, cursor=None, group_by="publication_year")
+            group_by_list = group_by_res.get("group_by", [])
+        except Exception as e:
+            raise RuntimeError(f"Failed to fetch publication year counts: {e}")
+            
+        # Calculate target counts per year
+        year_targets = []
+        for group in group_by_list:
+            year_str = group.get("key")
+            count = group.get("count", 0)
+            if not year_str or count <= 0:
+                continue
+            try:
+                year = int(year_str)
+            except ValueError:
+                continue
+            
+            target = max(1, int(round(count * sample_percentage)))
+            year_targets.append((year, count, target))
+            
+        year_targets.sort(key=lambda x: x[0])
+        
+        total_target = sum(t[2] for t in year_targets)
+        print(f"Proportional temporal stratification plan:")
+        for y, c, t in year_targets:
+            print(f"  Year {y}: {c} works available -> target sample: {t} works ({sample_percentage * 100:.2f}%)")
+        print(f"Total target papers to harvest: {total_target}")
+        
+        all_records = []
+        seen_ids = set()
+        
+        pbar = tqdm(total=total_target, desc="Harvesting proportional temporal") if total_target > 0 else None
+        
+        random_seed = params.get("seed") or params.get("sampling_seed") or config.get("random_seed") or 42
+        
+        try:
+            for year, count, target in year_targets:
+                year_filters = f"{filters},publication_year:{year}"
+                year_records = []
                 
-                processed = process_work_json(work)
-                if processed:
-                    seen_ids.add(processed["id"])
-                    all_records.append(processed)
-                    if pbar:
-                        pbar.update(1)
+                is_deterministic = (sampling_strategy == "proportional_temporal_deterministic")
+                
+                if is_deterministic:
+                    current_cursor = "*"
+                    while len(year_records) < target:
+                        fetch_count = min(200, target - len(year_records))
+                        try:
+                            data = openalex_request(year_filters, per_page=fetch_count, cursor=current_cursor, sort="cited_by_count:desc")
+                        except Exception as e:
+                            print(f"\nError fetching deterministic year {year} page (cursor: {current_cursor}): {e}. Retrying in 5s...")
+                            import time
+                            time.sleep(5)
+                            continue
+                            
+                        page_results = data.get("results", [])
+                        if not page_results:
+                            break
+                            
+                        last_seen_count = len(seen_ids)
+                        for work in page_results:
+                            work_id = work.get("id")
+                            if work_id not in seen_ids:
+                                processed = process_work_json(work)
+                                if processed:
+                                    seen_ids.add(work_id)
+                                    year_records.append(processed)
+                                    all_records.append(processed)
+                                    if pbar:
+                                        pbar.update(1)
+                                        
+                        if len(seen_ids) == last_seen_count:
+                            break
+                            
+                        next_cursor = data.get("meta", {}).get("next_cursor")
+                        if next_cursor and next_cursor != current_cursor:
+                            current_cursor = next_cursor
+                        else:
+                            break
+                else:
+                    # Probabilistic
+                    current_seed = random_seed
+                    while len(year_records) < target:
+                        fetch_size = min(200, target - len(year_records))
+                        try:
+                            data = openalex_request(year_filters, sample=fetch_size, seed=current_seed)
+                        except Exception as e:
+                            print(f"\nError fetching probabilistic year {year} sample (seed: {current_seed}): {e}. Retrying in 5s...")
+                            import time
+                            time.sleep(5)
+                            continue
+                            
+                        results = data.get("results", [])
+                        if not results:
+                            break
+                            
+                        last_seen_count = len(seen_ids)
+                        for work in results:
+                            work_id = work.get("id")
+                            if work_id not in seen_ids:
+                                processed = process_work_json(work)
+                                if processed:
+                                    seen_ids.add(work_id)
+                                    year_records.append(processed)
+                                    all_records.append(processed)
+                                    if pbar:
+                                        pbar.update(1)
+                                        
+                        if len(seen_ids) == last_seen_count:
+                            break
+                            
+                        current_seed += 1
+        finally:
+            if pbar:
+                pbar.close()
+                
+        # Shuffle final dataset locally for probabilistic
+        if sampling_strategy == "proportional_temporal":
+            df = pd.DataFrame(all_records)
+            if not df.empty:
+                df = df.sample(frac=1, random_state=random_seed).reset_index(drop=True)
+        else:
+            df = pd.DataFrame(all_records)
+
+    else:
+        # Pre-flight request to get total count
+        try:
+            initial_data = openalex_request(filters, per_page=1, cursor="*")
+            total_count = initial_data.get("meta", {}).get("count", 0)
+        except Exception as e:
+            print(f"Failed to fetch initial metadata from OpenAlex: {e}")
+            total_count = 0
+
+        if limit is None:
+            limit = total_count
+            print(f"No limit specified. Attempting to harvest all {limit} documents.")
+        else:
+            limit = min(limit, total_count)
+            print(f"Harvesting up to {limit} documents (total available: {total_count}).")
+
+        # 2. Harvest Records
+        all_records = []
+        seen_ids = set()
+        
+        print(f"Starting OpenAlex harvesting for topic {topic_id}...")
+        pbar = tqdm(total=limit, desc="Harvesting OpenAlex") if limit > 0 else None
+
+        try:
+            # Cursor-based harvesting for both probabilistic and deterministic modes
+            current_cursor = "*"
+            
+            # Only sort by citation if deterministic
+            sort_param = "cited_by_count:desc" if (limit and sampling_strategy == "deterministic") else None
+            
+            while True:
+                fetch_count = 200
+                if limit:
+                    remaining = limit - len(all_records)
+                    if remaining <= 0:
+                        break
+                    fetch_count = min(200, remaining)
+
+                try:
+                    data = openalex_request(filters, per_page=fetch_count, cursor=current_cursor, sort=sort_param)
+                except Exception as e:
+                    print(f"\nError fetching page (cursor: {current_cursor}): {e}. Retrying in 5s...")
+                    import time
+                    time.sleep(5)
+                    continue
+
+                page_results = data.get("results", [])
+                if not page_results:
+                    break
+                
+                for work in page_results:
+                    if work.get("id") in seen_ids:
+                        continue
+                    
+                    processed = process_work_json(work)
+                    if processed:
+                        seen_ids.add(processed["id"])
+                        all_records.append(processed)
+                        if pbar:
+                            pbar.update(1)
+
+                    if limit and len(all_records) >= limit:
+                        break
+
+                next_cursor = data.get("meta", {}).get("next_cursor")
+                if next_cursor and next_cursor != current_cursor:
+                    current_cursor = next_cursor
+                else:
+                    break
 
                 if limit and len(all_records) >= limit:
                     break
 
-            next_cursor = data.get("meta", {}).get("next_cursor")
-            if next_cursor and next_cursor != current_cursor:
-                current_cursor = next_cursor
-            else:
-                break
+        finally:
+            pbar.close()
 
-            if limit and len(all_records) >= limit:
-                break
+        if not all_records:
+            empty_df = ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
+            return empty_df, {"total_initial": 0, "total_filtered": 0, "removed_count": 0}
 
-    finally:
-        pbar.close()
-
-    if not all_records:
-        empty_df = ensure_schema(pd.DataFrame(columns=["abstract_text"]), provider_name="openalex")
-        return empty_df, {"total_initial": 0, "total_filtered": 0, "removed_count": 0}
-
-    df = pd.DataFrame(all_records)
-    
-    # Optional local shuffle for probabilistic to randomize the ordered cursor results
-    if sampling_strategy == "probabilistic":
-        seed = config.get("random_seed") or sampling_seed or 42
-        df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
+        df = pd.DataFrame(all_records)
+        
+        # Optional local shuffle for probabilistic to randomize the ordered cursor results
+        if sampling_strategy == "probabilistic":
+            random_seed = params.get("seed") or params.get("sampling_seed") or config.get("random_seed") or 42
+            df = df.sample(frac=1, random_state=random_seed).reset_index(drop=True)
 
     # 3. Post-harvest filtering
     report = {"total_initial": len(df), "total_filtered": len(df), "removed_count": 0, "keyword_stats": {}}

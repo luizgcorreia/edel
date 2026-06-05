@@ -68,9 +68,16 @@ def submit_job(config: dict, base_path: str | Path = "artifacts") -> str:
     base_path = Path(base_path)
     dirs = _dirs(base_path)
 
+    from edel.experiments.runner import _get_experiment_id
+    try:
+        experiment_id = _get_experiment_id(config, base_path)
+    except Exception:
+        experiment_id = "unknown"
+
     job_id = f"job_{uuid.uuid4().hex[:8]}"
     record = {
         "job_id":        job_id,
+        "experiment_id": experiment_id,
         "config":        config,
         "submitted_at":  _now(),
         "started_at":    None,
@@ -134,6 +141,12 @@ def list_jobs(base_path: str | Path = "artifacts") -> list[dict]:
             try:
                 record = json.loads(path.read_text())
                 record["status"] = state
+                if "experiment_id" not in record and "config" in record:
+                    from edel.experiments.runner import _get_experiment_id
+                    try:
+                        record["experiment_id"] = _get_experiment_id(record["config"], base_path)
+                    except Exception:
+                        record["experiment_id"] = "unknown"
                 jobs.append(record)
             except Exception:
                 pass

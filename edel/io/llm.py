@@ -229,8 +229,8 @@ class GeminiClient(LLMClient):
                         project_id = adc_data.get("quota_project_id")
                 except Exception:
                     pass
-        # Increase timeout for large batch uploads
-        http_options = types.HttpOptions(timeout=600.0)
+        # Increase timeout for large batch uploads (google-genai expects milliseconds)
+        http_options = types.HttpOptions(timeout=600.0 * 1000)
                     
         if project_id:
             # If global is requested, we use the global endpoint

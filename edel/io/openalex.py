@@ -22,6 +22,7 @@ def openalex_request(
     sample: int | None = None,
     seed: int | None = None,
     sort: str | None = None,
+    group_by: str | None = None,
 ) -> dict[str, Any]:
     """Execute a request against the OpenAlex API."""
     api_key = os.environ.get("OPENALEX_API_KEY")
@@ -31,15 +32,17 @@ def openalex_request(
         "per-page": per_page,
     }
     
-    # Cursor pagination cannot be used with 'sample'
-    if sample:
+    # Cursor pagination cannot be used with 'sample' or 'group_by'
+    if group_by:
+        params["group_by"] = group_by
+    elif sample:
         params["sample"] = sample
         if seed is not None:
             params["seed"] = seed
     elif cursor:
         params["cursor"] = cursor
         
-    if sort and not sample:
+    if sort and not sample and not group_by:
         params["sort"] = sort
 
     if api_key:

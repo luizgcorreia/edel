@@ -13,7 +13,7 @@ SCIGEN_REPO_URL = "https://github.com/luizgcorreia/scigen-openalex.git"
 
 
 def get_scigen_dir() -> Path:
-    """Ensure SCIGen-OpenAlex repo is available in the external/ directory."""
+    """Ensure SCIGen-OpenAlex repo is available and up-to-date in the external/ directory."""
     # Use a location relative to the edel package (project root)
     repo_root = Path(__file__).parents[2]
     target_dir = repo_root / "external" / "scigen-openalex"
@@ -29,6 +29,17 @@ def get_scigen_dir() -> Path:
             shutil.rmtree(target_dir)
 
         subprocess.run(["git", "clone", SCIGEN_REPO_URL, str(target_dir)], check=True)
+    else:
+        # Pull latest changes so the remote server always runs the current script
+        print(f"Pulling latest SCIGen-OpenAlex updates in {target_dir}...")
+        result = subprocess.run(
+            ["git", "pull"],
+            cwd=str(target_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"Warning: git pull failed (will use existing clone): {result.stderr.strip()}")
 
     return target_dir
 

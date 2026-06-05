@@ -283,7 +283,40 @@ def run_structuring_stage(df: pd.DataFrame, config: dict, base_path: str | Path 
     processing_mode = config.get("processing_mode", "simple")
     target_lang = stage_cfg.get("language")
     definitions = stage_cfg.get("aspect_definitions")
-    
+
+    # Check if provider is "none"
+    if stage_cfg.get("provider") == "none":
+        required_cols = ["problem", "method", "finding", "interpretation"]
+        for col in required_cols:
+            if col not in df.columns:
+                raise ValueError(
+                    f"Structured abstracts provider is 'none' but required column '{col}' is missing from input DataFrame."
+                )
+
+        df_filtered = df.copy()
+        filter_report = {
+            "initial_count": len(df),
+            "final_count": len(df),
+        }
+
+        # 1b. Sample if requested
+        n_docs = stage_cfg.get("n_documents")
+        if n_docs and n_docs < len(df_filtered):
+            seed = config.get("random_seed", 42)
+            print(f"Sampling {n_docs} abstracts from filtered set (seed: {seed})...")
+            df_filtered = df_filtered.sample(n=n_docs, random_state=seed)
+            filter_report["sampled_count"] = n_docs
+            filter_report["final_count"] = n_docs
+
+        print(f"Final selection: {len(df_filtered)} abstracts (provider: none).")
+        print(f"Filter/Sampling Report: {filter_report}")
+
+        # Compute Segmentation Metrics
+        seg_metrics = compute_segmentation_metrics(df_filtered)
+        filter_report.update(seg_metrics)
+
+        return df_filtered, filter_report
+
     # 1. Filter
     min_sentences = stage_cfg.get("min_sentences", 4)
     min_tokens = stage_cfg.get("min_tokens", 80)

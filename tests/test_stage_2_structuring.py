@@ -234,3 +234,50 @@ def test_structuring_stage_null(run_config, tmp_path):
     assert first_row["method"] == f"abstract:\n{expected_snippet}"
     assert first_row["finding"] == f"abstract:\n{expected_snippet}"
     assert first_row["interpretation"] == f"abstract:\n{expected_snippet}"
+
+
+def test_structuring_stage_none(run_config, tmp_path):
+    """Test Stage 2 using the none provider."""
+    # 1. Update config to use none provider
+    run_config["structured_abstracts"]["provider"] = "none"
+
+    # 2. Setup Stage 1 dependency
+    df_stage1 = ensure_stage_1_artifacts(run_config, tmp_path)
+    assert len(df_stage1) == 5
+
+    # If the required columns are missing, it should raise ValueError
+    df_missing = df_stage1.drop(columns=["problem"])
+    with pytest.raises(ValueError) as exc_info:
+        run_structuring_stage(df_missing, run_config)
+    assert "required column 'problem' is missing" in str(exc_info.value)
+
+    # Now add the columns
+    df_stage1["problem"] = "Stage 1 Problem"
+    df_stage1["method"] = "Stage 1 Method"
+    df_stage1["finding"] = "Stage 1 Finding"
+    df_stage1["interpretation"] = "Stage 1 Interpretation"
+
+    # Run Stage 2
+    df_stage2, report = run_structuring_stage(df_stage1, run_config)
+
+    # Verify results are unchanged and kept exactly as they came from Stage 1
+    assert isinstance(df_stage2, pd.DataFrame)
+    assert len(df_stage2) == 5
+
+    first_row = df_stage2.iloc[0]
+    assert first_row["problem"] == "Stage 1 Problem"
+    assert first_row["method"] == "Stage 1 Method"
+    assert first_row["finding"] == "Stage 1 Finding"
+    assert first_row["interpretation"] == "Stage 1 Interpretation"
+
+    # Verify that metrics are included in the report
+    assert "len_problem" in report
+    assert report["initial_count"] == 5
+    assert report["final_count"] == 5
+
+    # Test sampling when n_documents is configured
+    run_config["structured_abstracts"]["n_documents"] = 2
+    df_stage2_sampled, report_sampled = run_structuring_stage(df_stage1, run_config)
+    assert len(df_stage2_sampled) == 2
+    assert report_sampled["sampled_count"] == 2
+    assert report_sampled["final_count"] == 2

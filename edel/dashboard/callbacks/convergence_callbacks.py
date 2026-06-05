@@ -103,7 +103,11 @@ def register_convergence_callbacks(app: Dash, base_path: Path) -> None:
             rec_h2 = "10,000 papers"
             for sz in h2_sizes:
                 avg_mae_z = np.mean(h2_res["data"][sz]["mae_z"])
-                if avg_mae_z < 0.5:
+                avg_jaccard = np.mean(h2_res["data"][sz]["jaccard"])
+                # The z-score estimate has an inherent standard deviation of ~1.0 due to 
+                # query selection sampling noise (max_queries = 25). Therefore, we combine 
+                # MAE (< 0.8) with Jaccard operator overlap stabilization (>= 0.80).
+                if avg_mae_z < 0.8 or avg_jaccard >= 0.80:
                     rec_h2 = f"{sz:,} papers"
                     break
             if rec_h2 == "10,000 papers" and N < 10000:

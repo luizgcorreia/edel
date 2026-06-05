@@ -178,3 +178,136 @@ def test_afp_provider_direct():
     # Check that some semantic aspects were filled
     assert any(df["method"] != "")
     assert any(df["finding"] != "")
+
+
+def test_openalex_proportional_temporal_mocked():
+    """Test proportional_temporal sampling strategy with mocked API responses."""
+    from unittest.mock import patch
+    
+    config = {
+        "random_seed": 100,
+        "provider": {
+            "type": "openalex",
+            "topic_id": "T12345",
+            "params": {
+                "sampling_strategy": "proportional_temporal",
+                "sample_percentage": "5%"
+            }
+        }
+    }
+    
+    mock_group_by = {
+        "group_by": [
+            {"key": "2020", "count": 100},
+            {"key": "2021", "count": 10},
+        ]
+    }
+
+    def side_effect(filters, cursor=None, group_by=None, sample=None, seed=None, sort=None, per_page=200):
+        if group_by == "publication_year":
+            return mock_group_by
+        elif "publication_year:2020" in filters:
+            assert sample == 5
+            assert seed == 100  # root random_seed is injected
+            # return 5 unique works
+            return {
+                "results": [
+                    {"id": f"W2020_{i}", "title": f"Paper {i}", "publication_year": 2020, "abstract_inverted_index": {"hello": [0]}}
+                    for i in range(5)
+                ]
+            }
+        elif "publication_year:2021" in filters:
+            assert sample == 1  # max(1, round(10 * 0.05)) = 1
+            assert seed == 100
+            return {
+                "results": [
+                    {"id": "W2021_0", "title": "Paper 2021", "publication_year": 2021, "abstract_inverted_index": {"world": [0]}}
+                ]
+            }
+        return {"results": []}
+
+    with patch("edel.providers.openalex.openalex_request", side_effect=side_effect) as mock_req:
+        df, report = generate_openalex(config)
+        
+        # Verify the target count:
+        # Year 2020: 100 * 0.05 = 5
+        # Year 2021: 10 * 0.05 = 0.5 -> round to 0 -> max(1, 0) = 1
+        # Total target = 6
+        assert len(df) == 6
+        assert len(df[df["publication_year"] == 2020]) == 5
+        assert len(df[df["publication_year"] == 2021]) == 1
+        
+        # Check call parameters
+        assert mock_req.call_count == 3  # 1 group_by + 2 year queries
+
+
+def test_openalex_percentage_normalization():
+    """Test that all percentage config formats are correctly parsed and normalized."""
+    from unittest.mock import patch
+    
+    mock_group_by = {"group_by": [{"key": "2020", "count": 100}]}
+    
+    formats = ["5%", 0.05, 5, "0.05", "5"]
+    
+    for fmt in formats:
+        config = {
+            "provider": {
+                "type": "openalex",
+                "topic_id": "T12345",
+                "params": {
+                    "sampling_strategy": "proportional_temporal",
+                    "sample_percentage": fmt
+                }
+            }
+        }
+        
+        def side_effect(filters, cursor=None, group_by=None, sample=None, seed=None, sort=None, per_page=200):
+            if group_by == "publication_year":
+                return mock_group_by
+            # For 5%, target is 5
+            assert sample == 5
+            return {"results": [{"id": f"W_{i}", "title": "T", "publication_year": 2020, "abstract_inverted_index": {"h": [0]}} for i in range(5)]}
+            
+        with patch("edel.providers.openalex.openalex_request", side_effect=side_effect):
+            df, _ = generate_openalex(config)
+            assert len(df) == 5
+
+
+def test_openalex_deterministic_proportional_temporal_mocked():
+    """Test proportional_temporal_deterministic strategy with mocked responses."""
+    from unittest.mock import patch
+    
+    config = {
+        "provider": {
+            "type": "openalex",
+            "topic_id": "T12345",
+            "params": {
+                "sampling_strategy": "proportional_temporal_deterministic",
+                "sample_percentage": 0.05
+            }
+        }
+    }
+    
+    mock_group_by = {
+        "group_by": [
+            {"key": "2020", "count": 100}
+        ]
+    }
+    
+    def side_effect(filters, cursor=None, group_by=None, sample=None, seed=None, sort=None, per_page=200):
+        if group_by == "publication_year":
+            return mock_group_by
+        
+        assert cursor is not None
+        assert sort == "cited_by_count:desc"
+        assert per_page == 5
+        return {
+            "results": [
+                {"id": f"W_{i}", "title": f"Paper {i}", "publication_year": 2020, "abstract_inverted_index": {"hello": [0]}}
+                for i in range(5)
+            ]
+        }
+        
+    with patch("edel.providers.openalex.openalex_request", side_effect=side_effect):
+        df, _ = generate_openalex(config)
+        assert len(df) == 5

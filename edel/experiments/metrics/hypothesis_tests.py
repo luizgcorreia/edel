@@ -27,12 +27,24 @@ logger = logging.getLogger(__name__)
 # Wasserstein Distance Helper
 # ---------------------------------------------------------------------------
 
-def compute_wasserstein(X: np.ndarray, Y: np.ndarray) -> float:
+def compute_wasserstein(X: np.ndarray, Y: np.ndarray, max_samples: int = 500) -> float:
     """Compute the 1st Wasserstein distance (Earth Mover's Distance) using POT."""
     n = X.shape[0]
     m = Y.shape[0]
     if n == 0 or m == 0:
         return 0.0
+
+    # Subsample to avoid cubic scaling issues in EMD solver
+    if n > max_samples:
+        rng = np.random.RandomState(42)
+        indices = rng.choice(n, size=max_samples, replace=False)
+        X = X[indices]
+        n = max_samples
+    if m > max_samples:
+        rng = np.random.RandomState(42)
+        indices = rng.choice(m, size=max_samples, replace=False)
+        Y = Y[indices]
+        m = max_samples
 
     a = np.ones(n) / n
     b = np.ones(m) / m
@@ -68,16 +80,17 @@ def compute_h2_for_transition(
     if N < k + 1:
         return 0.0, 1.0, 0.0
 
-    # Distance matrix in X space (use cosine since they are normalized)
-    sim = X @ X.T
-    np.fill_diagonal(sim, -np.inf)
-
     # Subsample query points to keep computation fast
     query_indices = np.random.choice(N, size=min(max_queries, N), replace=False)
 
+    # Compute similarity matrix only for query points to avoid N x N allocation/multiplication
+    sim_queries = X[query_indices] @ X.T
+
     obs_w_dists = []
-    for j in query_indices:
-        neighbors = np.argsort(sim[j])[-k:]
+    for idx, j in enumerate(query_indices):
+        sim_row = sim_queries[idx].copy()
+        sim_row[j] = -np.inf  # avoid self-neighbor
+        neighbors = np.argsort(sim_row)[-k:]
         Y_neighbors = Y[neighbors]
         # Null model: random target points from Y
         random_idx = np.random.choice(N, size=k, replace=False)
@@ -177,8 +190,7 @@ def compute_h2b_for_pair(
     perm_diffs = []
     for _ in range(B):
         swap_mask = np.random.rand(N) < 0.5
-        X_perm = xy_stacked[swap_mask.astype(int), np.arange(N)]
-        Y_perm = xy_stacked[(~swap_mask).astype(int), np.arange(N)]
+        inv_swap_mask = ~swap_mask
         
         q_mask = swap_mask[query_indices]
         
@@ -186,18 +198,17 @@ def compute_h2b_for_pair(
         sim_f = np.where(q_mask[:, None], np.where(swap_mask, dot_YY, dot_YX), np.where(swap_mask, dot_XY, dot_XX))
         sim_f[np.arange(len(query_indices)), query_indices] = -np.inf
         neighbors_f = np.argpartition(sim_f, -k, axis=1)[:, -k:]
-        tgt_neighbors_f = Y_perm[neighbors_f]
+        tgt_neighbors_f = xy_stacked[inv_swap_mask[neighbors_f].astype(int), neighbors_f]
         centroids_f = np.mean(tgt_neighbors_f, axis=1)
         dispersion_f = np.clip(1.0 - np.sum(centroids_f ** 2, axis=1), 0.0, None)
         avg_ent_f_perm = 0.5 * (1.0 + np.mean(np.log(2.0 * np.pi * np.e * (dispersion_f + epsilon))))
         
         # Reverse: Y_perm as source, X_perm as target
         inv_q_mask = ~q_mask
-        inv_swap_mask = ~swap_mask
         sim_r = np.where(inv_q_mask[:, None], np.where(inv_swap_mask, dot_YY, dot_YX), np.where(inv_swap_mask, dot_XY, dot_XX))
         sim_r[np.arange(len(query_indices)), query_indices] = -np.inf
         neighbors_r = np.argpartition(sim_r, -k, axis=1)[:, -k:]
-        tgt_neighbors_r = X_perm[neighbors_r]
+        tgt_neighbors_r = xy_stacked[swap_mask[neighbors_r].astype(int), neighbors_r]
         centroids_r = np.mean(tgt_neighbors_r, axis=1)
         dispersion_r = np.clip(1.0 - np.sum(centroids_r ** 2, axis=1), 0.0, None)
         avg_ent_r_perm = 0.5 * (1.0 + np.mean(np.log(2.0 * np.pi * np.e * (dispersion_r + epsilon))))

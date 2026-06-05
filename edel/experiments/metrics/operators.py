@@ -91,11 +91,13 @@ def operator_metrics(artifacts: dict) -> dict:
     metrics["cycle_closure_norm"] = float(cycle_closure_dist.mean())
 
     N_papers = emb_i.shape[0]
-    sim_matrix = emb_i @ emb_i.T
-    np.fill_diagonal(sim_matrix, -np.inf)
     k_nn = min(5, N_papers - 1)
     if k_nn > 0:
-        nn_indices = np.argpartition(sim_matrix, -k_nn, axis=1)[:, -k_nn:]
+        from sklearn.neighbors import NearestNeighbors
+        nn = NearestNeighbors(n_neighbors=k_nn + 1, metric="cosine", n_jobs=-1)
+        nn.fit(emb_i)
+        _, indices = nn.kneighbors(emb_i)
+        nn_indices = indices[:, 1:]
         bar_p = emb_p[nn_indices].mean(axis=1)
         net_displacement_dist = np.linalg.norm(bar_p - emb_p, axis=1)
     else:

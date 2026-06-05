@@ -123,20 +123,38 @@ def embedding_metrics(artifacts: dict, correction_method: str = "none", remove_p
             sa = _ASPECT_SHORT[col_a]
             sb = _ASPECT_SHORT[col_b]
             # Full N×N is fine for N≤500; for larger we'll add sampling later
-            sim_mat = cosine_similarity(embs[col_a], embs[col_b])
+            if N > 500:
+                rng = np.random.default_rng(0)
+                idx_a = rng.choice(N, size=500, replace=False)
+                idx_b = rng.choice(N, size=500, replace=False)
+                sim_mat = cosine_similarity(embs[col_a][idx_a], embs[col_b][idx_b])
+            else:
+                sim_mat = cosine_similarity(embs[col_a], embs[col_b])
             metrics[f"sep_{sa}_{sb}"] = float(sim_mat.mean())
 
     # ── Intra-aspect density: distribution of upper-triangle cosines ─────────
     for aspect in _ASPECTS:
         sa = _ASPECT_SHORT[aspect]
-        sim_mat = cosine_similarity(embs[aspect])
-        idx = np.triu_indices_from(sim_mat, k=1)
-        upper = sim_mat[idx]
-
-        # Sample if too many pairs
-        if len(upper) > _MAX_DENSITY_PAIRS:
+        if N * (N - 1) // 2 > _MAX_DENSITY_PAIRS:
             rng = np.random.default_rng(0)
-            upper = rng.choice(upper, size=_MAX_DENSITY_PAIRS, replace=False)
+            pairs = set()
+            while len(pairs) < _MAX_DENSITY_PAIRS:
+                needed = _MAX_DENSITY_PAIRS - len(pairs)
+                i_candidates = rng.choice(N, size=int(needed * 1.1))
+                j_candidates = rng.choice(N, size=int(needed * 1.1))
+                for i, j in zip(i_candidates, j_candidates):
+                    if i != j:
+                        pairs.add((min(i, j), max(i, j)))
+                        if len(pairs) == _MAX_DENSITY_PAIRS:
+                            break
+            pairs_list = list(pairs)
+            i_idx = np.array([p[0] for p in pairs_list])
+            j_idx = np.array([p[1] for p in pairs_list])
+            upper = np.sum(embs[aspect][i_idx] * embs[aspect][j_idx], axis=1)
+        else:
+            sim_mat = cosine_similarity(embs[aspect])
+            idx = np.triu_indices_from(sim_mat, k=1)
+            upper = sim_mat[idx]
 
         metrics[f"density_{sa}_mean"] = float(upper.mean())
         metrics[f"density_{sa}_std"] = float(upper.std())

@@ -53,9 +53,17 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     scigen_dir = get_scigen_dir()
     out_file = scigen_dir / "dataset.csv"
 
-    # We run the perl script and tell it to output to dataset.csv
-    # The script generates OpenAlex-like CSV records
-    subprocess.run(
+    # Pre-flight: verify required data files are present
+    required_files = ["scirules.in", "system_names.in", "Autoformat.pm", "scigen.pm"]
+    missing = [f for f in required_files if not (scigen_dir / f).exists()]
+    if missing:
+        raise RuntimeError(
+            f"SCIGen data files missing in {scigen_dir}: {missing}. "
+            "The git clone may be incomplete — delete external/scigen-openalex/ and retry."
+        )
+
+    # Run the Perl script; capture output so we can surface any error message
+    result = subprocess.run(
         [
             "perl",
             "generate_openalex.pl",
@@ -65,10 +73,16 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
             "dataset.csv",
         ],
         cwd=str(scigen_dir),
-        check=True,
         capture_output=True,
         text=True,
     )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"SCIGen Perl script failed (exit {result.returncode}).\n"
+            f"STDOUT: {result.stdout.strip()}\n"
+            f"STDERR: {result.stderr.strip()}"
+        )
 
     if not out_file.exists():
         raise RuntimeError(f"SCIGen failed to generate output at {out_file}")

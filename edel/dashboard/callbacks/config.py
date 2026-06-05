@@ -125,6 +125,14 @@ def register_config_callbacks(app: Dash) -> None:
                 # 2. Delete from registry
                 delete_experiment(current_name)
                 
+                # 3. Delete from experiments/registry.pkl and results.parquet cache
+                try:
+                    from edel.experiments.runner import delete_registry_record, delete_from_results_cache
+                    delete_registry_record(current_name, Path("artifacts"))
+                    delete_from_results_cache(current_name, Path("artifacts"))
+                except Exception as e:
+                    print(f"Warning: Failed to clean up registry pickle or results cache: {e}")
+                
                 options = get_registry_options()
                 new_val = options[0]["value"] if options else None
                 

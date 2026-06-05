@@ -94,10 +94,11 @@ def job_panel_layout() -> dbc.Container:
                     dbc.CardHeader(
                         dbc.Row([
                             dbc.Col("Job Queue"),
-                            dbc.Col(
+                            dbc.Col([
+                                dbc.Button("Cancel Job", id="btn-cancel-job", size="sm", color="danger", outline=True, className="me-2", disabled=True),
+                                dbc.Button("Delete Job", id="btn-delete-job", size="sm", color="warning", outline=True, className="me-2", disabled=True),
                                 dbc.Button("Refresh", id="btn-refresh-jobs", size="sm", color="secondary", outline=True),
-                                className="text-end"
-                            )
+                            ], className="text-end")
                         ])
                     ),
                     dbc.CardBody([
@@ -111,6 +112,8 @@ def job_panel_layout() -> dbc.Container:
                                 {"name": "Submitted", "id": "submitted_at"}
                             ],
                             data=[],
+                            row_selectable="single",
+                            selected_rows=[],
                             style_table={'overflowX': 'auto'},
                             style_cell={'textAlign': 'left', 'padding': '10px'},
                             style_data_conditional=[
@@ -120,7 +123,20 @@ def job_panel_layout() -> dbc.Container:
                             ]
                         )
                     ])
-                ])
+                ]),
+                dbc.Card([
+                    dbc.CardHeader("Job Logs"),
+                    dbc.CardBody([
+                        html.Div(id="selected-job-info", className="mb-2 fw-bold", children="No job selected"),
+                        html.Pre(
+                            id="job-log-display",
+                            className="p-3 bg-dark text-light rounded small",
+                            style={"height": "300px", "overflowY": "auto", "fontFamily": "monospace", "whiteSpace": "pre-wrap"},
+                            children="Select a job from the table to view its execution logs."
+                        )
+                    ])
+                ], className="mt-3")
             ], md=8)
         ])
     ], fluid=True)
+

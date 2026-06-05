@@ -221,3 +221,47 @@ def _upsert_registry(new_records: list[dict], base_path: Path) -> None:
         pickle.dump(list(existing.values()), f)
 
     print(f"\n📋 Registry saved: {registry_path} ({len(existing)} experiments)")
+
+
+def delete_registry_record(experiment_id: str, base_path: str | Path = "artifacts") -> None:
+    """Remove an experiment record from the registry pickle file."""
+    base_path = Path(base_path)
+    path = _registry_path(base_path)
+    if not path.exists():
+        return
+
+    try:
+        with path.open("rb") as f:
+            records = pickle.load(f)
+        
+        # Filter out the matching experiment
+        new_records = [rec for rec in records if rec["experiment_id"] != experiment_id]
+        
+        if len(new_records) == len(records):
+            return  # No change
+            
+        with path.open("wb") as f:
+            pickle.dump(new_records, f)
+            
+        logger.info(f"Deleted experiment record '{experiment_id}' from registry pickle.")
+    except Exception as e:
+        logger.error(f"Failed to delete registry record: {e}", exc_info=True)
+        raise e
+
+
+def delete_from_results_cache(experiment_id: str, base_path: str | Path = "artifacts") -> None:
+    """Remove an experiment's row from the results.parquet cache file."""
+    base_path = Path(base_path)
+    cache_path = base_path / "experiments" / "results.parquet"
+    if not cache_path.exists():
+        return
+    try:
+        import pandas as pd
+        df = pd.read_parquet(cache_path)
+        if "experiment_id" in df.columns:
+            filtered_df = df[df["experiment_id"] != experiment_id]
+            if len(filtered_df) < len(df):
+                filtered_df.to_parquet(cache_path, index=False)
+                logger.info(f"Removed '{experiment_id}' from results.parquet cache.")
+    except Exception as e:
+        logger.error(f"Failed to delete '{experiment_id}' from results cache: {e}")

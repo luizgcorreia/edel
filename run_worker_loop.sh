@@ -2,7 +2,7 @@
 FAIL_COUNT=0
 while true; do
     echo "Starting worker (Fail count: $FAIL_COUNT)..."
-    OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 NUMEXPR_NUM_THREADS=2 /home/lcorreia/.miniforge3/envs/edel/bin/python -m edel.dashboard.worker --base-path artifacts
+    OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 NUMEXPR_NUM_THREADS=2 /home/correia/miniforge3/envs/edel/bin/python -m edel.dashboard.worker --base-path artifacts
     
     # If it ran for less than 10 seconds, it's a "fast crash"
     # We increase the sleep time to avoid fork-bombing the server

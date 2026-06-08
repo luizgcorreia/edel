@@ -23,6 +23,8 @@ Returns:
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import normalize as sk_normalize
@@ -94,7 +96,7 @@ def operator_metrics(artifacts: dict) -> dict:
     k_nn = min(5, N_papers - 1)
     if k_nn > 0:
         from sklearn.neighbors import NearestNeighbors
-        nn = NearestNeighbors(n_neighbors=k_nn + 1, metric="cosine", n_jobs=-1)
+        nn = NearestNeighbors(n_neighbors=k_nn + 1, metric="cosine", n_jobs=min(os.cpu_count() or 1, 4))
         nn.fit(emb_i)
         _, indices = nn.kneighbors(emb_i)
         nn_indices = indices[:, 1:]

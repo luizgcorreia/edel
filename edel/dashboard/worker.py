@@ -394,6 +394,7 @@ class TeeStderr:
         self.original_stderr.flush()
 
 
+<<<<<<< HEAD
 def _cleanup_orphaned_jobs(dirs: dict[str, Path]) -> None:
     """Find any running jobs whose worker PIDs are no longer active, and move them back to pending."""
     running_jobs = list(dirs["running"].glob("*.json"))
@@ -420,6 +421,8 @@ def _cleanup_orphaned_jobs(dirs: dict[str, Path]) -> None:
             logger.error(f"Error checking/restoring orphaned job {path.name}: {e}")
 
 
+=======
+>>>>>>> 7566f991dce5a3c714952774fb84042e553a5a56
 # ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------

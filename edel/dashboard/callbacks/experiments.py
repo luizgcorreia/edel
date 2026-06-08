@@ -134,7 +134,9 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
 
     @app.callback(
         [Output("selected-job-info", "children"),
-         Output("job-log-display", "children")],
+         Output("job-log-display", "children"),
+         Output("btn-cancel-job", "disabled"),
+         Output("btn-delete-job", "disabled")],
         [Input("job-queue-table", "selected_rows"),
          Input("job-queue-interval", "n_intervals")],
         [State("job-queue-table", "data")]
@@ -142,11 +144,11 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
     def update_job_logs(selected_rows, n_intervals, table_data):
         """Display logs and details for the selected job in the table."""
         if not selected_rows or not table_data:
-            return "No job selected", "Select a job from the table to view its execution logs."
+            return "No job selected", "Select a job from the table to view its execution logs.", True, True
             
         row_idx = selected_rows[0]
         if row_idx >= len(table_data):
-            return "No job selected", "Select a job from the table to view its execution logs."
+            return "No job selected", "Select a job from the table to view its execution logs.", True, True
             
         job_info = table_data[row_idx]
         job_id = job_info.get("job_id")
@@ -158,7 +160,81 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
             log_text = "No log messages generated yet or log file does not exist."
             
         header = f"Job: {job_id} ({experiment_id}) — Status: {status.upper()}"
-        return header, log_text
+        cancel_disabled = (status not in ["running", "pending"])
+        delete_disabled = (status not in ["done", "failed"])
+        return header, log_text, cancel_disabled, delete_disabled
+
+    @app.callback(
+        [Output("job-queue-table", "selected_rows", allow_duplicate=True),
+         Output("job-queue-table", "data", allow_duplicate=True)],
+        Input("btn-cancel-job", "n_clicks"),
+        [State("job-queue-table", "selected_rows"),
+         State("job-queue-table", "data")],
+        prevent_initial_call=True
+    )
+    def handle_cancel_job(n_clicks, selected_rows, table_data):
+        if not n_clicks or not selected_rows or not table_data:
+            raise PreventUpdate
+            
+        row_idx = selected_rows[0]
+        if row_idx >= len(table_data):
+            raise PreventUpdate
+            
+        job_info = table_data[row_idx]
+        job_id = job_info.get("job_id")
+        
+        from edel.dashboard.worker import cancel_job
+        cancel_job(job_id, base_path)
+        
+        # Trigger queue refresh
+        from edel.dashboard.worker import list_jobs
+        jobs = list_jobs(base_path)
+        new_table_data = []
+        for j in jobs:
+            new_table_data.append({
+                "job_id": j.get("job_id", ""),
+                "experiment_id": j.get("experiment_id", "Unknown"),
+                "status": j.get("status", "unknown"),
+                "submitted_at": j.get("submitted_at", "").split("T")[0] + " " + j.get("submitted_at", "").split("T")[1][:8] if "T" in j.get("submitted_at", "") else j.get("submitted_at", "")
+            })
+            
+        return [], new_table_data
+
+    @app.callback(
+        [Output("job-queue-table", "selected_rows", allow_duplicate=True),
+         Output("job-queue-table", "data", allow_duplicate=True)],
+        Input("btn-delete-job", "n_clicks"),
+        [State("job-queue-table", "selected_rows"),
+         State("job-queue-table", "data")],
+        prevent_initial_call=True
+    )
+    def handle_delete_job(n_clicks, selected_rows, table_data):
+        if not n_clicks or not selected_rows or not table_data:
+            raise PreventUpdate
+            
+        row_idx = selected_rows[0]
+        if row_idx >= len(table_data):
+            raise PreventUpdate
+            
+        job_info = table_data[row_idx]
+        job_id = job_info.get("job_id")
+        
+        from edel.dashboard.worker import delete_job_record
+        delete_job_record(job_id, base_path)
+        
+        # Trigger queue refresh
+        from edel.dashboard.worker import list_jobs
+        jobs = list_jobs(base_path)
+        new_table_data = []
+        for j in jobs:
+            new_table_data.append({
+                "job_id": j.get("job_id", ""),
+                "experiment_id": j.get("experiment_id", "Unknown"),
+                "status": j.get("status", "unknown"),
+                "submitted_at": j.get("submitted_at", "").split("T")[0] + " " + j.get("submitted_at", "").split("T")[1][:8] if "T" in j.get("submitted_at", "") else j.get("submitted_at", "")
+            })
+            
+        return [], new_table_data
 
     # --- Snippet Management Callbacks ---
 

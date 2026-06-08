@@ -184,7 +184,111 @@ def _pick_next_job(dirs: dict[str, Path]) -> dict | None:
 
 def _mark_running(record: dict, dirs: dict[str, Path]) -> None:
     record["started_at"] = _now()
+    record["worker_pid"] = os.getpid()
     _write_record(record, dirs["running"])
+
+
+def cancel_job(job_id: str, base_path: str | Path = "artifacts") -> bool:
+    """Cancel a job by id.
+    
+    If pending: delete it / move to failed with error "Cancelled by user".
+    If running: terminate the worker process running it, move the job file to failed.
+    """
+    base_path = Path(base_path)
+    dirs = _dirs(base_path)
+    
+    # Check pending first
+    pending_path = dirs["pending"] / f"{job_id}.json"
+    if pending_path.exists():
+        try:
+            record = json.loads(pending_path.read_text())
+            record["finished_at"] = _now()
+            record["error"] = "Cancelled by user"
+            failed_path = dirs["failed"] / f"{job_id}.json"
+            failed_path.write_text(json.dumps(record, indent=2))
+            pending_path.unlink()
+            logger.info(f"Cancelled pending job {job_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel pending job {job_id}: {e}")
+            return False
+
+    # Check running
+    running_path = dirs["running"] / f"{job_id}.json"
+    if running_path.exists():
+        try:
+            record = json.loads(running_path.read_text())
+            pid = record.get("worker_pid")
+            
+            # 1. Kill the process if PID exists
+            if pid:
+                import signal
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info(f"Sent SIGTERM to worker process {pid} for job {job_id}")
+                except ProcessLookupError:
+                    pass
+            
+            # 2. Mark the job as failed (cancelled)
+            record["finished_at"] = _now()
+            record["error"] = "Cancelled by user"
+            failed_path = dirs["failed"] / f"{job_id}.json"
+            failed_path.write_text(json.dumps(record, indent=2))
+            running_path.unlink()
+            logger.info(f"Cancelled running job {job_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel running job {job_id}: {e}")
+            return False
+            
+    return False
+
+
+def delete_job_record(job_id: str, base_path: str | Path = "artifacts") -> bool:
+    """Delete a completed (done or failed) job and all its physical artifacts."""
+    base_path = Path(base_path)
+    dirs = _dirs(base_path)
+    
+    # Check done and failed directories
+    job_path = None
+    if (dirs["done"] / f"{job_id}.json").exists():
+        job_path = dirs["done"] / f"{job_id}.json"
+    elif (dirs["failed"] / f"{job_id}.json").exists():
+        job_path = dirs["failed"] / f"{job_id}.json"
+        
+    if not job_path:
+        logger.warning(f"Job JSON not found for {job_id}")
+        return False
+        
+    try:
+        record = json.loads(job_path.read_text())
+        experiment_id = record.get("experiment_id")
+        config = record.get("config")
+        
+        # 1. Delete the job JSON file
+        job_path.unlink()
+        
+        # 2. Delete the log file
+        log_path = base_path / "jobs" / "logs" / f"{job_id}.log"
+        if log_path.exists():
+            log_path.unlink()
+            
+        # 3. Clean up physical artifacts if config is present
+        if config:
+            from edel.io.artifact import delete_experiment_artifacts
+            delete_experiment_artifacts(config, base_path)
+            
+        # 4. Clean up registry pickle and results.parquet cache if experiment_id is present
+        if experiment_id:
+            from edel.experiments.runner import delete_registry_record, delete_from_results_cache
+            delete_registry_record(experiment_id, base_path)
+            delete_from_results_cache(experiment_id, base_path)
+            
+        logger.info(f"Deleted job record, log, and artifacts for job {job_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete job {job_id}: {e}", exc_info=True)
+        return False
 
 
 def _mark_done(record: dict, dirs: dict[str, Path]) -> None:
@@ -290,6 +394,32 @@ class TeeStderr:
         self.original_stderr.flush()
 
 
+def _cleanup_orphaned_jobs(dirs: dict[str, Path]) -> None:
+    """Find any running jobs whose worker PIDs are no longer active, and move them back to pending."""
+    running_jobs = list(dirs["running"].glob("*.json"))
+    for path in running_jobs:
+        try:
+            record = json.loads(path.read_text())
+            pid = record.get("worker_pid")
+            
+            # Check if PID is alive
+            pid_alive = False
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    pid_alive = True
+                except OSError:
+                    pid_alive = False
+                    
+            if not pid_alive:
+                # Move back to pending
+                target = dirs["pending"] / path.name
+                os.rename(path, target)
+                logger.info(f"Detected orphaned job {record.get('job_id')} (worker PID {pid} is dead). Moved back to pending.")
+        except Exception as e:
+            logger.error(f"Error checking/restoring orphaned job {path.name}: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------
@@ -299,6 +429,21 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
     base_path = Path(base_path)
     dirs = _dirs(base_path)
 
+    # Ensure only one worker process runs at a time
+    lock_path = base_path / "jobs" / "worker.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # Open lock file and keep descriptor alive
+    lock_file = open(lock_path, "w")
+    try:
+        import fcntl
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[-] Another worker process is already running. Exiting to avoid duplicate execution.")
+        sys.exit(0)
+    except ImportError:
+        # Fallback for platforms without fcntl
+        pass
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -306,6 +451,7 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
     )
 
     logger.info(f"Worker started. Watching: {base_path / 'jobs' / 'pending'}")
+    _cleanup_orphaned_jobs(dirs)
 
     while True:
         job = _pick_next_job(dirs)

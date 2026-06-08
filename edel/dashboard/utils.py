@@ -20,6 +20,12 @@ def get_registry_options() -> list[dict]:
     return [{"label": name, "value": name} for name in list_experiments()]
 
 
+def get_default_experiment() -> str | None:
+    """Return the first available experiment name for dashboard defaults."""
+    names = list_experiments()
+    return names[0] if names else None
+
+
 def config_to_json(name: str) -> str:
     """Return pretty-printed JSON of a registered config."""
     try:

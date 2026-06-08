@@ -14,9 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 0. Cleanup any stale instances
-echo -e "${BLUE}Cleaning up stale worker/dashboard processes...${NC}"
+echo -e "${BLUE}Cleaning up stale dashboard processes...${NC}"
 fuser -k ${PORT}/tcp 2>/dev/null || true
-pkill -u $USER -f "edel.dashboard.worker" || true
 
 echo -e "${BLUE}Starting EDEL Dashboard Stack...${NC}"
 

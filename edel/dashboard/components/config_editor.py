@@ -2,7 +2,7 @@
 
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from edel.dashboard.utils import get_registry_options
+from edel.dashboard.utils import get_default_experiment, get_registry_options
 
 def config_manager_layout() -> dbc.Container:
     """Layout for the Config Manager panel."""

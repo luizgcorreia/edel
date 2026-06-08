@@ -2,7 +2,7 @@
 
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
-from edel.dashboard.utils import get_registry_options
+from edel.dashboard.utils import get_default_experiment, get_registry_options
 from edel.experiments.snippets import get_snippets, STAGE_LIST
 
 def _build_snippet_row(stage_name: str) -> dbc.Row:
@@ -94,10 +94,11 @@ def job_panel_layout() -> dbc.Container:
                     dbc.CardHeader(
                         dbc.Row([
                             dbc.Col("Job Queue"),
-                            dbc.Col(
+                            dbc.Col([
+                                dbc.Button("Cancel Job", id="btn-cancel-job", size="sm", color="danger", outline=True, className="me-2", disabled=True),
+                                dbc.Button("Delete Job", id="btn-delete-job", size="sm", color="warning", outline=True, className="me-2", disabled=True),
                                 dbc.Button("Refresh", id="btn-refresh-jobs", size="sm", color="secondary", outline=True),
-                                className="text-end"
-                            )
+                            ], className="text-end")
                         ])
                     ),
                     dbc.CardBody([

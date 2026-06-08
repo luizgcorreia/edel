@@ -58,7 +58,7 @@ def main():
     print(f"Starting EDEL Dashboard on http://{args.host}:{args.port}")
     print(f"Using artifact base path: {Path(args.base_path).resolve()}")
     
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    app.run(host=args.host, port=args.port, debug=args.debug, threaded=False)
 
 if __name__ == "__main__":
     main()

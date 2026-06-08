@@ -93,4 +93,5 @@ for arg in "$@"; do
 done
 
 # Run dash server in the foreground
-python -m edel.dashboard.app --base-path "${BASE_PATH}" --host "${HOST}" --port ${PORT} ${DEBUG_FLAG}
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 \
+    python -m edel.dashboard.app --base-path "${BASE_PATH}" --host "${HOST}" --port ${PORT} ${DEBUG_FLAG}

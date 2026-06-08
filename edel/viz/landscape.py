@@ -123,13 +123,24 @@ def plot_landscape_3d(
     display_hover = ["title", "publication_year", "cited_by_count"]
     display_hover = [c for c in display_hover if c in df_scatter.columns]
 
-    scatter = px.scatter_3d(
-        df_scatter, x=x_col, y=y_col, z=z_vals,
+    # Compute category order matching the manual legend sort order
+    color_order = None
+    if color_col and color_col in df_plot.columns:
+        color_order = sorted(
+            [l for l in df_plot[color_col].unique() if pd.notna(l)],
+            key=str
+        )
+
+    scatter_kwargs = dict(
+        x=x_col, y=y_col, z=z_vals,
         color=color_col, symbol=symbol_col,
         opacity=scatter_opacity,
         color_discrete_sequence=px.colors.qualitative.Set1,
-        hover_data=hover_cols
+        hover_data=hover_cols,
     )
+    if color_order:
+        scatter_kwargs["category_orders"] = {color_col: color_order}
+    scatter = px.scatter_3d(df_scatter, **scatter_kwargs)
 
     for trace in scatter.data:
         trace.marker.size = scatter_size
@@ -370,14 +381,25 @@ def plot_landscape_contour(
     display_hover = ["title", "publication_year", "cited_by_count"]
     display_hover = [c for c in display_hover if c in df_scatter.columns]
 
-    scatter = px.scatter(
-        df_scatter, x=x_col, y=y_col,
+    # Compute category order matching the manual legend sort order
+    color_order = None
+    if color_col and color_col in df_plot.columns:
+        color_order = sorted(
+            [l for l in df_plot[color_col].unique() if pd.notna(l)],
+            key=str
+        )
+
+    scatter_kwargs = dict(
+        x=x_col, y=y_col,
         color=color_col, symbol=symbol_col,
         opacity=0.3,
         render_mode="svg",
         color_discrete_sequence=px.colors.qualitative.Set1,
-        hover_data=hover_cols
+        hover_data=hover_cols,
     )
+    if color_order:
+        scatter_kwargs["category_orders"] = {color_col: color_order}
+    scatter = px.scatter(df_scatter, **scatter_kwargs)
 
     for tr in scatter.data:
         tr.marker.size = 6

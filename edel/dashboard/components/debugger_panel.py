@@ -2,7 +2,7 @@
 
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
-from edel.dashboard.utils import get_registry_options
+from edel.dashboard.utils import get_default_experiment, get_registry_options
 from edel.io.artifact import CANONICAL_STAGE_NAMES
 
 def debugger_panel_layout() -> dbc.Container:
@@ -20,7 +20,7 @@ def debugger_panel_layout() -> dbc.Container:
                         dcc.Dropdown(
                             id="debug-experiment-select",
                             options=get_registry_options(),
-                            value="scientometrics_baseline",
+                            value=get_default_experiment(),
                             clearable=False,
                             persistence=False,
                             className="mb-3"

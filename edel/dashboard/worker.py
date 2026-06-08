@@ -16,8 +16,8 @@ Usage (in tmux, with restart wrapper):
     done
 
 The file-move-as-lock pattern (pending/ → running/) is atomic on Linux
-filesystems, making it safe to run a single worker without additional
-locking primitives.
+filesystems. A worker lock prevents duplicate dashboard-launched workers,
+and stale running jobs are returned to pending when their worker PID is gone.
 """
 
 from __future__ import annotations
@@ -394,6 +394,36 @@ class TeeStderr:
         self.original_stderr.flush()
 
 
+def _cleanup_orphaned_jobs(dirs: dict[str, Path]) -> None:
+    """Find any running jobs whose worker PIDs are no longer active, and move them back to pending."""
+    running_jobs = list(dirs["running"].glob("*.json"))
+    for path in running_jobs:
+        try:
+            record = json.loads(path.read_text())
+            pid = record.get("worker_pid")
+
+            # Check if PID is alive
+            pid_alive = False
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    pid_alive = True
+                except OSError:
+                    pid_alive = False
+
+            if not pid_alive:
+                # Move back to pending
+                target = dirs["pending"] / path.name
+                os.rename(path, target)
+                logger.info(
+                    "Detected orphaned job %s (worker PID %s is dead). Moved back to pending.",
+                    record.get("job_id"),
+                    pid,
+                )
+        except Exception as e:
+            logger.error(f"Error checking/restoring orphaned job {path.name}: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Main worker loop
 # ---------------------------------------------------------------------------
@@ -403,6 +433,21 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
     base_path = Path(base_path)
     dirs = _dirs(base_path)
 
+    # Ensure only one worker process runs at a time
+    lock_path = base_path / "jobs" / "worker.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # Open lock file and keep descriptor alive for the life of this process.
+    lock_file = open(lock_path, "w")
+    try:
+        import fcntl
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[-] Another worker process is already running. Exiting to avoid duplicate execution.")
+        sys.exit(0)
+    except ImportError:
+        # Fallback for platforms without fcntl
+        pass
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -410,6 +455,7 @@ def run_worker(base_path: str | Path = "artifacts") -> None:
     )
 
     logger.info(f"Worker started. Watching: {base_path / 'jobs' / 'pending'}")
+    _cleanup_orphaned_jobs(dirs)
 
     while True:
         job = _pick_next_job(dirs)

@@ -171,11 +171,11 @@ def process_batch(
     df: pd.DataFrame, client: LLMClient, batch_size: int, topic: str | None = None, batch_log_path: Path | None = None, definitions: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Process abstracts using Batch API with optimal chunking and resume capabilities."""
-    
+
     total_items = len(df)
     all_results = {}
     active_batches = []
-    
+
     if batch_log_path and batch_log_path.exists():
         try:
             with open(batch_log_path, 'r') as f:
@@ -184,25 +184,45 @@ def process_batch(
         except Exception as e:
             print(f"Warning: Failed to load batch log: {e}")
 
-    # 1. Poll of existing batches
-    remaining_batches = []
-    for b_id in active_batches:
-        try:
-            status_info = client.poll_batch(b_id)
-            if status_info["status"] == "completed" and status_info["results"]:
-                all_results.update(status_info["results"])
-                print(f"Recovered completed batch {b_id[:25]}...")
-            elif status_info["status"] in ["failed", "cancelled", "expired"]:
-                print(f"Batch {b_id[:25]}... failed. Discarding from tracking.")
-            else:
-                remaining_batches.append(b_id)
-        except Exception as e:
-            print(f"Connection error while polling existing batch {b_id[:25]}... : {e}. Will retry.")
-            remaining_batches.append(b_id)
-            
-    active_batches = remaining_batches
+    # 1. Continuous Poll loop for initial active batches (if any loaded from log)
+    while active_batches:
+        print(f"Waiting for {len(active_batches)} existing batch(es) to complete... next check in 60s")
 
-    # 2. Find missing items
+        remaining = []
+        for b_id in active_batches:
+            try:
+                status_info = client.poll_batch(b_id)
+            except Exception as e:
+                print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error while polling batch {b_id[:25]}... : {e}. Will retry...")
+                remaining.append(b_id)
+                continue
+
+            status = status_info["status"]
+            counts = status_info["request_counts"]
+            print(
+                f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... Status: {status}, "
+                f"Completed: {counts.get('completed', 0)}/{counts.get('total', 0)}"
+            )
+
+            if status == "completed":
+                if status_info["results"]:
+                    all_results.update(status_info["results"])
+                    print(f"Batch {b_id[:25]}... completed and results collected.")
+            elif status in ["failed", "cancelled", "expired"]:
+                print(f"Batch {b_id[:25]}... failed ({status}).")
+                # Remove terminally failed recovered batches and resubmit missing requests below.
+            else:
+                remaining.append(b_id)
+
+        active_batches = remaining
+        if batch_log_path:
+            with open(batch_log_path, 'w') as f:
+                json.dump(active_batches, f, indent=2)
+
+        if active_batches:
+            time.sleep(60)
+
+    # 2. Find missing items after waiting/recovering
     missing_indices = [idx for idx in df.index if f"request-{idx}" not in all_results]
     
     if missing_indices:
@@ -232,47 +252,52 @@ def process_batch(
                 print(f"Started new batch job: {batch_id[:25]}...")
             except Exception as e:
                 print(f"Failed to submit batch chunk {i+1}: {e}")
-                
+
         # Save updated active batches
         if batch_log_path:
             with open(batch_log_path, 'w') as f:
                 json.dump(active_batches, f, indent=2)
-    else:
-        print("All items successfully recovered from log! No new batches needed.")
 
-    # 3. Continuous Poll loop
-    while active_batches:
-        print(f"Waiting for {len(active_batches)} batch(es) to complete... next check in 60s")
-        time.sleep(60)
-        
-        remaining = []
-        for b_id in active_batches:
-            try:
-                status_info = client.poll_batch(b_id)
+        # 3. Continuous Poll loop for the newly submitted batches
+        while active_batches:
+            print(f"Waiting for {len(active_batches)} new batch(es) to complete... next check in 60s")
+            time.sleep(60)
+
+            remaining = []
+            for b_id in active_batches:
+                try:
+                    status_info = client.poll_batch(b_id)
+                except Exception as e:
+                    print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error while polling batch {b_id[:25]}... : {e}. Will retry...")
+                    remaining.append(b_id)
+                    continue
+
                 status = status_info["status"]
                 counts = status_info["request_counts"]
                 print(
                     f"[{time.strftime('%H:%M:%S')}] Batch {b_id[:25]}... Status: {status}, "
                     f"Completed: {counts.get('completed', 0)}/{counts.get('total', 0)}"
                 )
-                
+
                 if status == "completed":
                     if status_info["results"]:
                         all_results.update(status_info["results"])
                         print(f"Batch {b_id[:25]}... completed and results collected.")
                 elif status in ["failed", "cancelled", "expired"]:
                     print(f"Batch {b_id[:25]}... failed ({status}).")
+                    if batch_log_path:
+                        with open(batch_log_path, 'w') as f:
+                            json.dump(remaining, f, indent=2)
                     raise RuntimeError(f"Batch failed: {status}")
                 else:
                     remaining.append(b_id)
-            except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Warning: Connection error while polling batch {b_id[:25]}... : {e}. Will retry...")
-                remaining.append(b_id)
-                
-        active_batches = remaining
-        if batch_log_path:
-            with open(batch_log_path, 'w') as f:
-                json.dump(active_batches, f, indent=2)
+
+            active_batches = remaining
+            if batch_log_path:
+                with open(batch_log_path, 'w') as f:
+                    json.dump(active_batches, f, indent=2)
+    else:
+        print("All items successfully recovered! No new batches needed.")
                 
     return all_results
 

@@ -2,7 +2,7 @@
 
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from edel.dashboard.utils import get_registry_options
+from edel.dashboard.utils import get_default_experiment, get_registry_options
 
 def landscape_panel_layout() -> dbc.Container:
     """Layout for the Interactive Landscape Map panel."""
@@ -19,7 +19,7 @@ def landscape_panel_layout() -> dbc.Container:
                         dcc.Dropdown(
                             id="map-experiment-select",
                             options=get_registry_options(),
-                            value="scientometrics_baseline",
+                            value=get_default_experiment(),
                             clearable=False,
                             persistence=False,
                             className="mb-3"

@@ -2,7 +2,7 @@
 
 from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
-from edel.dashboard.utils import get_registry_options
+from edel.dashboard.utils import get_default_experiment, get_registry_options
 from edel.experiments.snippets import get_snippets, STAGE_LIST
 
 def _build_snippet_row(stage_name: str) -> dbc.Row:
@@ -39,7 +39,7 @@ def job_panel_layout() -> dbc.Container:
                         dcc.Dropdown(
                             id="sweep-base-config",
                             options=get_registry_options(),
-                            value="scientometrics_baseline",
+                            value=get_default_experiment(),
                             clearable=False,
                             persistence=False,
                             className="mb-3"
@@ -139,4 +139,3 @@ def job_panel_layout() -> dbc.Container:
             ], md=8)
         ])
     ], fluid=True)
-

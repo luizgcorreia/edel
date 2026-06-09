@@ -27,14 +27,15 @@ logger = logging.getLogger(__name__)
 # Wasserstein Distance Helper
 # ---------------------------------------------------------------------------
 
-def compute_wasserstein(X: np.ndarray, Y: np.ndarray, max_samples: int = 500) -> float:
+def compute_wasserstein(X: np.ndarray, Y: np.ndarray, max_samples: int = 1000) -> float:
     """Compute the 1st Wasserstein distance (Earth Mover's Distance) using POT."""
     n = X.shape[0]
     m = Y.shape[0]
     if n == 0 or m == 0:
         return 0.0
 
-    # Subsample to avoid cubic scaling issues in EMD solver
+    # Subsample to balance statistical accuracy vs. computational cost.
+    # 1000×1000 cost matrix (~8MB) with EMD solver takes ~2.8s in 1536D.
     if n > max_samples:
         rng = np.random.RandomState(42)
         indices = rng.choice(n, size=max_samples, replace=False)

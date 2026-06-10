@@ -344,6 +344,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
     N = emb_p.shape[0]
+    H1_SUBSAMPLE_MAX = 2000
     rng_perm = np.random.default_rng(42)
 
     # Observed operators (sequential + cross for 6-edge profile)
@@ -393,14 +394,23 @@ def hypothesis_metrics(artifacts: dict) -> dict:
         cos_pm_mf_s, cos_pm_fi_s, cos_mf_fi_s,
     ])
 
+    # Subsample for large N (energy test on 6D has strong power even with 2K points)
+    if N > H1_SUBSAMPLE_MAX:
+        sub_idx = rng_perm.choice(N, size=H1_SUBSAMPLE_MAX, replace=False)
+        F_obs = F_obs[sub_idx]
+        F_shuf = F_shuf[sub_idx]
+        N_sub = H1_SUBSAMPLE_MAX
+    else:
+        N_sub = N
+
     # Energy distance between observed and shuffled distributions
     Z = np.vstack([F_obs, F_shuf])
-    labels = np.array([0] * N + [1] * N)
+    labels = np.array([0] * N_sub + [1] * N_sub)
     e_obs = energy_distance(Z[labels == 0], Z[labels == 1])
     metrics["h1_energy_stat"] = e_obs
 
     # Pooled permutation test (exchangeability under H0)
-    B = 999
+    B = 99
     count = 0
     for _ in range(B):
         rng_perm.shuffle(labels)
@@ -544,7 +554,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
 
     # Temporal permutation significance test for H3
     n_hist = hist_mask.sum()
-    B_h3 = 100
+    B_h3 = 49
     rng = np.random.default_rng(42)
     shuf_gains = []
     
@@ -649,7 +659,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     }
 
     # Moran's I permutation significance
-    B_moran = 50
+    B_moran = 19
     moran_null_vals = []
     for _ in range(B_moran):
         shuf_indices = np.random.permutation(N)

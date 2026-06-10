@@ -335,7 +335,11 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # the observed aspect pairing and a within-paper shuffled null.
     # A significant energy distance indicates structured epistemic trajectories.
     #
-    # Primary test statistic: energy distance (multivariate, distribution-free).
+    # Primary test statistic: energy distance D² (multivariate, distribution-free).
+    #   Observed D² is computed between F_obs (true pairing) and F_shuf (one
+    #   shuffled draw).  Under H0 (exchangeability) we can relabel which rows
+    #   belong to which group and recompute D² — the pooled permutation test.
+    #
     # Secondary: per-edge Wasserstein effect sizes and KS diagnostics.
     # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
@@ -390,28 +394,17 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     ])
 
     # Energy distance between observed and shuffled distributions
-    e_obs = energy_distance(F_obs, F_shuf)
+    Z = np.vstack([F_obs, F_shuf])
+    labels = np.array([0] * N + [1] * N)
+    e_obs = energy_distance(Z[labels == 0], Z[labels == 1])
     metrics["h1_energy_stat"] = e_obs
 
-    # Permutation test (B independent shuffles)
+    # Pooled permutation test (exchangeability under H0)
     B = 999
     count = 0
     for _ in range(B):
-        idx = rng_perm.permutation(N)
-        perm_p = emb_p[idx]
-        perm_m = emb_m[idx]
-        perm_f = emb_f[idx]
-        perm_i = emb_i[idx]
-
-        F_perm = np.column_stack([
-            np.linalg.norm(perm_m - perm_p, axis=1),
-            np.linalg.norm(perm_f - perm_m, axis=1),
-            np.linalg.norm(perm_i - perm_f, axis=1),
-            row_cos(perm_m - perm_p, perm_f - perm_m),
-            row_cos(perm_m - perm_p, perm_i - perm_f),
-            row_cos(perm_f - perm_m, perm_i - perm_f),
-        ])
-        e_perm = energy_distance(F_obs, F_perm)
+        rng_perm.shuffle(labels)
+        e_perm = energy_distance(Z[labels == 0], Z[labels == 1])
         if e_perm >= e_obs:
             count += 1
 

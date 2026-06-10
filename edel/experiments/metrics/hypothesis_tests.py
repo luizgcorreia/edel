@@ -27,25 +27,43 @@ logger = logging.getLogger(__name__)
 # Wasserstein Distance Helper
 # ---------------------------------------------------------------------------
 
-def compute_wasserstein(X: np.ndarray, Y: np.ndarray, max_samples: int = 1000) -> float:
-    """Compute the 1st Wasserstein distance (Earth Mover's Distance) using POT."""
+def compute_wasserstein(
+    X: np.ndarray,
+    Y: np.ndarray,
+    max_samples: int = 2000,
+    idx_X: np.ndarray | None = None,
+    idx_Y: np.ndarray | None = None,
+) -> float:
+    """Compute the 1st Wasserstein distance (Earth Mover's Distance) using POT.
+
+    Parameters
+    ----------
+    idx_X, idx_Y : optional fixed subsample indices.  When provided, these
+        override the internal random subsample and guarantee that the *same*
+        rows are used across multiple calls (e.g. observed + permutations in
+        H3), eliminating subsampling variance from the p-value.
+    """
     n = X.shape[0]
     m = Y.shape[0]
     if n == 0 or m == 0:
         return 0.0
 
-    # Subsample to balance statistical accuracy vs. computational cost.
-    # 1000×1000 cost matrix (~8MB) with EMD solver takes ~2.8s in 1536D.
-    if n > max_samples:
+    # Subsample X
+    if idx_X is not None:
+        X = X[idx_X]
+    elif n > max_samples:
         rng = np.random.RandomState(42)
-        indices = rng.choice(n, size=max_samples, replace=False)
-        X = X[indices]
-        n = max_samples
-    if m > max_samples:
+        idx_X = rng.choice(n, size=max_samples, replace=False)
+        X = X[idx_X]
+    # Subsample Y
+    if idx_Y is not None:
+        Y = Y[idx_Y]
+    elif m > max_samples:
         rng = np.random.RandomState(42)
-        indices = rng.choice(m, size=max_samples, replace=False)
-        Y = Y[indices]
-        m = max_samples
+        idx_Y = rng.choice(m, size=max_samples, replace=False)
+        Y = Y[idx_Y]
+
+    n, m = X.shape[0], Y.shape[0]
 
     a = np.ones(n) / n
     b = np.ones(m) / m
@@ -543,9 +561,18 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     reg.fit(I_hist, P_hist)
     P_pred = reg.predict(I_fut)
 
-    # Global Wasserstein evaluation (sliced, no sample cap — uses all data)
-    w_edel = compute_wasserstein_sliced(P_pred, P_fut)
-    w_baseline = compute_wasserstein_sliced(P_hist, P_fut)
+    # Fixed subsample for all H3 Wasserstein calls (eliminates subsampling variance
+    # from the permutation p-value — same positions used for observed and null)
+    H3_SUBSAMPLE = 2000
+    rng_sub = np.random.RandomState(42)
+    n_hist = P_hist.shape[0]
+    n_pred = P_pred.shape[0]
+    sub_hist = rng_sub.choice(n_hist, size=min(H3_SUBSAMPLE, n_hist), replace=False)
+    sub_fut = rng_sub.choice(n_pred, size=min(H3_SUBSAMPLE, n_pred), replace=False)
+
+    # Global Wasserstein evaluation (exact EMD with fixed subsample)
+    w_edel = compute_wasserstein(P_pred, P_fut, idx_X=sub_fut, idx_Y=sub_fut)
+    w_baseline = compute_wasserstein(P_hist, P_fut, idx_X=sub_hist, idx_Y=sub_fut)
     obs_gain = w_baseline - w_edel
 
     metrics["h3_w_edel"] = w_edel
@@ -553,7 +580,6 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     metrics["h3_predictive_gain"] = float(obs_gain)
 
     # Temporal permutation significance test for H3
-    n_hist = hist_mask.sum()
     B_h3 = 49
     rng = np.random.default_rng(42)
     shuf_gains = []
@@ -572,8 +598,8 @@ def hypothesis_metrics(artifacts: dict) -> dict:
         reg_b.fit(I_hist_b, P_hist_b)
         P_pred_b = reg_b.predict(I_fut_b)
         
-        w_edel_b = compute_wasserstein_sliced(P_pred_b, P_fut_b)
-        w_baseline_b = compute_wasserstein_sliced(P_hist_b, P_fut_b)
+        w_edel_b = compute_wasserstein(P_pred_b, P_fut_b, idx_X=sub_fut, idx_Y=sub_fut)
+        w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b, idx_X=sub_hist, idx_Y=sub_fut)
         shuf_gains.append(w_baseline_b - w_edel_b)
         
     shuf_gains = np.array(shuf_gains)

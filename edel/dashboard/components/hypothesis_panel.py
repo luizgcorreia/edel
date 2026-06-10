@@ -47,10 +47,10 @@ def hypothesis_panel_layout() -> dbc.Container:
                     dbc.CardBody([
                         html.Div([
                             html.H6("H1: Structural Transition", className="text-primary"),
-                            html.P("Tests if real science is structured differently from independent role-shuffling using two-sample KS tests.", className="small text-muted"),
+                            html.P("Tests if epistemic trajectories have structured coupling via multivariate energy distance on 6D transition features (3 sequential norms + 3 cosines). Per-edge Wasserstein effect sizes and KS diagnostics provided as secondary.", className="small text-muted"),
                             
                             html.H6("H2: Local Transition Organization", className="text-primary mt-3"),
-                            html.P("Tests if local neighborhood movements are significantly more clustered (lower Wasserstein distance) than permuted targets.", className="small text-muted"),
+                            html.P("Tests if local neighborhood transitions are statistically constrained (Wasserstein permutation test). Asymmetry metrics characterize directionality bias as secondary.", className="small text-muted"),
                             
                             html.H6("H3: Predictive Transition Capacity", className="text-primary mt-3"),
                             html.P("Tests if transition operators forecast future problem spaces better than a persistence baseline, and checks spatial alignment using Bivariate Moran's I.", className="small text-muted")

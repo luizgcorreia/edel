@@ -362,13 +362,16 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             feat_hyp = _load_features(hyp_id, base_path)
             feat_ctrl = _load_features(ctrl_id, base_path)
 
-            # 1. Compare feature distributions directly (H1)
+            # 1. Compare feature distributions directly (cross-experiment)
             direct_h1_results = {}
             if feat_hyp and feat_ctrl:
                 dims = [
                     ("norm_pm_dist", "Norm P-M"),
                     ("norm_mf_dist", "Norm M-F"),
                     ("norm_fi_dist", "Norm F-I"),
+                    ("norm_pf_dist", "Norm P-F"),
+                    ("norm_pi_dist", "Norm P-I"),
+                    ("norm_mi_dist", "Norm M-I"),
                     ("cos_pm_mf_dist", "Cosine (PM, MF)"),
                     ("cos_pm_fi_dist", "Cosine (PM, FI)"),
                     ("cos_mf_fi_dist", "Cosine (MF, FI)"),
@@ -382,18 +385,14 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                         }
 
             # Determine if H1, H2, H3 are supported
-            # H1: Supported if KS test p-values are small for the Hypothesis run
-            h1_pvals = [hyp_metrics.get(f"h1_ks_pvalue_{k}", 1.0) for k in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]]
-            h1_supported = sum(p < 0.05 for p in h1_pvals) >= 3
+            # H1: Supported if energy distance p-value < 0.05 (primary multivariate test)
+            h1_pval = hyp_metrics.get("h1_energy_pvalue", 1.0)
+            h1_supported = h1_pval < 0.05
 
-            # H2a: Supported if local neighborhoods show significant clustering
+            # H2: Supported if local neighborhoods show significant clustering
             h2_keys = ["pm", "pf", "pi", "mp", "mf", "mi", "fp", "fm", "fi", "ip", "im", "if"]
-            h2a_pvals = [hyp_metrics.get(f"h2a_pvalue_{k}", 1.0) for k in h2_keys]
-            h2a_supported = sum(p < 0.05 for p in h2a_pvals) >= 3
-
-            # H2b: Supported if local transition is significantly asymmetric
-            h2b_pvals = [hyp_metrics.get(f"h2b_pvalue_{k}", 1.0) for k in ["pm", "mf", "fi", "pf", "pi", "mi"]]
-            h2b_supported = sum(p < 0.05 for p in h2b_pvals) >= 1
+            h2_pvals = [hyp_metrics.get(f"h2_pvalue_{k}", 1.0) for k in h2_keys]
+            h2_supported = sum(p < 0.05 for p in h2_pvals) >= 3
 
             # H3: Supported if predictive gain is positive AND the temporal permutation p-value < 0.05
             # NOTE: h3_gain_pvalue may not be in the cache for older experiments; h3_supported is
@@ -410,17 +409,55 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
 
 
             # H1 Details Section
-            h1_rows = []
+            h1_energy_rows = [
+                html.Tr([
+                    html.Td("Energy Distance (6D multivariate)"),
+                    html.Td(f"{hyp_metrics.get('h1_energy_stat', 0.0):.4f}"),
+                    html.Td(f"{hyp_metrics.get('h1_energy_pvalue', 1.0):.4g}"),
+                    html.Td(f"{ctrl_metrics.get('h1_energy_stat', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get('h1_energy_pvalue', 1.0):.4g}"),
+                ]),
+            ]
+
+            h1_w_rows = []
             for k in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
-                h1_rows.append(html.Tr([
+                h1_w_rows.append(html.Tr([
+                    html.Td(k.upper().replace("_", " ")),
+                    html.Td(f"{hyp_metrics.get(f'h1_w_{k}', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get(f'h1_w_{k}', 0.0):.4f}"),
+                ]))
+
+            h1_energy_table = html.Table([
+                html.Thead(html.Tr([
+                    html.Th("Test"),
+                    html.Th("Hyp Stat"),
+                    html.Th("Hyp p-val"),
+                    html.Th("Ctrl Stat"),
+                    html.Th("Ctrl p-val"),
+                ])),
+                html.Tbody(h1_energy_rows)
+            ], className="table table-sm small border-primary")
+
+            h1_w_table = html.Table([
+                html.Thead(html.Tr([
+                    html.Th("Feature Dimension"),
+                    html.Th("Hyp W-dist (effect size)"),
+                    html.Th("Ctrl W-dist (effect size)"),
+                ])),
+                html.Tbody(h1_w_rows)
+            ], className="table table-striped table-sm small border mt-3")
+
+            h1_ks_rows = []
+            for k in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
+                h1_ks_rows.append(html.Tr([
                     html.Td(k.upper().replace("_", " ")),
                     html.Td(f"{hyp_metrics.get(f'h1_ks_stat_{k}', 0.0):.4f}"),
                     html.Td(f"{hyp_metrics.get(f'h1_ks_pvalue_{k}', 1.0):.4g}"),
                     html.Td(f"{ctrl_metrics.get(f'h1_ks_stat_{k}', 0.0):.4f}"),
                     html.Td(f"{ctrl_metrics.get(f'h1_ks_pvalue_{k}', 1.0):.4g}"),
                 ]))
-                
-            h1_table = html.Table([
+
+            h1_ks_table = html.Table([
                 html.Thead(html.Tr([
                     html.Th("Feature Dimension"),
                     html.Th("Hyp KS Stat"),
@@ -428,10 +465,10 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                     html.Th("Ctrl KS Stat"),
                     html.Th("Ctrl p-val"),
                 ])),
-                html.Tbody(h1_rows)
-            ], className="table table-striped table-sm small border")
+                html.Tbody(h1_ks_rows)
+            ], className="table table-sm small border-secondary mt-1")
 
-            # Direct H1 Comparison
+            # Direct Comparison
             direct_h1_rows = []
             for label, val in direct_h1_results.items():
                 direct_h1_rows.append(html.Tr([
@@ -449,15 +486,27 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             ], className="table table-bordered table-sm small border mt-3")
 
             report_children.append(html.Div([
-                html.H5("H1: Structural Transition Details", className="mt-4 text-primary"),
-                html.P("Hypothesis 1 asserts that epistemic trajectories have a structured coupling. Shuffling aspects breaks this coupling. Lower p-values (< 0.05) show structured transition behaviors.", className="small text-muted"),
-                h1_table,
-                html.H6("Direct Comparison (Hypothesis vs. Control)"),
-                html.P("Performs a two-sample Kolmogorov-Smirnov test directly comparing the trajectory distributions of both runs.", className="small text-muted"),
+                html.H5("H1: Structural Transition", className="mt-4 text-primary"),
+                html.P("Tests whether epistemic trajectories have a structured coupling. The primary test is a multivariate energy distance on the 6D distribution of transition features (3 sequential operator norms + 3 pairwise cosines). Per-edge Wasserstein distances provide interpretable effect sizes. KS tests are secondary diagnostics.", className="small text-muted"),
+
+                html.H6("Primary: Multivariate Energy Distance", className="mt-3"),
+                html.P("Energy distance D² between observed and shuffled 6D feature distributions. Reject H0 (p < 0.05) if trajectories are structured.", className="small text-muted"),
+                h1_energy_table,
+
+                html.H6("Per-Edge Wasserstein Effect Sizes", className="mt-3"),
+                html.P("1D Wasserstein distance between observed and shuffled for each sequential feature. Larger values indicate stronger structuring of that transition.", className="small text-muted"),
+                h1_w_table,
+
+                html.H6("KS Diagnostics (Secondary)", className="mt-3"),
+                html.P("Two-sample KS tests for each feature individually.", className="small text-muted"),
+                h1_ks_table,
+
+                html.H6("Direct Comparison (Hypothesis vs. Control)", className="mt-3"),
+                html.P("Performs a two-sample KS test directly comparing the trajectory distributions of both runs across all 9 feature dimensions (6 edge norms + 3 cosines).", className="small text-muted"),
                 direct_h1_table if direct_h1_results else html.P("No feature distributions available for direct comparison.", className="text-muted small")
             ]))
 
-            # H2a Details Section
+            # H2 Details Section
             h2_transitions = [
                 ("pm", "D(M|p)"),
                 ("pf", "D(F|p)"),
@@ -474,16 +523,16 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             ]
             h2_rows = []
             for k, label in h2_transitions:
-                hyp_p = hyp_metrics.get(f'h2a_pvalue_{k}', 1.0)
-                ctrl_p = ctrl_metrics.get(f'h2a_pvalue_{k}', 1.0)
-                hyp_z = hyp_metrics.get(f'h2a_z_{k}', 0.0)
-                ctrl_z = ctrl_metrics.get(f'h2a_z_{k}', 0.0)
+                hyp_p = hyp_metrics.get(f'h2_pvalue_{k}', 1.0)
+                ctrl_p = ctrl_metrics.get(f'h2_pvalue_{k}', 1.0)
+                hyp_z = hyp_metrics.get(f'h2_z_{k}', 0.0)
+                ctrl_z = ctrl_metrics.get(f'h2_z_{k}', 0.0)
                 h2_rows.append(html.Tr([
                     html.Td(label),
-                    html.Td(f"{hyp_metrics.get(f'h2a_w_dist_{k}', 0.0):.4f}"),
+                    html.Td(f"{hyp_metrics.get(f'h2_w_dist_{k}', 0.0):.4f}"),
                     html.Td(f"{hyp_p:.4f}", className="text-success fw-bold" if hyp_p < 0.05 else ""),
                     html.Td(f"{hyp_z:+.2f}", className="text-success fw-bold" if hyp_z > 0 else "text-muted"),
-                    html.Td(f"{ctrl_metrics.get(f'h2a_w_dist_{k}', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get(f'h2_w_dist_{k}', 0.0):.4f}"),
                     html.Td(f"{ctrl_p:.4f}", className="text-success fw-bold" if ctrl_p < 0.05 else ""),
                     html.Td(f"{ctrl_z:+.2f}", className="text-success fw-bold" if ctrl_z > 0 else "text-muted"),
                 ]))
@@ -553,11 +602,11 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             ], className="table table-striped table-sm small border")
 
             report_children.append(html.Div([
-                html.H5("H2a: Local Transition Organization Details", className="mt-4 text-primary"),
-                html.P("Hypothesis 2a evaluates if local neighborhood transitions are statistically constrained/clustered. A significant permuted p-value (< 0.05) supports localized organizational constraints.", className="small text-muted"),
+                html.H5("H2: Local Transition Organization", className="mt-4 text-primary"),
+                html.P("Tests if local neighborhood transitions are statistically constrained/clustered. A significant permuted p-value (< 0.05) supports localized organizational constraints. Asymmetry metrics are provided below as a secondary characterization of the transition structure.", className="small text-muted"),
                 h2_table,
-                html.H5("H2b: Local Transition Asymmetry Details", className="mt-4 text-primary"),
-                html.P("Hypothesis 2b evaluates if local transitions exhibit directionality bias. Entropy H represents average information dispersion; branching B is the average number of target locations reached. A significant p-value (< 0.05) supports directional asymmetry.", className="small text-muted"),
+                html.H6("Transition Asymmetry Metrics (Secondary)", className="mt-3 text-secondary"),
+                html.P("Directionality bias of local transitions. Entropy H represents average information dispersion; branching B is the average number of target locations reached.", className="small text-muted"),
                 h2b_table
             ]))
 
@@ -591,28 +640,21 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                             html.Div([make_badge(h1_supported)]),
                             html.P("Trajectories differ significantly from random aspect-shuffling.", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h1_supported else "light", outline=True), md=3),
+                    ], color="success" if h1_supported else "light", outline=True), md=4),
                     dbc.Col(dbc.Card([
                         dbc.CardBody([
-                            html.H5("H2a: Local Clustering", className="card-title"),
-                            html.Div([make_badge(h2a_supported)]),
-                            html.P("Transitions show neighborhood-level spatial organization.", className="small text-muted mt-2 mb-0")
+                            html.H5("H2: Local Organization", className="card-title"),
+                            html.Div([make_badge(h2_supported)]),
+                            html.P("Transitions show neighborhood-level spatial organization and directionality bias.", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h2a_supported else "light", outline=True), md=3),
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H5("H2b: Asymmetry", className="card-title"),
-                            html.Div([make_badge(h2b_supported)]),
-                            html.P("Local transitions constrain source/target differently.", className="small text-muted mt-2 mb-0")
-                        ])
-                    ], color="success" if h2b_supported else "light", outline=True), md=3),
+                    ], color="success" if h2_supported else "light", outline=True), md=4),
                     dbc.Col(dbc.Card([
                         dbc.CardBody([
                             html.H5("H3: Predictive Power", className="card-title"),
                             html.Div([make_badge(h3_supported)]),
                             html.P("Historical model predicts future locations better than persistence (gain > 0, p < 0.05).", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h3_supported else "light", outline=True), md=3),
+                    ], color="success" if h3_supported else "light", outline=True), md=4),
                 ], className="mb-4")
             ]))
             h3_rows = [

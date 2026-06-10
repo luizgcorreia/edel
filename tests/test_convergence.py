@@ -117,7 +117,9 @@ def test_run_convergence_analysis(tmp_path, mock_experiment_setup):
         h1_res = results["h1_results"]
         assert "sample_sizes" in h1_res
         assert len(h1_res["sample_sizes"]) > 0
-        # KS statistic and Wasserstein values present
+        # Energy distance + KS statistic and Wasserstein values present
+        assert "energy_stat" in h1_res["full_refs"]
+        assert "energy_stat" in h1_res["data"][h1_res["sample_sizes"][0]]
         for key in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
             assert key in h1_res["full_refs"]
             assert key in h1_res["data"][h1_res["sample_sizes"][0]]["ks_stat"]

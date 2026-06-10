@@ -129,6 +129,7 @@ def compare_experiments(
         feature_dims = [
             "cos_pm_mf_dist", "cos_pm_fi_dist", "cos_mf_fi_dist",
             "norm_pm_dist",   "norm_mf_dist",   "norm_fi_dist",
+            "norm_pf_dist",   "norm_pi_dist",   "norm_mi_dist",
         ]
 
     base_path = Path(base_path)

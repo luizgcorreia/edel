@@ -39,9 +39,15 @@ def metrics_panel_layout() -> dbc.Container:
                         dcc.Dropdown(
                             id="ks-feature-select",
                             options=[
+                                {"label": "Norm P-M", "value": "norm_pm_dist"},
+                                {"label": "Norm M-F", "value": "norm_mf_dist"},
+                                {"label": "Norm F-I", "value": "norm_fi_dist"},
+                                {"label": "Norm P-F", "value": "norm_pf_dist"},
+                                {"label": "Norm P-I", "value": "norm_pi_dist"},
+                                {"label": "Norm M-I", "value": "norm_mi_dist"},
                                 {"label": "Cosine (PM, MF)", "value": "cos_pm_mf_dist"},
                                 {"label": "Cosine (PM, FI)", "value": "cos_pm_fi_dist"},
-                                {"label": "Norm PM", "value": "norm_pm_dist"}
+                                {"label": "Cosine (MF, FI)", "value": "cos_mf_fi_dist"},
                             ],
                             value="cos_pm_mf_dist",
                             clearable=False,

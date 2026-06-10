@@ -58,6 +58,9 @@ def operator_metrics(artifacts: dict) -> dict:
     pm = emb_m - emb_p
     mf = emb_f - emb_m
     fi = emb_i - emb_f
+    pf = emb_f - emb_p
+    pi = emb_i - emb_p
+    mi = emb_i - emb_m
 
     # Normalised versions for cosine computation
     pm_n = sk_normalize(pm)
@@ -79,6 +82,9 @@ def operator_metrics(artifacts: dict) -> dict:
     metrics["norm_pm"] = float(norm_pm.mean())
     metrics["norm_mf"] = float(norm_mf.mean())
     metrics["norm_fi"] = float(norm_fi.mean())
+    metrics["norm_pf"] = float(np.linalg.norm(pf, axis=1).mean())
+    metrics["norm_pi"] = float(np.linalg.norm(pi, axis=1).mean())
+    metrics["norm_mi"] = float(np.linalg.norm(mi, axis=1).mean())
 
     cos_pm_mf = row_cos(pm_n, mf_n)
     cos_pm_fi = row_cos(pm_n, fi_n)
@@ -110,6 +116,9 @@ def operator_metrics(artifacts: dict) -> dict:
     features["norm_pm_dist"] = norm_pm.astype(np.float32)
     features["norm_mf_dist"] = norm_mf.astype(np.float32)
     features["norm_fi_dist"] = norm_fi.astype(np.float32)
+    features["norm_pf_dist"] = np.linalg.norm(pf, axis=1).astype(np.float32)
+    features["norm_pi_dist"] = np.linalg.norm(pi, axis=1).astype(np.float32)
+    features["norm_mi_dist"] = np.linalg.norm(mi, axis=1).astype(np.float32)
     features["cos_pm_mf_dist"] = cos_pm_mf.astype(np.float32)
     features["cos_pm_fi_dist"] = cos_pm_fi.astype(np.float32)
     features["cos_mf_fi_dist"] = cos_mf_fi.astype(np.float32)

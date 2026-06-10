@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import ot
 from scipy.spatial.distance import cdist
-from scipy.stats import ks_2samp
+from scipy.stats import ks_2samp, wasserstein_distance as scipy_wasserstein_distance
 from sklearn.preprocessing import normalize as sk_normalize
 from sklearn.linear_model import Ridge
 from sklearn.cluster import KMeans
@@ -77,6 +77,24 @@ def compute_wasserstein_sliced(
         return float(ot.sliced_wasserstein_distance(X, Y, n_projections=n_projections, seed=42, p=1))
     except Exception:
         return float(np.mean(cdist(X, Y, metric="euclidean")))
+
+
+def energy_distance(X: np.ndarray, Y: np.ndarray) -> float:
+    """Squared energy distance D²(X,Y) for multivariate two-sample testing.
+
+    D² = 2·E‖x−y‖ − E‖x−x'‖ − E‖y−y'‖
+
+    A value of 0 means the two distributions are identical; larger values
+    indicate increasing dissimilarity.  Distribution-free and consistent
+    against all alternatives.
+    """
+    n, m = X.shape[0], Y.shape[0]
+    if n == 0 or m == 0:
+        return 0.0
+    XX = float(np.mean(cdist(X, X, metric="euclidean")))
+    YY = float(np.mean(cdist(Y, Y, metric="euclidean")))
+    XY = float(np.mean(cdist(X, Y, metric="euclidean")))
+    return float(2.0 * XY - XX - YY)
 
 
 # ---------------------------------------------------------------------------
@@ -310,42 +328,105 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     features: dict = {}
 
     # -----------------------------------------------------------------------
-    # H1 Test: Structural Transition
+    # H1 Test: Structural Transition (Multivariate Energy Distance)
+    #
+    # H1 tests whether the 6D distribution of transition features
+    # (3 sequential operator norms + 3 pairwise cosines) differs between
+    # the observed aspect pairing and a within-paper shuffled null.
+    # A significant energy distance indicates structured epistemic trajectories.
+    #
+    # Primary test statistic: energy distance (multivariate, distribution-free).
+    # Secondary: per-edge Wasserstein effect sizes and KS diagnostics.
+    # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
     N = emb_p.shape[0]
-    shuffled_p = emb_p[np.random.permutation(N)]
-    shuffled_m = emb_m[np.random.permutation(N)]
-    shuffled_f = emb_f[np.random.permutation(N)]
-    shuffled_i = emb_i[np.random.permutation(N)]
+    rng_perm = np.random.default_rng(42)
 
-    # Operators
+    # Observed operators (sequential + cross for 6-edge profile)
     pm = emb_m - emb_p
     mf = emb_f - emb_m
     fi = emb_i - emb_f
-    pm_s = shuffled_m - shuffled_p
-    mf_s = shuffled_f - shuffled_m
-    fi_s = shuffled_i - shuffled_f
+    pf = emb_f - emb_p
+    pi = emb_i - emb_p
+    mi = emb_i - emb_m
 
-    # Norms
+    # Sequential norms + cosines — 6D feature space for energy test
     norm_pm = np.linalg.norm(pm, axis=1)
     norm_mf = np.linalg.norm(mf, axis=1)
     norm_fi = np.linalg.norm(fi, axis=1)
-    norm_pm_s = np.linalg.norm(pm_s, axis=1)
-    norm_mf_s = np.linalg.norm(mf_s, axis=1)
-    norm_fi_s = np.linalg.norm(fi_s, axis=1)
 
-    # Cosines
     def row_cos(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return np.sum(sk_normalize(a) * sk_normalize(b), axis=1)
 
     cos_pm_mf = row_cos(pm, mf)
     cos_pm_fi = row_cos(pm, fi)
     cos_mf_fi = row_cos(mf, fi)
+
+    F_obs = np.column_stack([
+        norm_pm, norm_mf, norm_fi,
+        cos_pm_mf, cos_pm_fi, cos_mf_fi,
+    ])
+
+    # Shuffled null (within-paper, one draw)
+    shuffled_p = emb_p[rng_perm.permutation(N)]
+    shuffled_m = emb_m[rng_perm.permutation(N)]
+    shuffled_f = emb_f[rng_perm.permutation(N)]
+    shuffled_i = emb_i[rng_perm.permutation(N)]
+
+    pm_s = shuffled_m - shuffled_p
+    mf_s = shuffled_f - shuffled_m
+    fi_s = shuffled_i - shuffled_f
+
+    norm_pm_s = np.linalg.norm(pm_s, axis=1)
+    norm_mf_s = np.linalg.norm(mf_s, axis=1)
+    norm_fi_s = np.linalg.norm(fi_s, axis=1)
     cos_pm_mf_s = row_cos(pm_s, mf_s)
     cos_pm_fi_s = row_cos(pm_s, fi_s)
     cos_mf_fi_s = row_cos(mf_s, fi_s)
 
-    # Compute KS tests
+    F_shuf = np.column_stack([
+        norm_pm_s, norm_mf_s, norm_fi_s,
+        cos_pm_mf_s, cos_pm_fi_s, cos_mf_fi_s,
+    ])
+
+    # Energy distance between observed and shuffled distributions
+    e_obs = energy_distance(F_obs, F_shuf)
+    metrics["h1_energy_stat"] = e_obs
+
+    # Permutation test (B independent shuffles)
+    B = 999
+    count = 0
+    for _ in range(B):
+        idx = rng_perm.permutation(N)
+        perm_p = emb_p[idx]
+        perm_m = emb_m[idx]
+        perm_f = emb_f[idx]
+        perm_i = emb_i[idx]
+
+        F_perm = np.column_stack([
+            np.linalg.norm(perm_m - perm_p, axis=1),
+            np.linalg.norm(perm_f - perm_m, axis=1),
+            np.linalg.norm(perm_i - perm_f, axis=1),
+            row_cos(perm_m - perm_p, perm_f - perm_m),
+            row_cos(perm_m - perm_p, perm_i - perm_f),
+            row_cos(perm_f - perm_m, perm_i - perm_f),
+        ])
+        e_perm = energy_distance(F_obs, F_perm)
+        if e_perm >= e_obs:
+            count += 1
+
+    p_val = (count + 1) / (B + 1)
+    metrics["h1_energy_pvalue"] = p_val
+
+    # Per-edge Wasserstein effect sizes (1D, interpretable)
+    metrics["h1_w_norm_pm"] = float(scipy_wasserstein_distance(norm_pm, norm_pm_s))
+    metrics["h1_w_norm_mf"] = float(scipy_wasserstein_distance(norm_mf, norm_mf_s))
+    metrics["h1_w_norm_fi"] = float(scipy_wasserstein_distance(norm_fi, norm_fi_s))
+    metrics["h1_w_cos_pm_mf"] = float(scipy_wasserstein_distance(cos_pm_mf, cos_pm_mf_s))
+    metrics["h1_w_cos_pm_fi"] = float(scipy_wasserstein_distance(cos_pm_fi, cos_pm_fi_s))
+    metrics["h1_w_cos_mf_fi"] = float(scipy_wasserstein_distance(cos_mf_fi, cos_mf_fi_s))
+
+    # KS diagnostics (secondary)
     def run_ks(obs, shuf, prefix):
         res = ks_2samp(obs, shuf)
         metrics[f"h1_ks_stat_{prefix}"] = float(res.statistic)
@@ -357,6 +438,20 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     run_ks(cos_pm_mf, cos_pm_mf_s, "cos_pm_mf")
     run_ks(cos_pm_fi, cos_pm_fi_s, "cos_pm_fi")
     run_ks(cos_mf_fi, cos_mf_fi_s, "cos_mf_fi")
+
+    # 6-edge tetrahedron norms for profile (complementary)
+    norm_pf = np.linalg.norm(pf, axis=1)
+    norm_pi = np.linalg.norm(pi, axis=1)
+    norm_mi = np.linalg.norm(mi, axis=1)
+
+    edge_norms = np.column_stack([
+        norm_pm, norm_mf, norm_fi, norm_pf, norm_pi, norm_mi,
+    ]).astype(np.float32)
+
+    # Store features for re-analysis and dashboard
+    features["h1_obs_features"] = F_obs.astype(np.float32)
+    features["h1_shuf_features"] = F_shuf.astype(np.float32)
+    features["h1_edge_norms"] = edge_norms
 
     # -----------------------------------------------------------------------
     # H2a Test: Local Transition Organization
@@ -378,9 +473,9 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     ]
     for key, X_emb, Y_emb in transitions:
         w_obs, p_val, z_score = compute_h2_for_transition(X_emb, Y_emb)
-        metrics[f"h2a_w_dist_{key}"] = w_obs
-        metrics[f"h2a_pvalue_{key}"] = p_val
-        metrics[f"h2a_z_{key}"] = z_score
+        metrics[f"h2_w_dist_{key}"] = w_obs
+        metrics[f"h2_pvalue_{key}"] = p_val
+        metrics[f"h2_z_{key}"] = z_score
 
     # -----------------------------------------------------------------------
     # H2b Test: Local Transition Asymmetry
@@ -593,17 +688,5 @@ def hypothesis_metrics(artifacts: dict) -> dict:
 
     p_moran = float((1.0 + np.sum(np.array(moran_null_vals) >= I_obs)) / (1.0 + B_moran))
     metrics["h3_moran_pvalue"] = p_moran
-
-    # Features (store raw distributions for custom comparisons)
-    features["h1_shuffled_norms"] = {
-        "norm_pm": norm_pm_s.astype(np.float32),
-        "norm_mf": norm_mf_s.astype(np.float32),
-        "norm_fi": norm_fi_s.astype(np.float32),
-    }
-    features["h1_shuffled_cosines"] = {
-        "cos_pm_mf": cos_pm_mf_s.astype(np.float32),
-        "cos_pm_fi": cos_pm_fi_s.astype(np.float32),
-        "cos_mf_fi": cos_mf_fi_s.astype(np.float32),
-    }
 
     return {"metrics": metrics, "features": features}

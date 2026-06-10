@@ -79,19 +79,33 @@ def test_hypothesis_metrics(synthetic_artifacts):
 
     metrics = res["metrics"]
     
-    # H1 KS keys
+    # H1: energy distance primary test
+    assert "h1_energy_stat" in metrics
+    assert "h1_energy_pvalue" in metrics
+    assert 0.0 <= metrics["h1_energy_pvalue"] <= 1.0
+
+    # H1: per-edge Wasserstein effect sizes
+    for key in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
+        assert f"h1_w_{key}" in metrics
+
+    # H1: KS diagnostics (secondary)
     for key in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
         assert f"h1_ks_stat_{key}" in metrics
         assert f"h1_ks_pvalue_{key}" in metrics
         assert 0.0 <= metrics[f"h1_ks_pvalue_{key}"] <= 1.0
 
-    # H2a Wasserstein keys
+    # H1: feature stores
+    assert "h1_obs_features" in res["features"]
+    assert "h1_shuf_features" in res["features"]
+    assert "h1_edge_norms" in res["features"]
+
+    # H2 Wasserstein keys (primary local transition test)
     h2_keys = ["pm", "pf", "pi", "mp", "mf", "mi", "fp", "fm", "fi", "ip", "im", "if"]
     for key in h2_keys:
-        assert f"h2a_w_dist_{key}" in metrics
-        assert f"h2a_pvalue_{key}" in metrics
-        assert f"h2a_z_{key}" in metrics
-        assert 0.0 <= metrics[f"h2a_pvalue_{key}"] <= 1.0
+        assert f"h2_w_dist_{key}" in metrics
+        assert f"h2_pvalue_{key}" in metrics
+        assert f"h2_z_{key}" in metrics
+        assert 0.0 <= metrics[f"h2_pvalue_{key}"] <= 1.0
 
     # H2b Transition Asymmetry keys
     h2b_keys = ["pm", "mf", "fi", "pf", "pi", "mi"]

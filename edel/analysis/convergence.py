@@ -15,7 +15,7 @@ from sklearn.preprocessing import normalize as sk_normalize
 from edel.io.artifact import make_stage_artifact
 from edel.experiments.registry import get_experiment
 from edel.pipeline.projection import load_embeddings_to_matrix
-from edel.experiments.metrics.hypothesis_tests import compute_wasserstein, compute_wasserstein_sliced, compute_h2_for_transition
+from edel.experiments.metrics.hypothesis_tests import compute_wasserstein, compute_wasserstein_sliced, compute_h2_for_transition, energy_distance
 
 logger = logging.getLogger(__name__)
 
@@ -148,33 +148,44 @@ def run_convergence_analysis(
     pm_full = emb_m - emb_p
     mf_full = emb_f - emb_m
     fi_full = emb_i - emb_f
-    
+
     norm_pm_full = np.linalg.norm(pm_full, axis=1)
     norm_mf_full = np.linalg.norm(mf_full, axis=1)
     norm_fi_full = np.linalg.norm(fi_full, axis=1)
-    
+
     def row_cos(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return np.sum(sk_normalize(a) * sk_normalize(b), axis=1)
-        
+
     cos_pm_mf_full = row_cos(pm_full, mf_full)
     cos_pm_fi_full = row_cos(pm_full, fi_full)
     cos_mf_fi_full = row_cos(mf_full, fi_full)
-    
-    # Run full H1 to get reference KS values
+
+    F_obs_full = np.column_stack([
+        norm_pm_full, norm_mf_full, norm_fi_full,
+        cos_pm_mf_full, cos_pm_fi_full, cos_mf_fi_full,
+    ])
+
+    # Full H1 energy distance reference
     shuf_idx = np.random.permutation(N)
     pm_full_s = emb_m[shuf_idx] - emb_p[shuf_idx]
     mf_full_s = emb_f[shuf_idx] - emb_m[shuf_idx]
     fi_full_s = emb_i[shuf_idx] - emb_f[shuf_idx]
-    
+
     norm_pm_full_s = np.linalg.norm(pm_full_s, axis=1)
     norm_mf_full_s = np.linalg.norm(mf_full_s, axis=1)
     norm_fi_full_s = np.linalg.norm(fi_full_s, axis=1)
-    
+
     cos_pm_mf_full_s = row_cos(pm_full_s, mf_full_s)
     cos_pm_fi_full_s = row_cos(pm_full_s, fi_full_s)
     cos_mf_fi_full_s = row_cos(mf_full_s, fi_full_s)
-    
+
+    F_shuf_full = np.column_stack([
+        norm_pm_full_s, norm_mf_full_s, norm_fi_full_s,
+        cos_pm_mf_full_s, cos_pm_fi_full_s, cos_mf_fi_full_s,
+    ])
+
     h1_full_refs = {
+        "energy_stat": float(energy_distance(F_obs_full, F_shuf_full)),
         "norm_pm": float(ks_2samp(norm_pm_full, norm_pm_full_s).statistic),
         "norm_mf": float(ks_2samp(norm_mf_full, norm_mf_full_s).statistic),
         "norm_fi": float(ks_2samp(norm_fi_full, norm_fi_full_s).statistic),
@@ -252,9 +263,10 @@ def run_convergence_analysis(
     # -----------------------------------------------------------------------
     # H1 & H2 Convergence Execution
     # -----------------------------------------------------------------------
-    h1_results = {size: {"ks_stat": {k: [] for k in h1_full_refs.keys()}, 
-                         "ks_pval": {k: [] for k in h1_full_refs.keys()},
-                         "w_dist": {k: [] for k in h1_full_refs.keys()}} for size in h1_sizes}
+    h1_results = {size: {"energy_stat": [],
+                         "ks_stat": {k: [] for k in h1_full_refs.keys() if k != "energy_stat"},
+                         "ks_pval": {k: [] for k in h1_full_refs.keys() if k != "energy_stat"},
+                         "w_dist": {k: [] for k in h1_full_refs.keys() if k != "energy_stat"}} for size in h1_sizes}
                          
     h2_results = {size: {"mae_z": [], "jaccard": []} for size in h1_sizes}
     
@@ -298,6 +310,19 @@ def run_convergence_analysis(
             cos_pm_fi_shuf = row_cos(pm_shuf, fi_shuf)
             cos_mf_fi_shuf = row_cos(mf_shuf, fi_shuf)
             
+            # Compute 6D feature matrix for this sample
+            F_obs_s = np.column_stack([
+                norm_pm_s, norm_mf_s, norm_fi_s,
+                cos_pm_mf_s, cos_pm_fi_s, cos_mf_fi_s,
+            ])
+            F_shuf_s = np.column_stack([
+                norm_pm_shuf, norm_mf_shuf, norm_fi_shuf,
+                cos_pm_mf_shuf, cos_pm_fi_shuf, cos_mf_fi_shuf,
+            ])
+            h1_results[size]["energy_stat"].append(
+                float(energy_distance(F_obs_s, F_shuf_s))
+            )
+
             # Helper to run KS and 1D Wasserstein
             def calc_metrics(obs, null, full_obs, prefix):
                 ks_res = ks_2samp(obs, null)

@@ -59,6 +59,26 @@ def compute_wasserstein(X: np.ndarray, Y: np.ndarray, max_samples: int = 1000) -
         return float(np.mean(M))
 
 
+def compute_wasserstein_sliced(
+    X: np.ndarray, Y: np.ndarray, n_projections: int = 200
+) -> float:
+    """Sliced 1-Wasserstein distance using random projections (no sample cap).
+
+    Uses all available data (no max_samples cap), making it suitable for
+    large-scale permutation tests where exact EMD would require subsampling.
+    The projection approximation bias cancels out in permutation comparisons
+    since both observed and null gains use the same projections.
+    """
+    n = X.shape[0]
+    m = Y.shape[0]
+    if n == 0 or m == 0:
+        return 0.0
+    try:
+        return float(ot.sliced_wasserstein_distance(X, Y, n_projections=n_projections, seed=42, p=1))
+    except Exception:
+        return float(np.mean(cdist(X, Y, metric="euclidean")))
+
+
 # ---------------------------------------------------------------------------
 # H2 Local Transition Organization helper
 # ---------------------------------------------------------------------------
@@ -425,16 +445,16 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     reg.fit(I_hist, P_hist)
     P_pred = reg.predict(I_fut)
 
-    # Global Wasserstein evaluation
-    w_edel = compute_wasserstein(P_pred, P_fut)
-    w_baseline = compute_wasserstein(P_hist, P_fut)
+    # Global Wasserstein evaluation (sliced, no sample cap — uses all data)
+    w_edel = compute_wasserstein_sliced(P_pred, P_fut)
+    w_baseline = compute_wasserstein_sliced(P_hist, P_fut)
     obs_gain = w_baseline - w_edel
 
     metrics["h3_w_edel"] = w_edel
     metrics["h3_w_baseline"] = w_baseline
     metrics["h3_predictive_gain"] = float(obs_gain)
 
-    # Temporal permutation significance test for H3 (Option 1)
+    # Temporal permutation significance test for H3
     n_hist = hist_mask.sum()
     B_h3 = 100
     rng = np.random.default_rng(42)
@@ -454,8 +474,8 @@ def hypothesis_metrics(artifacts: dict) -> dict:
         reg_b.fit(I_hist_b, P_hist_b)
         P_pred_b = reg_b.predict(I_fut_b)
         
-        w_edel_b = compute_wasserstein(P_pred_b, P_fut_b)
-        w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b)
+        w_edel_b = compute_wasserstein_sliced(P_pred_b, P_fut_b)
+        w_baseline_b = compute_wasserstein_sliced(P_hist_b, P_fut_b)
         shuf_gains.append(w_baseline_b - w_edel_b)
         
     shuf_gains = np.array(shuf_gains)

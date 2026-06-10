@@ -15,7 +15,7 @@ from sklearn.preprocessing import normalize as sk_normalize
 from edel.io.artifact import make_stage_artifact
 from edel.experiments.registry import get_experiment
 from edel.pipeline.projection import load_embeddings_to_matrix
-from edel.experiments.metrics.hypothesis_tests import compute_wasserstein, compute_h2_for_transition
+from edel.experiments.metrics.hypothesis_tests import compute_wasserstein, compute_wasserstein_sliced, compute_h2_for_transition
 
 logger = logging.getLogger(__name__)
 
@@ -229,15 +229,9 @@ def run_convergence_analysis(
     reg_full.fit(I_hist, P_hist)
     P_pred_full = reg_full.predict(I_fut)
     
-    # Cap size for speed
+    # Sliced Wasserstein uses all data (no cap) via random projections
     def get_w_dist(X, Y):
-        if len(X) > 1000:
-            idx_x = np.random.choice(len(X), size=1000, replace=False)
-            X = X[idx_x]
-        if len(Y) > 1000:
-            idx_y = np.random.choice(len(Y), size=1000, replace=False)
-            Y = Y[idx_y]
-        return compute_wasserstein(X, Y)
+        return compute_wasserstein_sliced(X, Y)
         
     w_edel_full = get_w_dist(P_pred_full, P_fut)
     w_base_full = get_w_dist(P_hist, P_fut)

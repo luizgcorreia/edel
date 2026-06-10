@@ -362,7 +362,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
     N = emb_p.shape[0]
-    H1_SUBSAMPLE_MAX = 2000
+    H1_SUBSAMPLE_MAX = 1000
     rng_perm = np.random.default_rng(42)
 
     # Observed operators (sequential + cross for 6-edge profile)
@@ -428,7 +428,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     metrics["h1_energy_stat"] = e_obs
 
     # Pooled permutation test (exchangeability under H0)
-    B = 99
+    B = 999
     count = 0
     for _ in range(B):
         rng_perm.shuffle(labels)

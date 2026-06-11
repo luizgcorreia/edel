@@ -425,7 +425,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     Z = np.vstack([F_obs, F_shuf])
     labels = np.array([0] * N_sub + [1] * N_sub)
     e_obs = energy_distance(Z[labels == 0], Z[labels == 1])
-    metrics["h1_energy_stat"] = e_obs
+    metrics["h1a_energy_stat"] = e_obs
 
     # Pooled permutation test (exchangeability under H0)
     B = 999
@@ -437,21 +437,21 @@ def hypothesis_metrics(artifacts: dict) -> dict:
             count += 1
 
     p_val = (count + 1) / (B + 1)
-    metrics["h1_energy_pvalue"] = p_val
+    metrics["h1a_energy_pvalue"] = p_val
 
     # Per-edge Wasserstein effect sizes (1D, interpretable)
-    metrics["h1_w_norm_pm"] = float(scipy_wasserstein_distance(norm_pm, norm_pm_s))
-    metrics["h1_w_norm_mf"] = float(scipy_wasserstein_distance(norm_mf, norm_mf_s))
-    metrics["h1_w_norm_fi"] = float(scipy_wasserstein_distance(norm_fi, norm_fi_s))
-    metrics["h1_w_cos_pm_mf"] = float(scipy_wasserstein_distance(cos_pm_mf, cos_pm_mf_s))
-    metrics["h1_w_cos_pm_fi"] = float(scipy_wasserstein_distance(cos_pm_fi, cos_pm_fi_s))
-    metrics["h1_w_cos_mf_fi"] = float(scipy_wasserstein_distance(cos_mf_fi, cos_mf_fi_s))
+    metrics["h1a_w_norm_pm"] = float(scipy_wasserstein_distance(norm_pm, norm_pm_s))
+    metrics["h1a_w_norm_mf"] = float(scipy_wasserstein_distance(norm_mf, norm_mf_s))
+    metrics["h1a_w_norm_fi"] = float(scipy_wasserstein_distance(norm_fi, norm_fi_s))
+    metrics["h1a_w_cos_pm_mf"] = float(scipy_wasserstein_distance(cos_pm_mf, cos_pm_mf_s))
+    metrics["h1a_w_cos_pm_fi"] = float(scipy_wasserstein_distance(cos_pm_fi, cos_pm_fi_s))
+    metrics["h1a_w_cos_mf_fi"] = float(scipy_wasserstein_distance(cos_mf_fi, cos_mf_fi_s))
 
     # KS diagnostics (secondary)
     def run_ks(obs, shuf, prefix):
         res = ks_2samp(obs, shuf)
-        metrics[f"h1_ks_stat_{prefix}"] = float(res.statistic)
-        metrics[f"h1_ks_pvalue_{prefix}"] = float(res.pvalue)
+        metrics[f"h1a_ks_stat_{prefix}"] = float(res.statistic)
+        metrics[f"h1a_ks_pvalue_{prefix}"] = float(res.pvalue)
 
     run_ks(norm_pm, norm_pm_s, "norm_pm")
     run_ks(norm_mf, norm_mf_s, "norm_mf")
@@ -470,8 +470,8 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     ]).astype(np.float32)
 
     # Store features for re-analysis and dashboard
-    features["h1_obs_features"] = F_obs.astype(np.float32)
-    features["h1_shuf_features"] = F_shuf.astype(np.float32)
+    features["h1a_obs_features"] = F_obs.astype(np.float32)
+    features["h1a_shuf_features"] = F_shuf.astype(np.float32)
     features["h1_edge_norms"] = edge_norms
 
     # -----------------------------------------------------------------------

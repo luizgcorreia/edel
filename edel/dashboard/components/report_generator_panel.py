@@ -34,6 +34,15 @@ def report_generator_panel_layout() -> dbc.Container:
                             className="mb-3"
                         ),
 
+                        html.Label("Control / Null Run (optional):", className="fw-bold"),
+                        dcc.Dropdown(
+                            id="report-control-select",
+                            options=[],
+                            multi=False,
+                            placeholder="Select control for H1b...",
+                            className="mb-3"
+                        ),
+
                         html.Label("Hypotheses:", className="fw-bold"),
                         dcc.Checklist(
                             id="report-hypothesis-checklist",

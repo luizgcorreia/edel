@@ -80,23 +80,23 @@ def test_hypothesis_metrics(synthetic_artifacts):
     metrics = res["metrics"]
     
     # H1: energy distance primary test
-    assert "h1_energy_stat" in metrics
-    assert "h1_energy_pvalue" in metrics
-    assert 0.0 <= metrics["h1_energy_pvalue"] <= 1.0
+    assert "h1a_energy_stat" in metrics
+    assert "h1a_energy_pvalue" in metrics
+    assert 0.0 <= metrics["h1a_energy_pvalue"] <= 1.0
 
-    # H1: per-edge Wasserstein effect sizes
+    # H1a: per-edge Wasserstein effect sizes
     for key in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
-        assert f"h1_w_{key}" in metrics
+        assert f"h1a_w_{key}" in metrics
 
-    # H1: KS diagnostics (secondary)
+    # H1a: KS diagnostics (secondary)
     for key in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
-        assert f"h1_ks_stat_{key}" in metrics
-        assert f"h1_ks_pvalue_{key}" in metrics
-        assert 0.0 <= metrics[f"h1_ks_pvalue_{key}"] <= 1.0
+        assert f"h1a_ks_stat_{key}" in metrics
+        assert f"h1a_ks_pvalue_{key}" in metrics
+        assert 0.0 <= metrics[f"h1a_ks_pvalue_{key}"] <= 1.0
 
-    # H1: feature stores
-    assert "h1_obs_features" in res["features"]
-    assert "h1_shuf_features" in res["features"]
+    # H1a: feature stores
+    assert "h1a_obs_features" in res["features"]
+    assert "h1a_shuf_features" in res["features"]
     assert "h1_edge_norms" in res["features"]
 
     # H2 Wasserstein keys (primary local transition test)

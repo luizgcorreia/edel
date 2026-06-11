@@ -4,9 +4,11 @@ import io
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from dash import Dash, Input, Output, State, dcc, html, no_update
 import dash_bootstrap_components as dbc
+from scipy.spatial.distance import cdist
 
 from edel.experiments.runner import load_registry
 from edel.experiments.analyzer import analyze_experiments
@@ -28,18 +30,19 @@ _PAIRS = ["pm", "mf", "fi", "pf", "pi", "mi"]
 
 HYPOTHESIS_COLUMNS: dict[str, dict[str, list[str]]] = {
     "H1": {
-        "Primary": ["h1_energy_stat", "h1_energy_pvalue"],
+        "Primary (H1a vs shuffled)": ["h1a_energy_stat", "h1a_energy_pvalue"],
+        "H1b (vs control)": ["h1b_energy_stat", "h1b_energy_pvalue"],
         "Wasserstein Effect Sizes": [
-            "h1_w_norm_pm", "h1_w_norm_mf", "h1_w_norm_fi",
-            "h1_w_cos_pm_mf", "h1_w_cos_pm_fi", "h1_w_cos_mf_fi",
+            "h1a_w_norm_pm", "h1a_w_norm_mf", "h1a_w_norm_fi",
+            "h1a_w_cos_pm_mf", "h1a_w_cos_pm_fi", "h1a_w_cos_mf_fi",
         ],
         "KS (stat)": [
-            "h1_ks_stat_norm_pm", "h1_ks_stat_norm_mf", "h1_ks_stat_norm_fi",
-            "h1_ks_stat_cos_pm_mf", "h1_ks_stat_cos_pm_fi", "h1_ks_stat_cos_mf_fi",
+            "h1a_ks_stat_norm_pm", "h1a_ks_stat_norm_mf", "h1a_ks_stat_norm_fi",
+            "h1a_ks_stat_cos_pm_mf", "h1a_ks_stat_cos_pm_fi", "h1a_ks_stat_cos_mf_fi",
         ],
         "KS (pvalue)": [
-            "h1_ks_pvalue_norm_pm", "h1_ks_pvalue_norm_mf", "h1_ks_pvalue_norm_fi",
-            "h1_ks_pvalue_cos_pm_mf", "h1_ks_pvalue_cos_pm_fi", "h1_ks_pvalue_cos_mf_fi",
+            "h1a_ks_pvalue_norm_pm", "h1a_ks_pvalue_norm_mf", "h1a_ks_pvalue_norm_fi",
+            "h1a_ks_pvalue_cos_pm_mf", "h1a_ks_pvalue_cos_pm_fi", "h1a_ks_pvalue_cos_mf_fi",
         ],
     },
     "H2": {
@@ -63,6 +66,30 @@ def _all_hypothesis_columns(hypothesis: str) -> list[str]:
     return [c for cols in groups.values() for c in cols]
 
 
+def _compute_h1b(obs_features: np.ndarray, ctrl_features: np.ndarray, N: int = 500, B: int = 999) -> tuple[float, float]:
+    """Energy distance pooled permutation test between two experiments' 6D features."""
+    rng = np.random.default_rng(42)
+    sub_obs = obs_features[rng.choice(obs_features.shape[0], N, replace=False)]
+    sub_ctrl = ctrl_features[rng.choice(ctrl_features.shape[0], N, replace=False)]
+    Z = np.vstack([sub_obs, sub_ctrl])
+    labels = np.array([0] * N + [1] * N)
+    XX = float(np.mean(cdist(Z[labels == 0], Z[labels == 0], metric="euclidean")))
+    YY = float(np.mean(cdist(Z[labels == 1], Z[labels == 1], metric="euclidean")))
+    XY = float(np.mean(cdist(Z[labels == 0], Z[labels == 1], metric="euclidean")))
+    e_obs = 2.0 * XY - XX - YY
+    count = 0
+    for _ in range(B):
+        rng.shuffle(labels)
+        XXp = float(np.mean(cdist(Z[labels == 0], Z[labels == 0], metric="euclidean")))
+        YYp = float(np.mean(cdist(Z[labels == 1], Z[labels == 1], metric="euclidean")))
+        XYp = float(np.mean(cdist(Z[labels == 0], Z[labels == 1], metric="euclidean")))
+        e_perm = 2.0 * XYp - XXp - YYp
+        if e_perm >= e_obs:
+            count += 1
+    p_val = (count + 1) / (B + 1)
+    return e_obs, p_val
+
+
 def _build_excel_bytes(df: pd.DataFrame, hypotheses: list[str]) -> bytes:
     """Build an Excel workbook in-memory and return bytes."""
     output = io.BytesIO()
@@ -81,8 +108,11 @@ def _build_excel_bytes(df: pd.DataFrame, hypotheses: list[str]) -> bytes:
             tab_cols = meta_available + [c for c in available if c not in set(meta_available)]
             tab_df = df[tab_cols].copy()
 
-            if ht == "H1" and "h1_energy_pvalue" in tab_df.columns:
-                tab_df["h1_pass"] = tab_df["h1_energy_pvalue"] < 0.05
+            if ht == "H1":
+                if "h1a_energy_pvalue" in tab_df.columns:
+                    tab_df["h1a_pass"] = tab_df["h1a_energy_pvalue"] < 0.05
+                if "h1b_energy_pvalue" in tab_df.columns:
+                    tab_df["h1b_pass"] = tab_df["h1b_energy_pvalue"] < 0.05
             elif ht == "H2":
                 pval_cols = [c for c in tab_df.columns if c.startswith("h2_pvalue_") and c != "h2_pvalue"]
                 if pval_cols:
@@ -97,21 +127,37 @@ def _build_excel_bytes(df: pd.DataFrame, hypotheses: list[str]) -> bytes:
     return output.getvalue()
 
 
+def _load_features(exp_id: str, base_path: Path) -> dict | None:
+    """Load cached features for a given experiment ID."""
+    import pickle
+    features_path = base_path / "experiments" / exp_id / "features.pkl"
+    if not features_path.exists():
+        return None
+    try:
+        with open(features_path, "rb") as f:
+            return pickle.load(f)
+    except Exception as e:
+        logger.warning(f"Error loading features for '{exp_id}': {e}")
+        return None
+
+
 def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
 
-    # ── Populate experiment dropdown from registry ────────────────────────
+    # ── Populate experiment dropdowns from registry ───────────────────────
     @app.callback(
-        Output("report-experiment-select", "options"),
+        [Output("report-experiment-select", "options"),
+         Output("report-control-select", "options")],
         Input("artifact-update-store", "data"),
     )
-    def update_experiment_dropdown(update_val):
+    def update_selectors(update_val):
         try:
             registry = load_registry(base_path)
             ids = sorted({exp["experiment_id"] for exp in registry})
-            return [{"label": eid, "value": eid} for eid in ids]
+            options = [{"label": eid, "value": eid} for eid in ids]
+            return options, options
         except Exception as e:
-            logger.error(f"Error updating report experiment dropdown: {e}")
-            return []
+            logger.error(f"Error updating report dropdowns: {e}")
+            return [], []
 
     # ── Select All / None toggle ──────────────────────────────────────────
     @app.callback(
@@ -138,9 +184,10 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
         State("report-experiment-select", "value"),
         State("report-hypothesis-checklist", "value"),
         State("report-mode-radio", "value"),
+        State("report-control-select", "value"),
         prevent_initial_call=True,
     )
-    def handle_generate_report(n_clicks, exp_ids, hypotheses, mode):
+    def handle_generate_report(n_clicks, exp_ids, hypotheses, mode, ctrl_id):
         if not n_clicks:
             return no_update, "", html.Div()
 
@@ -181,10 +228,39 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                     html.Span("⚠️ No results for selected experiments.", className="text-danger")
                 ), no_update
 
+            # ── H1b: compute vs control for each experiment ───────────────
+            if ctrl_id and "H1" in hypotheses:
+                ctrl_features = _load_features(ctrl_id, base_path)
+                h1b_stats = []
+                h1b_pvals = []
+                for eid in exp_ids:
+                    if eid == ctrl_id:
+                        h1b_stats.append(0.0)
+                        h1b_pvals.append(1.0)
+                    else:
+                        obs_feat = _load_features(eid, base_path)
+                        if (obs_feat and ctrl_features and
+                                "h1a_obs_features" in obs_feat and
+                                "h1a_obs_features" in ctrl_features):
+                            stat, pv = _compute_h1b(
+                                obs_feat["h1a_obs_features"],
+                                ctrl_features["h1a_obs_features"],
+                            )
+                            h1b_stats.append(stat)
+                            h1b_pvals.append(pv)
+                        else:
+                            h1b_stats.append(None)
+                            h1b_pvals.append(None)
+                df["h1b_energy_stat"] = h1b_stats
+                df["h1b_energy_pvalue"] = h1b_pvals
+
             # ── Build Excel bytes ──────────────────────────────────────────
             excel_bytes = _build_excel_bytes(df, hypotheses)
 
             # ── Preview summary ───────────────────────────────────────────
+            extra_lines = []
+            if ctrl_id and "H1" in hypotheses:
+                extra_lines.append(html.Li(f"H1b control: {ctrl_id}"))
             preview = html.Div([
                 html.H6("Report generated:", className="mb-2"),
                 html.Ul([
@@ -192,6 +268,7 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                     html.Li(f"Hypotheses: {', '.join(hypotheses)}"),
                     html.Li(f"Mode: {'Recomputed from artifacts' if mode == 'force' else 'Cached results'}"),
                     html.Li(f"Rows: {len(df)}, Columns: {len(df.columns)}"),
+                    *extra_lines,
                 ], className="mb-0"),
             ])
 

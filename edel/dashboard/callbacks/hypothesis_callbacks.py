@@ -384,10 +384,43 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                             "pvalue": float(res.pvalue)
                         }
 
-            # Determine if H1, H2, H3 are supported
-            # H1: Supported if energy distance p-value < 0.05 (primary multivariate test)
-            h1_pval = hyp_metrics.get("h1_energy_pvalue", 1.0)
-            h1_supported = h1_pval < 0.05
+            # Determine if H1a, H1b, H2, H3 are supported
+            # H1a: Supported if energy distance p-value < 0.05 (primary multivariate test)
+            h1a_pval = hyp_metrics.get("h1a_energy_pvalue", 1.0)
+            h1a_supported = h1a_pval < 0.05
+
+            # H1b: Compare hyp vs ctrl feature distributions (energy distance test)
+            h1b_supported = False
+            h1b_stat = None
+            h1b_pval = None
+            feat_hyp_h1a = feat_hyp.get("h1a_obs_features") if feat_hyp else None
+            feat_ctrl_h1a = feat_ctrl.get("h1a_obs_features") if feat_ctrl else None
+            if feat_hyp_h1a is not None and feat_ctrl_h1a is not None:
+                from scipy.spatial.distance import cdist
+                # Pooled permutation test (same logic as H1a)
+                N_h1b = min(feat_hyp_h1a.shape[0], feat_ctrl_h1a.shape[0], 500)
+                rng = np.random.default_rng(42)
+                sub_hyp = feat_hyp_h1a[rng.choice(feat_hyp_h1a.shape[0], N_h1b, replace=False)]
+                sub_ctrl = feat_ctrl_h1a[rng.choice(feat_ctrl_h1a.shape[0], N_h1b, replace=False)]
+                Z = np.vstack([sub_hyp, sub_ctrl])
+                labels = np.array([0] * N_h1b + [1] * N_h1b)
+                XX = float(np.mean(cdist(Z[labels == 0], Z[labels == 0], metric="euclidean")))
+                YY = float(np.mean(cdist(Z[labels == 1], Z[labels == 1], metric="euclidean")))
+                XY = float(np.mean(cdist(Z[labels == 0], Z[labels == 1], metric="euclidean")))
+                e_obs = 2.0 * XY - XX - YY
+                h1b_stat = e_obs
+                B_h1b = 999
+                count = 0
+                for _ in range(B_h1b):
+                    rng.shuffle(labels)
+                    XXp = float(np.mean(cdist(Z[labels == 0], Z[labels == 0], metric="euclidean")))
+                    YYp = float(np.mean(cdist(Z[labels == 1], Z[labels == 1], metric="euclidean")))
+                    XYp = float(np.mean(cdist(Z[labels == 0], Z[labels == 1], metric="euclidean")))
+                    e_perm = 2.0 * XYp - XXp - YYp
+                    if e_perm >= e_obs:
+                        count += 1
+                h1b_pval = (count + 1) / (B_h1b + 1)
+                h1b_supported = h1b_pval < 0.05
 
             # H2: Supported if local neighborhoods show significant clustering
             h2_keys = ["pm", "pf", "pi", "mp", "mf", "mi", "fp", "fm", "fi", "ip", "im", "if"]
@@ -408,26 +441,26 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                     return dbc.Badge("NOT SUPPORTED", color="danger", className="px-2 py-1")
 
 
-            # H1 Details Section
-            h1_energy_rows = [
+            # H1a Details Section
+            h1a_energy_rows = [
                 html.Tr([
                     html.Td("Energy Distance (6D multivariate)"),
-                    html.Td(f"{hyp_metrics.get('h1_energy_stat', 0.0):.4f}"),
-                    html.Td(f"{hyp_metrics.get('h1_energy_pvalue', 1.0):.4g}"),
-                    html.Td(f"{ctrl_metrics.get('h1_energy_stat', 0.0):.4f}"),
-                    html.Td(f"{ctrl_metrics.get('h1_energy_pvalue', 1.0):.4g}"),
+                    html.Td(f"{hyp_metrics.get('h1a_energy_stat', 0.0):.4f}"),
+                    html.Td(f"{hyp_metrics.get('h1a_energy_pvalue', 1.0):.4g}"),
+                    html.Td(f"{ctrl_metrics.get('h1a_energy_stat', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get('h1a_energy_pvalue', 1.0):.4g}"),
                 ]),
             ]
 
-            h1_w_rows = []
+            h1a_w_rows = []
             for k in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
-                h1_w_rows.append(html.Tr([
+                h1a_w_rows.append(html.Tr([
                     html.Td(k.upper().replace("_", " ")),
-                    html.Td(f"{hyp_metrics.get(f'h1_w_{k}', 0.0):.4f}"),
-                    html.Td(f"{ctrl_metrics.get(f'h1_w_{k}', 0.0):.4f}"),
+                    html.Td(f"{hyp_metrics.get(f'h1a_w_{k}', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get(f'h1a_w_{k}', 0.0):.4f}"),
                 ]))
 
-            h1_energy_table = html.Table([
+            h1a_energy_table = html.Table([
                 html.Thead(html.Tr([
                     html.Th("Test"),
                     html.Th("Hyp Stat"),
@@ -435,29 +468,29 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                     html.Th("Ctrl Stat"),
                     html.Th("Ctrl p-val"),
                 ])),
-                html.Tbody(h1_energy_rows)
+                html.Tbody(h1a_energy_rows)
             ], className="table table-sm small border-primary")
 
-            h1_w_table = html.Table([
+            h1a_w_table = html.Table([
                 html.Thead(html.Tr([
                     html.Th("Feature Dimension"),
                     html.Th("Hyp W-dist (effect size)"),
                     html.Th("Ctrl W-dist (effect size)"),
                 ])),
-                html.Tbody(h1_w_rows)
+                html.Tbody(h1a_w_rows)
             ], className="table table-striped table-sm small border mt-3")
 
-            h1_ks_rows = []
+            h1a_ks_rows = []
             for k in ["norm_pm", "norm_mf", "norm_fi", "cos_pm_mf", "cos_pm_fi", "cos_mf_fi"]:
-                h1_ks_rows.append(html.Tr([
+                h1a_ks_rows.append(html.Tr([
                     html.Td(k.upper().replace("_", " ")),
-                    html.Td(f"{hyp_metrics.get(f'h1_ks_stat_{k}', 0.0):.4f}"),
-                    html.Td(f"{hyp_metrics.get(f'h1_ks_pvalue_{k}', 1.0):.4g}"),
-                    html.Td(f"{ctrl_metrics.get(f'h1_ks_stat_{k}', 0.0):.4f}"),
-                    html.Td(f"{ctrl_metrics.get(f'h1_ks_pvalue_{k}', 1.0):.4g}"),
+                    html.Td(f"{hyp_metrics.get(f'h1a_ks_stat_{k}', 0.0):.4f}"),
+                    html.Td(f"{hyp_metrics.get(f'h1a_ks_pvalue_{k}', 1.0):.4g}"),
+                    html.Td(f"{ctrl_metrics.get(f'h1a_ks_stat_{k}', 0.0):.4f}"),
+                    html.Td(f"{ctrl_metrics.get(f'h1a_ks_pvalue_{k}', 1.0):.4g}"),
                 ]))
 
-            h1_ks_table = html.Table([
+            h1a_ks_table = html.Table([
                 html.Thead(html.Tr([
                     html.Th("Feature Dimension"),
                     html.Th("Hyp KS Stat"),
@@ -465,46 +498,70 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                     html.Th("Ctrl KS Stat"),
                     html.Th("Ctrl p-val"),
                 ])),
-                html.Tbody(h1_ks_rows)
+                html.Tbody(h1a_ks_rows)
             ], className="table table-sm small border-secondary mt-1")
 
-            # Direct Comparison
-            direct_h1_rows = []
+            # Direct Comparison (cross-experiment KS on feature distributions)
+            direct_h1a_rows = []
             for label, val in direct_h1_results.items():
-                direct_h1_rows.append(html.Tr([
+                direct_h1a_rows.append(html.Tr([
                     html.Td(label),
                     html.Td(f"{val['stat']:.4f}"),
                     html.Td(f"{val['pvalue']:.4g}"),
                 ]))
-            direct_h1_table = html.Table([
+            direct_h1a_table = html.Table([
                 html.Thead(html.Tr([
                     html.Th("Feature Dimension"),
                     html.Th("KS Statistic (Hyp vs Ctrl)"),
                     html.Th("p-value"),
                 ])),
-                html.Tbody(direct_h1_rows)
+                html.Tbody(direct_h1a_rows)
             ], className="table table-bordered table-sm small border mt-3")
 
+            # H1b Details Section
+            h1b_section = html.Div()
+            if h1b_stat is not None:
+                h1b_section = html.Div([
+                    html.H5("H1b: Scientific Specificity", className="mt-4 text-primary"),
+                    html.P("Tests whether the trajectory distribution differs from the selected control/null experiment using the same multivariate energy distance. Reject H0 (p < 0.05) if the experiment is distinguishable from the control.", className="small text-muted"),
+                    html.Table([
+                        html.Thead(html.Tr([
+                            html.Th("Test"),
+                            html.Th("Stat (D²)"),
+                            html.Th("p-value"),
+                        ])),
+                        html.Tbody([
+                            html.Tr([
+                                html.Td(f"Energy Distance (vs {ctrl_id})"),
+                                html.Td(f"{h1b_stat:.4f}"),
+                                html.Td(f"{h1b_pval:.4g}"),
+                            ])
+                        ]),
+                    ], className="table table-sm small border-primary"),
+                ])
+
             report_children.append(html.Div([
-                html.H5("H1: Structural Transition", className="mt-4 text-primary"),
+                html.H5("H1a: Structural Transition", className="mt-4 text-primary"),
                 html.P("Tests whether epistemic trajectories have a structured coupling. The primary test is a multivariate energy distance on the 6D distribution of transition features (3 sequential operator norms + 3 pairwise cosines). Per-edge Wasserstein distances provide interpretable effect sizes. KS tests are secondary diagnostics.", className="small text-muted"),
 
                 html.H6("Primary: Multivariate Energy Distance", className="mt-3"),
                 html.P("Energy distance D² between observed and shuffled 6D feature distributions. Reject H0 (p < 0.05) if trajectories are structured.", className="small text-muted"),
-                h1_energy_table,
+                h1a_energy_table,
 
                 html.H6("Per-Edge Wasserstein Effect Sizes", className="mt-3"),
                 html.P("1D Wasserstein distance between observed and shuffled for each sequential feature. Larger values indicate stronger structuring of that transition.", className="small text-muted"),
-                h1_w_table,
+                h1a_w_table,
 
                 html.H6("KS Diagnostics (Secondary)", className="mt-3"),
                 html.P("Two-sample KS tests for each feature individually.", className="small text-muted"),
-                h1_ks_table,
+                h1a_ks_table,
 
                 html.H6("Direct Comparison (Hypothesis vs. Control)", className="mt-3"),
                 html.P("Performs a two-sample KS test directly comparing the trajectory distributions of both runs across all 9 feature dimensions (6 edge norms + 3 cosines).", className="small text-muted"),
-                direct_h1_table if direct_h1_results else html.P("No feature distributions available for direct comparison.", className="text-muted small")
+                direct_h1a_table if direct_h1a_rows else html.P("No feature distributions available for direct comparison.", className="text-muted small")
             ]))
+
+            report_children.append(h1b_section)
 
             # H2 Details Section
             h2_transitions = [
@@ -636,25 +693,32 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
                 dbc.Row([
                     dbc.Col(dbc.Card([
                         dbc.CardBody([
-                            html.H5("H1: Structural Shift", className="card-title"),
-                            html.Div([make_badge(h1_supported)]),
+                            html.H5("H1a: Structural Shift", className="card-title"),
+                            html.Div([make_badge(h1a_supported)]),
                             html.P("Trajectories differ significantly from random aspect-shuffling.", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h1_supported else "light", outline=True), md=4),
+                    ], color="success" if h1a_supported else "light", outline=True), md=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H5("H1b: Scientific Specificity", className="card-title"),
+                            html.Div([make_badge(h1b_supported)]),
+                            html.P("Trajectory distribution differs from the selected control/null experiment.", className="small text-muted mt-2 mb-0")
+                        ])
+                    ], color="success" if h1b_supported else "light", outline=True), md=3),
                     dbc.Col(dbc.Card([
                         dbc.CardBody([
                             html.H5("H2: Local Organization", className="card-title"),
                             html.Div([make_badge(h2_supported)]),
                             html.P("Transitions show neighborhood-level spatial organization and directionality bias.", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h2_supported else "light", outline=True), md=4),
+                    ], color="success" if h2_supported else "light", outline=True), md=3),
                     dbc.Col(dbc.Card([
                         dbc.CardBody([
                             html.H5("H3: Predictive Power", className="card-title"),
                             html.Div([make_badge(h3_supported)]),
                             html.P("Historical model predicts future locations better than persistence (gain > 0, p < 0.05).", className="small text-muted mt-2 mb-0")
                         ])
-                    ], color="success" if h3_supported else "light", outline=True), md=4),
+                    ], color="success" if h3_supported else "light", outline=True), md=3),
                 ], className="mb-4")
             ]))
             h3_rows = [

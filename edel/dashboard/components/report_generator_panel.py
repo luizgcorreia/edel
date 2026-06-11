@@ -68,6 +68,31 @@ def report_generator_panel_layout() -> dbc.Container:
                             className="mb-3"
                         ),
 
+                        html.Hr(className="my-3"),
+                        html.H6("Subsample Overrides (force mode only)", className="fw-bold mb-2"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("H1 N:", className="small"),
+                                dcc.Input(
+                                    id="report-h1-n",
+                                    type="number",
+                                    min=100, max=5000, step=100,
+                                    value=500,
+                                    className="form-control form-control-sm mb-2"
+                                ),
+                            ], width=6),
+                            dbc.Col([
+                                html.Label("H3 N:", className="small"),
+                                dcc.Input(
+                                    id="report-h3-n",
+                                    type="number",
+                                    min=500, max=10000, step=500,
+                                    value=2000,
+                                    className="form-control form-control-sm mb-2"
+                                ),
+                            ], width=6),
+                        ]),
+
                         dbc.Button(
                             " Generate Report (.xlsx)",
                             id="btn-generate-report",

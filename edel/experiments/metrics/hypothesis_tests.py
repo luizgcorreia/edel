@@ -22,6 +22,10 @@ from edel.pipeline.projection import load_embeddings_to_matrix
 
 logger = logging.getLogger(__name__)
 
+# Module-level overrides for subsample sizes.
+# Can be set before calling hypothesis_metrics() to adjust test power.
+H1_SUBSAMPLE_MAX = 500
+H3_SUBSAMPLE_MAX = 2000
 
 # ---------------------------------------------------------------------------
 # Wasserstein Distance Helper
@@ -362,7 +366,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
     N = emb_p.shape[0]
-    H1_SUBSAMPLE_MAX = 500
+    h1_sub = H1_SUBSAMPLE_MAX
     rng_perm = np.random.default_rng(42)
 
     # Observed operators (sequential + cross for 6-edge profile)
@@ -413,11 +417,11 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     ])
 
     # Subsample for large N (energy test on 6D has strong power even with 2K points)
-    if N > H1_SUBSAMPLE_MAX:
-        sub_idx = rng_perm.choice(N, size=H1_SUBSAMPLE_MAX, replace=False)
+    if N > h1_sub:
+        sub_idx = rng_perm.choice(N, size=h1_sub, replace=False)
         F_obs = F_obs[sub_idx]
         F_shuf = F_shuf[sub_idx]
-        N_sub = H1_SUBSAMPLE_MAX
+        N_sub = h1_sub
     else:
         N_sub = N
 
@@ -563,12 +567,12 @@ def hypothesis_metrics(artifacts: dict) -> dict:
 
     # Fixed subsample for all H3 Wasserstein calls (eliminates subsampling variance
     # from the permutation p-value — same positions used for observed and null)
-    H3_SUBSAMPLE = 2000
+    h3_sub = H3_SUBSAMPLE_MAX
     rng_sub = np.random.RandomState(42)
     n_hist = P_hist.shape[0]
     n_pred = P_pred.shape[0]
-    sub_hist = rng_sub.choice(n_hist, size=min(H3_SUBSAMPLE, n_hist), replace=False)
-    sub_fut = rng_sub.choice(n_pred, size=min(H3_SUBSAMPLE, n_pred), replace=False)
+    sub_hist = rng_sub.choice(n_hist, size=min(h3_sub, n_hist), replace=False)
+    sub_fut = rng_sub.choice(n_pred, size=min(h3_sub, n_pred), replace=False)
 
     # Global Wasserstein evaluation (exact EMD with fixed subsample)
     w_edel = compute_wasserstein(P_pred, P_fut, idx_X=sub_fut, idx_Y=sub_fut)

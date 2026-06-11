@@ -12,6 +12,10 @@ from scipy.spatial.distance import cdist
 
 from edel.experiments.runner import load_registry
 from edel.experiments.analyzer import analyze_experiments
+from edel.experiments.metrics.hypothesis_tests import (
+    H1_SUBSAMPLE_MAX as _H1_SUBSAMPLE_MAX,
+    H3_SUBSAMPLE_MAX as _H3_SUBSAMPLE_MAX,
+)
 from edel.dashboard.cache import get_results_df
 
 logger = logging.getLogger(__name__)
@@ -66,7 +70,9 @@ def _all_hypothesis_columns(hypothesis: str) -> list[str]:
     return [c for cols in groups.values() for c in cols]
 
 
-def _compute_h1b(obs_features: np.ndarray, ctrl_features: np.ndarray, N: int = 500, B: int = 999) -> tuple[float, float]:
+def _compute_h1b(obs_features: np.ndarray, ctrl_features: np.ndarray, N: int | None = None, B: int = 999) -> tuple[float, float]:
+    if N is None:
+        N = _H1_SUBSAMPLE_MAX
     """Energy distance pooled permutation test between two experiments' 6D features."""
     rng = np.random.default_rng(42)
     sub_obs = obs_features[rng.choice(obs_features.shape[0], N, replace=False)]
@@ -185,9 +191,11 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
         State("report-hypothesis-checklist", "value"),
         State("report-mode-radio", "value"),
         State("report-control-select", "value"),
+        State("report-h1-n", "value"),
+        State("report-h3-n", "value"),
         prevent_initial_call=True,
     )
-    def handle_generate_report(n_clicks, exp_ids, hypotheses, mode, ctrl_id):
+    def handle_generate_report(n_clicks, exp_ids, hypotheses, mode, ctrl_id, h1_n, h3_n):
         if not n_clicks:
             return no_update, "", html.Div()
 
@@ -201,9 +209,17 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                 html.Span("⚠️ Please select at least one hypothesis.", className="text-danger")
             ), no_update
 
+        # Use server-side defaults if inputs are empty
+        h1_n = int(h1_n) if h1_n else _H1_SUBSAMPLE_MAX
+        h3_n = int(h3_n) if h3_n else _H3_SUBSAMPLE_MAX
+
         try:
             # ── Get or compute results DataFrame ──────────────────────────
             if mode == "force":
+                import edel.experiments.metrics.hypothesis_tests as _ht_mod
+                _ht_mod.H1_SUBSAMPLE_MAX = h1_n
+                _ht_mod.H3_SUBSAMPLE_MAX = h3_n
+
                 registry = load_registry(base_path)
                 id_set = set(exp_ids)
                 records = [r for r in registry if r["experiment_id"] in id_set]
@@ -245,6 +261,7 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                             stat, pv = _compute_h1b(
                                 obs_feat["h1a_obs_features"],
                                 ctrl_features["h1a_obs_features"],
+                                N=h1_n,
                             )
                             h1b_stats.append(stat)
                             h1b_pvals.append(pv)
@@ -261,6 +278,8 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
             extra_lines = []
             if ctrl_id and "H1" in hypotheses:
                 extra_lines.append(html.Li(f"H1b control: {ctrl_id}"))
+            if mode == "force":
+                extra_lines.append(html.Li(f"H1 subsample N={h1_n}, H3 subsample N={h3_n}"))
             preview = html.Div([
                 html.H6("Report generated:", className="mb-2"),
                 html.Ul([

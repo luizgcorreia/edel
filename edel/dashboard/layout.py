@@ -12,6 +12,7 @@ from edel.dashboard.components import (
     trajectory_panel_layout,
     hypothesis_panel_layout,
     convergence_panel_layout,
+    report_generator_panel_layout,
 )
 
 def create_layout() -> html.Div:
@@ -44,6 +45,7 @@ def create_layout() -> html.Div:
                 dbc.Tab(trajectory_panel_layout(), label="6. Trajectory Explorer", tab_id="tab-trajectory"),
                 dbc.Tab(hypothesis_panel_layout(), label="7. Hypothesis Testing", tab_id="tab-hypothesis"),
                 dbc.Tab(convergence_panel_layout(), label="8. Convergence Analysis", tab_id="tab-convergence"),
+                dbc.Tab(report_generator_panel_layout(), label="9. Report Generator", tab_id="tab-report"),
             ], id="main-tabs", active_tab="tab-metrics"),
         ], fluid=True, className="px-4"),
         

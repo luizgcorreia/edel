@@ -37,6 +37,7 @@ dependencies = [
     "python-dotenv",
     "dash>=2.17",
     "dash-bootstrap-components",
+    "openpyxl",
 ]
 
 [tool.setuptools.packages.find]

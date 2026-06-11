@@ -362,7 +362,7 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     # Complementary: 6-edge tetrahedron norms stored as features (h1_edge_norms).
     # -----------------------------------------------------------------------
     N = emb_p.shape[0]
-    H1_SUBSAMPLE_MAX = 1000
+    H1_SUBSAMPLE_MAX = 500
     rng_perm = np.random.default_rng(42)
 
     # Observed operators (sequential + cross for 6-edge profile)

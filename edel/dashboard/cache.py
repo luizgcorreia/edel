@@ -26,6 +26,26 @@ _CACHE_FILENAME = "results.parquet"
 # Public API
 # ---------------------------------------------------------------------------
 
+def save_results_df(df: pd.DataFrame, base_path: str | Path = "artifacts") -> None:
+    """Persist a results DataFrame to the cache, upserting by experiment_id."""
+    cache_path = _cache_path(base_path)
+    if df.empty:
+        return
+    if cache_path.exists():
+        existing = pd.read_parquet(cache_path)
+        if "experiment_id" in existing.columns and "experiment_id" in df.columns:
+            new_ids = set(df["experiment_id"])
+            existing = existing[~existing["experiment_id"].isin(new_ids)]
+            merged = pd.concat([existing, df], ignore_index=True)
+        else:
+            merged = df
+    else:
+        merged = df
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_parquet(cache_path, index=False)
+    logger.info(f"Cache updated: {cache_path} ({len(merged)} rows)")
+
+
 def get_results_df(base_path: str | Path = "artifacts") -> pd.DataFrame:
     """Load the precomputed results DataFrame.
 

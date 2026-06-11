@@ -16,7 +16,7 @@ from edel.experiments.metrics.hypothesis_tests import (
     H1_SUBSAMPLE_MAX as _H1_SUBSAMPLE_MAX,
     H3_SUBSAMPLE_MAX as _H3_SUBSAMPLE_MAX,
 )
-from edel.dashboard.cache import get_results_df
+from edel.dashboard.cache import get_results_df, save_results_df
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +71,9 @@ def _all_hypothesis_columns(hypothesis: str) -> list[str]:
 
 
 def _compute_h1b(obs_features: np.ndarray, ctrl_features: np.ndarray, N: int | None = None, B: int = 999) -> tuple[float, float]:
+    """Energy distance pooled permutation test between two experiments' 6D features."""
     if N is None:
         N = _H1_SUBSAMPLE_MAX
-    """Energy distance pooled permutation test between two experiments' 6D features."""
     rng = np.random.default_rng(42)
     sub_obs = obs_features[rng.choice(obs_features.shape[0], N, replace=False)]
     sub_ctrl = ctrl_features[rng.choice(ctrl_features.shape[0], N, replace=False)]
@@ -247,12 +247,10 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
             # ── H1b: compute vs control for each experiment ───────────────
             if ctrl_id and "H1" in hypotheses:
                 ctrl_features = _load_features(ctrl_id, base_path)
-                h1b_stats = []
-                h1b_pvals = []
+                h1b_map: dict[str, tuple[float | None, float | None]] = {}
                 for eid in exp_ids:
                     if eid == ctrl_id:
-                        h1b_stats.append(0.0)
-                        h1b_pvals.append(1.0)
+                        h1b_map[eid] = (0.0, 1.0)
                     else:
                         obs_feat = _load_features(eid, base_path)
                         if (obs_feat and ctrl_features and
@@ -263,13 +261,15 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                                 ctrl_features["h1a_obs_features"],
                                 N=h1_n,
                             )
-                            h1b_stats.append(stat)
-                            h1b_pvals.append(pv)
+                            h1b_map[eid] = (stat, pv)
                         else:
-                            h1b_stats.append(None)
-                            h1b_pvals.append(None)
-                df["h1b_energy_stat"] = h1b_stats
-                df["h1b_energy_pvalue"] = h1b_pvals
+                            h1b_map[eid] = (None, None)
+                df["h1b_energy_stat"] = df["experiment_id"].map(lambda e: h1b_map.get(e, (None, None))[0])
+                df["h1b_energy_pvalue"] = df["experiment_id"].map(lambda e: h1b_map.get(e, (None, None))[1])
+
+            # ── Persist to cache in force mode ─────────────────────────────
+            if mode == "force":
+                save_results_df(df, base_path)
 
             # ── Build Excel bytes ──────────────────────────────────────────
             excel_bytes = _build_excel_bytes(df, hypotheses)

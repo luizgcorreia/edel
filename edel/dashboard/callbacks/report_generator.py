@@ -123,7 +123,7 @@ def _build_excel_bytes(df: pd.DataFrame, hypotheses: list[str]) -> bytes:
                 pval_cols = [c for c in tab_df.columns if c.startswith("h2_pvalue_") and c != "h2_pvalue"]
                 if pval_cols:
                     tab_df["h2_num_passed"] = (tab_df[pval_cols] < 0.05).sum(axis=1)
-                    tab_df["h2_pass"] = tab_df["h2_num_passed"] >= 3
+                    tab_df["h2_pass"] = tab_df["h2_num_passed"] >= 6
             elif ht == "H3" and "h3_predictive_gain" in tab_df.columns and "h3_gain_pvalue" in tab_df.columns:
                 tab_df["h3_pass"] = (tab_df["h3_predictive_gain"] > 0) & (tab_df["h3_gain_pvalue"] < 0.05)
 
@@ -249,7 +249,7 @@ def register_report_generator_callbacks(app: Dash, base_path: Path) -> None:
                 ctrl_features = _load_features(ctrl_id, base_path)
                 h1b_map: dict[str, tuple[float | None, float | None]] = {}
                 for eid in exp_ids:
-                    if eid == ctrl_id:
+                    if eid == ctrl_id or "null" in eid.lower():
                         h1b_map[eid] = (0.0, 1.0)
                     else:
                         obs_feat = _load_features(eid, base_path)

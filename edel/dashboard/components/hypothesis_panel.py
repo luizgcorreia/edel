@@ -47,16 +47,16 @@ def hypothesis_panel_layout() -> dbc.Container:
                     dbc.CardBody([
                         html.Div([
                             html.H6("H1a: Structural Transition", className="text-primary"),
-                            html.P("Tests if epistemic trajectories have structured coupling via multivariate energy distance on 6D transition features (3 sequential norms + 3 cosines). Per-edge Wasserstein effect sizes and KS diagnostics provided as secondary.", className="small text-muted"),
+                            html.P("Passes if multivariate energy distance p < 0.05 (pooled permutation test on 6D features: 3 sequential norms + 3 cosines vs within-paper shuffled null). Per-edge Wasserstein effect sizes and KS diagnostics reported as secondary.", className="small text-muted"),
 
                             html.H6("H1b: Scientific Specificity", className="text-primary mt-3"),
-                            html.P("Tests whether the trajectory distribution differs from the selected control/null experiment using multivariate energy distance on 6D features.", className="small text-muted"),
+                            html.P("Passes if energy distance p < 0.05 comparing the 6D feature distribution against the selected control experiment. Experiments with \"null\" in the name always return p = 1.0 (identity test).", className="small text-muted"),
 
                             html.H6("H2: Local Transition Organization", className="text-primary mt-3"),
-                            html.P("Tests if local neighborhood transitions are statistically constrained (Wasserstein permutation test). Asymmetry metrics characterize directionality bias as secondary.", className="small text-muted"),
+                            html.P("Passes if at least 6 of 12 directional aspect-to-aspect transitions have p < 0.05 (Wasserstein distance permutation test). Asymmetry metrics (H2b) characterize directionality bias as secondary.", className="small text-muted"),
 
                             html.H6("H3: Predictive Transition Capacity", className="text-primary mt-3"),
-                            html.P("Tests if transition operators forecast future problem spaces better than a persistence baseline, and checks spatial alignment using Bivariate Moran's I.", className="small text-muted")
+                            html.P("Passes if predictive gain > 0 AND temporal permutation p < 0.05 (Ridge transition operator forecast vs persistence baseline). Spatial alignment assessed via Bivariate Moran's I.", className="small text-muted")
                         ])
                     ])
                 ])

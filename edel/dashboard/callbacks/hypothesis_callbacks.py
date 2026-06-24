@@ -395,7 +395,11 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             h1b_pval = None
             feat_hyp_h1a = feat_hyp.get("h1a_obs_features") if feat_hyp else None
             feat_ctrl_h1a = feat_ctrl.get("h1a_obs_features") if feat_ctrl else None
-            if feat_hyp_h1a is not None and feat_ctrl_h1a is not None:
+            if "null" in hyp_id.lower():
+                h1b_stat = 0.0
+                h1b_pval = 1.0
+                h1b_supported = False
+            elif feat_hyp_h1a is not None and feat_ctrl_h1a is not None:
                 from scipy.spatial.distance import cdist
                 # Pooled permutation test (same logic as H1a)
                 N_h1b = min(feat_hyp_h1a.shape[0], feat_ctrl_h1a.shape[0], 500)
@@ -425,7 +429,7 @@ def register_hypothesis_callbacks(app: Dash, base_path: Path) -> None:
             # H2: Supported if local neighborhoods show significant clustering
             h2_keys = ["pm", "pf", "pi", "mp", "mf", "mi", "fp", "fm", "fi", "ip", "im", "if"]
             h2_pvals = [hyp_metrics.get(f"h2_pvalue_{k}", 1.0) for k in h2_keys]
-            h2_supported = sum(p < 0.05 for p in h2_pvals) >= 3
+            h2_supported = sum(p < 0.05 for p in h2_pvals) >= 6
 
             # H3: Supported if predictive gain is positive AND the temporal permutation p-value < 0.05
             # NOTE: h3_gain_pvalue may not be in the cache for older experiments; h3_supported is

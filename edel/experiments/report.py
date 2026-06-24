@@ -130,7 +130,7 @@ def generate_report(
                 pval_cols = [c for c in tab_df.columns if c.startswith("h2_pvalue_") and c != "h2_pvalue"]
                 if pval_cols:
                     tab_df["h2_num_passed"] = (tab_df[pval_cols] < 0.05).sum(axis=1)
-                    tab_df["h2_pass"] = tab_df["h2_num_passed"] >= 3
+                    tab_df["h2_pass"] = tab_df["h2_num_passed"] >= 6
             elif ht == "H3" and "h3_predictive_gain" in tab_df.columns and "h3_gain_pvalue" in tab_df.columns:
                 tab_df["h3_pass"] = (tab_df["h3_predictive_gain"] > 0) & (tab_df["h3_gain_pvalue"] < 0.05)
 

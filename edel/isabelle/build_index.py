@@ -7,6 +7,10 @@ import os
 import sys
 import pandas as pd
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 from edel.isabelle.ingest import ingest_session_lemmas
 from edel.pipeline.embedding import run_embedding_stage

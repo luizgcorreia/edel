@@ -5,6 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP, Context
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 from edel.isabelle.index import NumpyRAGIndex
 from edel.io.llm import get_llm_client

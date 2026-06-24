@@ -1,5 +1,6 @@
 """Tests for Stage 4 Visualizations."""
 
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from edel.viz.projection import (
     plot_movement_magnitudes,
     plot_projection_2d,
     plot_transition_signatures,
+    plot_unified_discourse_space,
 )
 
 
@@ -31,6 +33,10 @@ def df_proj():
         "mag_mf": np.random.rand(10),
         "mag_fi": np.random.rand(10),
         "cluster_id": np.random.randint(0, 3, 10),
+        "problem_embedding": [json.dumps(np.random.rand(8).tolist()) for _ in range(10)],
+        "method_embedding": [json.dumps(np.random.rand(8).tolist()) for _ in range(10)],
+        "finding_embedding": [json.dumps(np.random.rand(8).tolist()) for _ in range(10)],
+        "interpretation_embedding": [json.dumps(np.random.rand(8).tolist()) for _ in range(10)],
     }
     return pd.DataFrame(data)
 
@@ -40,8 +46,11 @@ def test_viz_projection_plots(df_proj):
     plt.switch_backend("Agg")
 
     try:
-        # Test basic scatter
-        plot_projection_2d(df_proj, method="umap")
+        # Test basic scatter for all aspects
+        plot_projection_2d(df_proj, method="umap", aspect="problem")
+        plot_projection_2d(df_proj, method="umap", aspect="method")
+        plot_projection_2d(df_proj, method="umap", aspect="finding")
+        plot_projection_2d(df_proj, method="umap", aspect="interpretation")
         
         # Test with color and arrows
         plot_projection_2d(
@@ -57,6 +66,10 @@ def test_viz_projection_plots(df_proj):
         
         # Test magnitudes
         plot_movement_magnitudes(df_proj)
+        
+        # Test unified discourse space plot
+        plot_unified_discourse_space(df_proj, method="pca", dimensions=8)
+        plot_unified_discourse_space(df_proj, method="umap", dimensions=8)
         
     except Exception as e:
         pytest.fail(f"Projection visualization failed with error: {e}")

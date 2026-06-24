@@ -80,6 +80,94 @@ def apply_anisotropy_correction(embs_dict: dict[str, np.ndarray], method: str = 
     return corrected
 
 
+def compute_joint_space_metrics(
+    matrices_dict: dict[str, np.ndarray],
+    categories: list[str],
+    k: int = 5
+) -> dict:
+    """Compute Silhouette score, 1-NN classification accuracy (excluding same paper),
+
+    and nearest neighbor role ratios.
+    """
+    from sklearn.metrics import silhouette_score
+    
+    # Get N
+    first_matrix = next(iter(matrices_dict.values()))
+    N = first_matrix.shape[0]
+    if N <= 1:
+        return {}
+        
+    # Stack matrices: shape (len(categories) * N, D)
+    # Make sure they are L2-normalized
+    stacked = np.vstack([sk_normalize(matrices_dict[cat]) for cat in categories])
+    
+    # Pairwise cosine similarity and distance
+    sim = np.dot(stacked, stacked.T)
+    # Clip to avoid float precision issues
+    sim = np.clip(sim, -1.0, 1.0)
+    dist = 1.0 - sim
+    
+    # 1. Silhouette score
+    aspect_labels = np.array([cat for cat in categories for _ in range(N)])
+    try:
+        sil = float(silhouette_score(dist, aspect_labels, metric="precomputed"))
+    except Exception:
+        sil = 0.0
+        
+    # 2. 1-NN classification (excluding same paper) and NN ratios
+    correct_1nn = 0
+    total_points = len(stacked)
+    
+    same_paper_counts = 0.0
+    same_cat_counts = 0.0
+    other_counts = 0.0
+    
+    for i in range(total_points):
+        # Sort indices by distance ascending
+        sorted_indices = np.argsort(dist[i])
+        # Exclude itself (which is at distance 0)
+        sorted_indices = sorted_indices[sorted_indices != i]
+        
+        # A. 1-NN classification (first neighbor not from the same paper)
+        pred_label = None
+        for nbr in sorted_indices:
+            if (nbr % N) != (i % N):
+                pred_label = aspect_labels[nbr]
+                break
+        if pred_label == aspect_labels[i]:
+            correct_1nn += 1
+            
+        # B. Nearest Neighbor ratios (top-k neighbors excluding itself)
+        top_k_nbrs = sorted_indices[:k]
+        actual_k = len(top_k_nbrs)
+        if actual_k > 0:
+            for nbr in top_k_nbrs:
+                nbr_paper = nbr % N
+                nbr_cat = nbr // N
+                curr_paper = i % N
+                curr_cat = i // N
+                
+                if nbr_paper == curr_paper:
+                    same_paper_counts += 1.0 / actual_k
+                elif nbr_cat == curr_cat:
+                    same_cat_counts += 1.0 / actual_k
+                else:
+                    other_counts += 1.0 / actual_k
+                    
+    acc_1nn = float(correct_1nn / total_points)
+    nn_same_paper = float(same_paper_counts / total_points)
+    nn_same_cat = float(same_cat_counts / total_points)
+    nn_other = float(other_counts / total_points)
+    
+    return {
+        "silhouette": sil,
+        "accuracy_1nn": acc_1nn,
+        "nn_same_paper": nn_same_paper,
+        "nn_same_category": nn_same_cat,
+        "nn_other": nn_other
+    }
+
+
 def embedding_metrics(artifacts: dict, correction_method: str = "none", remove_pc: int = 0) -> dict:
     """Compute embedding-level metrics from aspect embedding columns."""
     df: pd.DataFrame = artifacts.get("embedding")
@@ -159,5 +247,19 @@ def embedding_metrics(artifacts: dict, correction_method: str = "none", remove_p
         metrics[f"density_{sa}_mean"] = float(upper.mean())
         metrics[f"density_{sa}_std"] = float(upper.std())
         features[f"density_{sa}_dist"] = upper.astype(np.float32)
+
+    # ── Joint Space & Transition Space Overlap Metrics ───────────────────────
+    joint_aspect_res = compute_joint_space_metrics(embs, _ASPECTS, k=5)
+    for k_metric, v_metric in joint_aspect_res.items():
+        metrics[f"joint_aspect_{k_metric}"] = v_metric
+
+    trans_embs = {
+        "PM": embs["method"] - embs["problem"],
+        "MF": embs["finding"] - embs["method"],
+        "FI": embs["interpretation"] - embs["finding"]
+    }
+    joint_trans_res = compute_joint_space_metrics(trans_embs, ["PM", "MF", "FI"], k=5)
+    for k_metric, v_metric in joint_trans_res.items():
+        metrics[f"joint_trans_{k_metric}"] = v_metric
 
     return {"metrics": metrics, "features": features}

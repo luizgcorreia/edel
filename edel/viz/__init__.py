@@ -16,6 +16,7 @@ from edel.viz.projection import (
     plot_epistemic_transition_space,
     plot_paper_style_pca,
     plot_diffusion_eigenvalues,
+    plot_unified_discourse_space,
 )
 from edel.viz.vector_field import (
     plot_vector_field,

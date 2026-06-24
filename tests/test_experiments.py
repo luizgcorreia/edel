@@ -165,6 +165,14 @@ def test_embedding_metrics(synthetic_data):
     assert "density_p_mean" in metrics
     assert "sep_p_m" in metrics
     assert "sim_pm_dist" in features
+    
+    # Assert new joint space & transition space overlap metrics exist
+    assert "joint_aspect_silhouette" in metrics
+    assert "joint_aspect_accuracy_1nn" in metrics
+    assert "joint_aspect_nn_same_paper" in metrics
+    assert "joint_trans_silhouette" in metrics
+    assert "joint_trans_accuracy_1nn" in metrics
+    assert "joint_trans_nn_same_paper" in metrics
 
 
 def test_operator_and_structure_metrics(synthetic_data):

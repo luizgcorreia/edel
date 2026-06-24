@@ -535,7 +535,10 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     viz_components.append(capture_matplotlib_plot(viz.plot_diffusion_eigenvalues, report["evals"]))
                     
                 method = config.get("dimensionality_reduction", {}).get("method", "umap")
-                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method))
+                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method, aspect="problem"))
+                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method, aspect="method"))
+                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method, aspect="finding"))
+                viz_components.append(capture_matplotlib_plot(viz.plot_projection_2d, data, method=method, aspect="interpretation"))
                 viz_components.append(capture_matplotlib_plot(viz.plot_paper_style_pca, data))
                 
                 # Transition space plot
@@ -548,6 +551,49 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     correction_method=method_resolved or "none",
                     remove_pc=remove_pc_resolved or 0
                 ))
+
+                # Unified Discourse Space plot
+                viz_components.append(capture_matplotlib_plot(
+                    viz.plot_unified_discourse_space,
+                    data,
+                    method=method,
+                    dimensions=n_dims,
+                    correction_method=method_resolved or "none",
+                    remove_pc=remove_pc_resolved or 0
+                ))
+
+                # Calculate overlap metrics
+                from edel.experiments.metrics.embedding import embedding_metrics
+                m_res = embedding_metrics(
+                    {"embedding": data, "_dimensions": n_dims}, 
+                    correction_method=method_resolved or "none",
+                    remove_pc=remove_pc_resolved or 0
+                )
+                metrics = m_res.get("metrics", {})
+                if metrics:
+                    viz_components.append(html.H5("Unified Discourse Space & Transition Space Overlap Metrics", className="mt-4"))
+                    rows = [
+                        html.Tr([html.Td("Aspect Space: Silhouette Score", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_aspect_silhouette', 0.0):.4f}")]),
+                        html.Tr([html.Td("Aspect Space: 1-NN Aspect Classification Accuracy", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_aspect_accuracy_1nn', 0.0):.1%}")]),
+                        html.Tr([html.Td("Aspect Space: NN Same-Paper Ratio (Paper identity)", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_aspect_nn_same_paper', 0.0):.1%}")]),
+                        html.Tr([html.Td("Aspect Space: NN Same-Aspect Ratio (Aspect identity)", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_aspect_nn_same_category', 0.0):.1%}")]),
+                        html.Tr([html.Td("Aspect Space: NN Other Ratio", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_aspect_nn_other', 0.0):.1%}")]),
+                        
+                        html.Tr([html.Td(html.Hr(), colSpan=2)]),
+                        
+                        html.Tr([html.Td("Transition Space: Silhouette Score", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_trans_silhouette', 0.0):.4f}")]),
+                        html.Tr([html.Td("Transition Space: 1-NN Transition Classification Accuracy", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_trans_accuracy_1nn', 0.0):.1%}")]),
+                        html.Tr([html.Td("Transition Space: NN Same-Paper Ratio (Paper identity)", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_trans_nn_same_paper', 0.0):.1%}")]),
+                        html.Tr([html.Td("Transition Space: NN Same-Transition Ratio (Transition identity)", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_trans_nn_same_category', 0.0):.1%}")]),
+                        html.Tr([html.Td("Transition Space: NN Other Ratio", style={"fontWeight": "bold"}), html.Td(f"{metrics.get('joint_trans_nn_other', 0.0):.1%}")]),
+                    ]
+                    table = html.Table(
+                        [html.Thead(html.Tr([html.Th("Metric Description"), html.Th("Value")]))] + 
+                        [html.Tbody(rows)],
+                        className="table table-sm table-hover table-striped small border",
+                        style={"maxWidth": "650px", "marginBottom": "20px"}
+                    )
+                    viz_components.append(table)
             
             elif stage_name == "vector_field":
                 # Need DF and field for some vector field plots

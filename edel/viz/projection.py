@@ -375,3 +375,127 @@ def plot_diffusion_eigenvalues(evals: list[float] | np.ndarray, title: str | Non
     
     plt.tight_layout()
     plt.show()
+
+
+def plot_unified_discourse_space(
+    df: pd.DataFrame,
+    method: str = "umap",
+    dimensions: int = 1536,
+    correction_method: str = "none",
+    remove_pc: int = 0,
+    draw_connections: bool = True,
+    num_connections: int = 10,
+    title: str | None = None
+):
+    """
+    Project the four discourse aspects (P, M, F, I) for all papers into a unified 2D space.
+    """
+    from edel.pipeline.projection import load_embeddings_to_matrix
+    from edel.experiments.metrics.embedding import apply_anisotropy_correction
+    from sklearn.preprocessing import normalize as sk_normalize
+    
+    set_viz_style()
+    
+    aspects = ["problem", "method", "finding", "interpretation"]
+    if not all(f"{a}_embedding" in df.columns for a in aspects):
+        print("Error: Aspect embeddings not found in DataFrame. Cannot plot unified space.")
+        return
+        
+    N = len(df)
+    if N == 0:
+        return
+        
+    # 1. Load embeddings
+    embs = {
+        a: sk_normalize(load_embeddings_to_matrix(df, f"{a}_embedding", dimensions))
+        for a in aspects
+    }
+    
+    # 2. Apply anisotropy correction if requested
+    if correction_method != "none":
+        print(f"Applying anisotropy correction ({correction_method}) to unified space...")
+        embs = apply_anisotropy_correction(embs, method=correction_method, n_components=remove_pc)
+        
+    # 3. Stack matrices: shape (4N, D)
+    X = np.vstack([embs[a] for a in aspects])
+    
+    # 4. Project
+    if method == "umap":
+        import umap
+        reducer = umap.UMAP(n_components=2, random_state=42)
+        X_proj = reducer.fit_transform(X)
+    else:
+        # Default/fallback to PCA
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=2)
+        X_proj = pca.fit_transform(X)
+        
+    # 5. Extract coordinates
+    coords = {
+        aspects[i]: X_proj[i * N : (i + 1) * N]
+        for i in range(len(aspects))
+    }
+    
+    # Plot
+    plt.figure(figsize=(10, 8))
+    
+    # Define color palette for aspects
+    palette = {
+        "problem": "#3498DB",        # Blue
+        "method": "#E67E22",         # Orange
+        "finding": "#2ECC71",        # Green
+        "interpretation": "#9B59B6"  # Purple
+    }
+    
+    # Plot all points
+    for a in aspects:
+        plt.scatter(
+            coords[a][:, 0],
+            coords[a][:, 1],
+            color=palette[a],
+            alpha=0.5,
+            s=30,
+            label=a.capitalize()
+        )
+        
+    # Add centroids
+    for a in aspects:
+        centroid = coords[a].mean(axis=0)
+        plt.scatter(
+            centroid[0],
+            centroid[1],
+            color=palette[a],
+            s=200,
+            marker='X',
+            edgecolor='black',
+            linewidth=2
+        )
+        
+    # 6. Draw connection lines (3-simplex edges) for a sample of papers
+    if draw_connections and N > 0:
+        # Seed for reproducibility
+        rng = np.random.default_rng(42)
+        sample_indices = rng.choice(N, size=min(num_connections, N), replace=False)
+        
+        for idx in sample_indices:
+            pts_x = [coords[a][idx, 0] for a in aspects]
+            pts_y = [coords[a][idx, 1] for a in aspects]
+            
+            # Draw lines: P -> M -> F -> I
+            # p -> m
+            plt.plot(pts_x[0:2], pts_y[0:2], color="gray", alpha=0.3, lw=1.0, linestyle="--")
+            # m -> f
+            plt.plot(pts_x[1:3], pts_y[1:3], color="gray", alpha=0.3, lw=1.0, linestyle="--")
+            # f -> i
+            plt.plot(pts_x[2:4], pts_y[2:4], color="gray", alpha=0.3, lw=1.0, linestyle="--")
+            
+            # Faint marker for start (P)
+            plt.scatter(pts_x[0], pts_y[0], color="black", s=15, zorder=3)
+            
+    plt.title(title or f"Unified Discourse Space ({method.upper()} on Stacked Embeddings)", fontsize=14, pad=15)
+    plt.xlabel(f"{method.upper()} 1")
+    plt.ylabel(f"{method.upper()} 2")
+    plt.legend(title="Discourse Aspect")
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+    plt.show()

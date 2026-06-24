@@ -592,6 +592,59 @@ class NullClient(LLMClient):
         }
 
 
+class VoyageClient(LLMClient):
+    """Voyage AI client for generating embeddings."""
+
+    def __init__(
+        self,
+        model: str = "voyage-3",
+        api_key: str | None = None,
+        **kwargs,
+    ):
+        self.model = model
+        self.api_key = api_key or os.getenv("VOYAGE_API_KEY", "no-key")
+        self.kwargs = kwargs
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        raise NotImplementedError("Voyage AI client only supports generating embeddings.")
+
+    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        # Support input_type (e.g. 'document' or 'query') which is recommended by Voyage
+        input_type = kwargs.get("input_type") or self.kwargs.get("input_type")
+        
+        payload = {
+            "input": [text],
+            "model": self.model,
+        }
+        if input_type:
+            payload["input_type"] = input_type
+            
+        response = requests.post(
+            "https://api.voyageai.com/v1/embeddings",
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["data"][0]["embedding"]
+
+    def create_batch(
+        self, prompts_with_ids: dict[str, str], endpoint: str = "/v1/embeddings", **kwargs
+    ) -> str:
+        raise NotImplementedError("Batch API is not supported by Voyage AI Client.")
+
+    def poll_batch(self, batch_id: str) -> dict[str, Any]:
+        raise NotImplementedError("Batch API is not supported by Voyage AI Client.")
+
+
 def get_llm_client(config: dict) -> LLMClient:
     """Factory to create the appropriate LLM client."""
     provider = config.get("provider", "openai")
@@ -603,9 +656,12 @@ def get_llm_client(config: dict) -> LLMClient:
         return LMStudioClient(**config)
     elif provider == "gemini":
         return GeminiClient(**config)
+    elif provider == "voyage":
+        return VoyageClient(**config)
     elif provider == "mock":
         return MockClient()
     elif provider == "null":
         return NullClient(**config)
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
+

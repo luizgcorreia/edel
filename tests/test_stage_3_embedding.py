@@ -184,3 +184,45 @@ def test_embedding_stage_filtering():
     assert cov["interpretation"]["filtered"] == 1
     assert cov["interpretation"]["stayed"] == 3
 
+
+def test_voyage_client_init_and_generate():
+    """Test VoyageClient initialization."""
+    from edel.io.llm import get_llm_client, VoyageClient
+    config = {
+        "provider": "voyage",
+        "model": "voyage-code-2",
+        "api_key": "test-key",
+        "input_type": "document"
+    }
+    client = get_llm_client(config)
+    assert isinstance(client, VoyageClient)
+    assert client.model == "voyage-code-2"
+    assert client.api_key == "test-key"
+
+
+def test_voyage_client_embedding(monkeypatch):
+    """Test VoyageClient embedding generation using mocked requests."""
+    from edel.io.llm import VoyageClient
+    import requests
+    
+    class MockResponse:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+            
+    def mock_post(url, headers, json, timeout):
+        assert url == "https://api.voyageai.com/v1/embeddings"
+        assert headers["Authorization"] == "Bearer test-key"
+        assert json["model"] == "voyage-code-2"
+        assert json["input"] == ["hello"]
+        assert json["input_type"] == "document"
+        return MockResponse()
+        
+    monkeypatch.setattr(requests, "post", mock_post)
+    
+    client = VoyageClient(model="voyage-code-2", api_key="test-key", input_type="document")
+    emb = client.generate_embedding("hello")
+    assert emb == [0.1, 0.2, 0.3]
+
+

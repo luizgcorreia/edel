@@ -64,6 +64,36 @@ class EphemeralReplClient:
             sock.close()
 
 
+def expand_aspect_text(aspect: str, value: str) -> str:
+    """Expand sparse aspect text into a descriptive, natural language sentence."""
+    val_stripped = str(value).strip()
+    if aspect == "problem":
+        if not val_stripped:
+            return "No lemma statement is available."
+        return f"The theorem or lemma statement is: {val_stripped}"
+        
+    elif aspect == "method":
+        if not val_stripped:
+            return "No theory context is available."
+        if val_stripped.startswith("Theory context:"):
+            # Make it sound more natural
+            content = val_stripped[len("Theory context:"):].strip()
+            return f"This lemma is defined in the theory context: {content}"
+        return f"This lemma is defined in the context: {val_stripped}"
+        
+    elif aspect == "finding":
+        if not val_stripped:
+            return "No details about the proof method are available."
+        return f"The proof uses the following methods and structure: {val_stripped}"
+        
+    elif aspect == "interpretation":
+        if not val_stripped or val_stripped.lower() == "none":
+            return "No specific reference theorem or lemma interpretation is associated with this proof."
+        return f"This theorem represents or relies on the reference theorem: {val_stripped}"
+        
+    return val_stripped
+
+
 def ingest_session_lemmas(
     host: str = "127.0.0.1",
     port: int = 9147,
@@ -80,6 +110,9 @@ def ingest_session_lemmas(
     """
     client = EphemeralReplClient(host=host, port=port, token=token)
     metadata_parser = AFPMetadataParser()
+    
+    print("Configuring Isabelle REPL to output full command spans (disabling 80-char truncation)...")
+    client.send("Ir.config (fn cfg => {color = #color cfg, show_ignored = #show_ignored cfg, full_spans = true, show_theory_in_source = #show_theory_in_source cfg, auto_replay = #auto_replay cfg});")
     
     print("Fetching loaded theories...")
     raw_thys = client.send("Ir.theories ();")
@@ -138,6 +171,17 @@ def ingest_session_lemmas(
             entry_name = theory.split('.')[0] if '.' in theory else theory
             entry_meta = metadata_parser.load_entry_metadata(entry_name)
             
+            # Parse publication year from metadata date (typically YYYY-MM-DD)
+            date_str = entry_meta.get("date", "")
+            pub_year = 2025  # Default/fallback to current Isabelle/AFP session year
+            if date_str:
+                try:
+                    parts = date_str.split("-")
+                    if parts and parts[0].isdigit():
+                        pub_year = int(parts[0])
+                except Exception:
+                    pass
+            
             # 6. Extract aspects and build dataframe records
             for lemma in lemmas:
                 aspects = extract_aspects(lemma, theory_header=theory_header, entry_metadata=entry_meta)
@@ -152,6 +196,7 @@ def ingest_session_lemmas(
                     "line": lemma["line"],
                     "proof_text": lemma["proof_text"],
                     "statement_text": lemma["statement_text"],
+                    "publication_year": pub_year,
                 })
                 
         except Exception as e:
@@ -160,6 +205,14 @@ def ingest_session_lemmas(
             
     # 7. Post-process definition dependencies (lemmas that use this definition)
     compute_definition_dependencies(records)
+    
+    # 8. Expand aspects into descriptive sentences
+    print("Expanding aspects into descriptive descriptions...")
+    for r in records:
+        r["problem"] = expand_aspect_text("problem", r["problem"])
+        r["method"] = expand_aspect_text("method", r["method"])
+        r["finding"] = expand_aspect_text("finding", r["finding"])
+        r["interpretation"] = expand_aspect_text("interpretation", r["interpretation"])
             
     df = pd.DataFrame(records)
     print(f"Ingestion completed. Total lemmas ingested: {len(df)}")

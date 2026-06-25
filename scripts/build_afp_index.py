@@ -70,7 +70,7 @@ def main():
     parser.add_argument("--afp-dir", default="/home/correia/edel/external/afp-2025-2/thys", help="Path to AFP thys/ directory")
     parser.add_argument("--output", default="artifacts/rag_index", help="Output RAG index directory")
     parser.add_argument("--provider", default="voyage", choices=["openai", "voyage"], help="Embedding provider")
-    parser.add_argument("--model", default="voyage-code-2", help="Embedding model name")
+    parser.add_argument("--model", default="voyage-code-3", help="Embedding model name")
     parser.add_argument("--port", type=int, default=9147, help="Port to run REPL daemon on")
     
     args = parser.parse_args()

@@ -57,16 +57,32 @@ class AFPMetadataParser:
         if not self.metadata_dir:
             return {}
             
-        # The filename in metadata/entries/ matches the entry name
-        toml_path = self.metadata_dir / f"{entry_name}.toml"
-        if not toml_path.exists():
-            # Try lowercase or case-insensitive fallback if needed
+        # Standardize entry_name (replace underscores with hyphens for TOML filenames)
+        name_variants = [
+            entry_name,
+            entry_name.replace("_", "-"),
+            entry_name.replace("-", "_")
+        ]
+        
+        toml_path = None
+        for variant in name_variants:
+            candidate = self.metadata_dir / f"{variant}.toml"
+            if candidate.exists():
+                toml_path = candidate
+                break
+                
+        if not toml_path:
+            # Flexible case-insensitive and dash/underscore-agnostic matching
+            def normalize(s: str) -> str:
+                return s.lower().replace("_", "").replace("-", "")
+                
+            norm_name = normalize(entry_name)
             for file in self.metadata_dir.glob("*.toml"):
-                if file.stem.lower() == entry_name.lower():
+                if normalize(file.stem) == norm_name:
                     toml_path = file
                     break
                     
-        if not toml_path.exists():
+        if not toml_path or not toml_path.exists():
             return {}
             
         try:

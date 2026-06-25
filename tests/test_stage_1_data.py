@@ -311,3 +311,86 @@ def test_openalex_deterministic_proportional_temporal_mocked():
     with patch("edel.providers.openalex.openalex_request", side_effect=side_effect):
         df, _ = generate_openalex(config)
         assert len(df) == 5
+
+
+def test_afp_rag_provider(tmp_path):
+    """Test the afp_rag provider using a temporary RAG index."""
+    import numpy as np
+    from edel.isabelle.index import NumpyRAGIndex
+    from edel.providers.afp_rag import generate_dataset as generate_afp_rag
+    
+    # 1. Create a dummy index with 3 lemmas
+    index = NumpyRAGIndex()
+    index.metadata = [
+        {
+            "title": "Session1.Theory1.lemma_a",
+            "problem": "lemma_a statement",
+            "method": "lemma_a context",
+            "finding": "lemma_a strategy",
+            "interpretation": "lemma_b", # lemma_a references lemma_b
+            "theory": "Session1.Theory1",
+            "file": "Theory1.thy",
+            "line": 10,
+            "proof_text": "by simp",
+            "statement_text": "lemma lemma_a"
+        },
+        {
+            "title": "Session1.Theory1.lemma_b",
+            "problem": "lemma_b statement",
+            "method": "lemma_b context",
+            "finding": "lemma_b strategy",
+            "interpretation": "lemma_c", # lemma_b references lemma_c
+            "theory": "Session1.Theory1",
+            "file": "Theory1.thy",
+            "line": 20,
+            "proof_text": "by simp",
+            "statement_text": "lemma lemma_b"
+        },
+        {
+            "title": "Session2.Theory2.lemma_c",
+            "problem": "lemma_c statement",
+            "method": "lemma_c context",
+            "finding": "lemma_c strategy",
+            "interpretation": "none",
+            "theory": "Session2.Theory2",
+            "file": "Theory2.thy",
+            "line": 30,
+            "proof_text": "by simp",
+            "statement_text": "lemma lemma_c"
+        }
+    ]
+    # Set dummy embeddings (dim=1536)
+    for aspect in ["problem", "method", "finding", "interpretation"]:
+        index.embeddings[aspect] = np.random.rand(3, 1536).astype(np.float32)
+        
+    # Save dummy index
+    index_dir = tmp_path / "dummy_index"
+    index.save(index_dir)
+    
+    # 2. Run data provider
+    config = {
+        "provider": {
+            "type": "afp_rag",
+            "params": {
+                "index_dir": index_dir
+            }
+        }
+    }
+    
+    df, _ = generate_afp_rag(config)
+    
+    # 3. Assertions
+    assert len(df) == 3
+    assert "problem_embedding" in df.columns
+    assert "method_embedding" in df.columns
+    assert "finding_embedding" in df.columns
+    assert "interpretation_embedding" in df.columns
+    
+    # Check citation counts (cited_by_count)
+    # lemma_a is cited 0 times
+    # lemma_b is cited 1 time (by lemma_a)
+    # lemma_c is cited 1 time (by lemma_b)
+    citation_dict = dict(zip(df["title"], df["cited_by_count"]))
+    assert citation_dict["Session1.Theory1.lemma_a"] == 0
+    assert citation_dict["Session1.Theory1.lemma_b"] == 1
+    assert citation_dict["Session2.Theory2.lemma_c"] == 1

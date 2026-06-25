@@ -69,12 +69,16 @@ class OpenAIClient(LLMClient):
         response = self.client.chat.completions.create(**params)
         return response.choices[0].message.content
 
-    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+    def generate_embedding(self, text: str | list[str], **kwargs) -> list[float] | list[list[float]]:
+        inputs = text if isinstance(text, list) else [text]
+        inputs = [t.replace("\n", " ") for t in inputs]
         response = self.client.embeddings.create(
-            input=[text.replace("\n", " ")],
+            input=inputs,
             model=self.model,
             **kwargs
         )
+        if isinstance(text, list):
+            return [d.embedding for d in response.data]
         return response.data[0].embedding
 
     def create_batch(
@@ -265,12 +269,14 @@ class GeminiClient(LLMClient):
         )
         return response.text
 
-    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+    def generate_embedding(self, text: str | list[str], **kwargs) -> list[float] | list[list[float]]:
         # Using the standard embedding model for Gemini
         response = self.client.models.embed_content(
             model="text-embedding-004",
             contents=text,
         )
+        if isinstance(text, list):
+            return [emb.values for emb in response.embeddings]
         return response.embeddings[0].values
 
     def _get_or_create_bucket(self):
@@ -490,11 +496,13 @@ class MockClient(LLMClient):
             }
         )
 
-    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+    def generate_embedding(self, text: str | list[str], **kwargs) -> list[float] | list[list[float]]:
         import numpy as np
 
         # Default to 1536 (ada-002) if not specified
         dim = kwargs.get("dimensions", 1536)
+        if isinstance(text, list):
+            return [np.random.rand(dim).tolist() for _ in text]
         return np.random.rand(dim).tolist()
 
     def create_batch(
@@ -565,9 +573,11 @@ class NullClient(LLMClient):
         }
         return json.dumps(data)
 
-    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+    def generate_embedding(self, text: str | list[str], **kwargs) -> list[float] | list[list[float]]:
         import numpy as np
         dim = kwargs.get("dimensions", 1536)
+        if isinstance(text, list):
+            return [np.random.rand(dim).tolist() for _ in text]
         return np.random.rand(dim).tolist()
 
     def create_batch(
@@ -608,7 +618,7 @@ class VoyageClient(LLMClient):
     def generate(self, prompt: str, **kwargs) -> str:
         raise NotImplementedError("Voyage AI client only supports generating embeddings.")
 
-    def generate_embedding(self, text: str, **kwargs) -> list[float]:
+    def generate_embedding(self, text: str | list[str], **kwargs) -> list[float] | list[list[float]]:
         import requests
         
         headers = {
@@ -620,7 +630,7 @@ class VoyageClient(LLMClient):
         input_type = kwargs.get("input_type") or self.kwargs.get("input_type")
         
         payload = {
-            "input": [text],
+            "input": text if isinstance(text, list) else [text],
             "model": self.model,
         }
         if input_type:
@@ -634,6 +644,8 @@ class VoyageClient(LLMClient):
         )
         response.raise_for_status()
         data = response.json()
+        if isinstance(text, list):
+            return [d["embedding"] for d in data["data"]]
         return data["data"][0]["embedding"]
 
     def create_batch(

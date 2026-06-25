@@ -29,8 +29,8 @@ except Exception as e:
 
 def get_embedding_client():
     """Build the embedding client from environment configuration."""
-    provider = os.getenv("EDEL_EMBEDDING_PROVIDER", "openai")
-    model = os.getenv("EDEL_EMBEDDING_MODEL", "text-embedding-3-large")
+    provider = os.getenv("EDEL_EMBEDDING_PROVIDER", "voyage")
+    model = os.getenv("EDEL_EMBEDDING_MODEL", "voyage-code-3")
     api_key = os.getenv("VOYAGE_API_KEY" if provider == "voyage" else "OPENAI_API_KEY", "")
     
     config = {

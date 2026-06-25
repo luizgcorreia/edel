@@ -77,6 +77,19 @@ def run_embedding_stage(
         print(f"Filtering embeddings to only include language: {target_lang}")
         df = df[df["language"] == target_lang].copy()
 
+    if provider == "none":
+        fields_to_embed = ["problem", "method", "finding", "interpretation"] if mode != "single" else ["_combined_text"]
+        target_cols = [f"{f}_embedding" for f in fields_to_embed] if mode != "single" else ["embedding"]
+        for col in target_cols:
+            if col not in df.columns:
+                raise ValueError(
+                    f"Embedding provider is 'none' but required column '{col}' is missing from the input DataFrame."
+                )
+        print("Stage 3: Embedding provider is 'none'. Skipping LLM API calls.")
+        if return_report:
+            return df, filter_report
+        return df
+
     # Pass the entire embed_cfg so that additional kwargs like 'location' reach the LLM client
     client = get_llm_client(embed_cfg)
 
@@ -88,15 +101,15 @@ def run_embedding_stage(
         
         df_out = process_batch(df, client, mode, batch_size, provider=provider, batch_log_path=batch_log_path)
     else:
-        df_out = process_simple(df, client, mode)
+        df_out = process_simple(df, client, mode, batch_size=128)
 
     if return_report:
         return df_out, filter_report
     return df_out
 
 
-def process_simple(df: pd.DataFrame, client: LLMClient, mode: str) -> pd.DataFrame:
-    """Generate embeddings sequentially."""
+def process_simple(df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int = 128) -> pd.DataFrame:
+    """Generate embeddings sequentially using batching if supported."""
     out = df.copy()
 
     fields_to_embed = []
@@ -111,20 +124,56 @@ def process_simple(df: pd.DataFrame, client: LLMClient, mode: str) -> pd.DataFra
 
     for field in fields_to_embed:
         target_col = "embedding" if mode == "single" else f"{field}_embedding"
-        embeddings = []
-        print(f"Generating embeddings for {field}...")
-        for _, row in tqdm(out.iterrows(), total=len(out), desc=f"Embedding {field}"):
+        
+        # Collect all rows for this field
+        rows_data = []
+        for idx, row in out.iterrows():
             text = str(row[field]).strip()
+            rows_data.append((idx, text))
+            
+        embeddings_map = {}
+        non_empty_batches = []
+        current_batch = []
+        
+        for idx, text in rows_data:
             if not text:
-                embeddings.append(None)
+                embeddings_map[idx] = None
                 continue
-            try:
-                emb = client.generate_embedding(text)
-                embeddings.append(json.dumps(emb))
-            except Exception as e:
-                print(f"Error embedding row: {e}")
-                embeddings.append(None)
-        out[target_col] = embeddings
+            current_batch.append((idx, text))
+            if len(current_batch) == batch_size:
+                non_empty_batches.append(current_batch)
+                current_batch = []
+        if current_batch:
+            non_empty_batches.append(current_batch)
+            
+        print(f"Generating embeddings for {field} in chunks of {batch_size}...")
+        
+        with tqdm(total=len(rows_data), desc=f"Embedding {field}") as pbar:
+            for batch in non_empty_batches:
+                batch_indices = [idx for idx, _ in batch]
+                batch_texts = [text for _, text in batch]
+                
+                try:
+                    res = client.generate_embedding(batch_texts)
+                    for idx, emb in zip(batch_indices, res):
+                        embeddings_map[idx] = json.dumps(emb)
+                except Exception as e:
+                    print(f"Batch embedding failed: {e}. Falling back to row-by-row...")
+                    for idx, text in batch:
+                        try:
+                            emb = client.generate_embedding(text)
+                            embeddings_map[idx] = json.dumps(emb)
+                        except Exception as inner_e:
+                            print(f"Error embedding row: {inner_e}")
+                            embeddings_map[idx] = None
+                pbar.update(len(batch))
+            
+            # Update progress bar for any empty texts that we skipped
+            empty_count = sum(1 for _, text in rows_data if not text)
+            pbar.update(empty_count)
+            
+        embeddings_list = [embeddings_map[idx] for idx in out.index]
+        out[target_col] = embeddings_list
 
     if "_combined_text" in out.columns:
         out = out.drop(columns=["_combined_text"])

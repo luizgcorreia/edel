@@ -1,6 +1,6 @@
 """Explicit provider registry for Stage 1 data collection."""
 
-from edel.providers import afp, lexicon_null, openalex, scigen_null, syntax_null
+from edel.providers import afp, lexicon_null, openalex, scigen_null, syntax_null, afp_rag
 
 PROVIDERS = {
     "openalex": openalex.generate_dataset,
@@ -8,6 +8,8 @@ PROVIDERS = {
     "lexicon_null": lexicon_null.generate_dataset,
     "syntax_null": syntax_null.generate_dataset,
     "scigen_null": scigen_null.generate_dataset,
+    "afp_rag": afp_rag.generate_dataset,
+    "isabelle_rag": afp_rag.generate_dataset,
 }
 
 

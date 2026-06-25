@@ -60,3 +60,70 @@ def test_full_pipeline_mock(tmp_path):
     print("\n--- THIRD RUN (Force recompute) ---")
     results3 = run_full_pipeline(config, base_path=tmp_path, force=True)
     assert results3["labels"] == results1["labels"] # Mocks return same data
+
+
+def test_full_pipeline_afp_rag(tmp_path):
+    """Run the pipeline end-to-end with the afp_rag provider and 'none' for structuring and embedding."""
+    import numpy as np
+    from edel.isabelle.index import NumpyRAGIndex
+    
+    # 1. Create a dummy index with 5 lemmas
+    index = NumpyRAGIndex()
+    index.metadata = [
+        {
+            "title": f"Session.Theory.lemma_{i}",
+            "problem": f"lemma_{i} statement",
+            "method": f"lemma_{i} context",
+            "finding": f"lemma_{i} strategy",
+            "interpretation": "none",
+            "theory": "Session.Theory",
+            "file": "Theory.thy",
+            "line": i * 10,
+            "proof_text": "by simp",
+            "statement_text": f"lemma lemma_{i}"
+        }
+        for i in range(5)
+    ]
+    # Set dummy embeddings (dim=16)
+    for aspect in ["problem", "method", "finding", "interpretation"]:
+        index.embeddings[aspect] = np.random.rand(5, 16).astype(np.float32)
+        
+    index_dir = tmp_path / "dummy_index"
+    index.save(index_dir)
+    
+    # 2. Configure pipeline
+    config = RUN_CONFIG.copy()
+    config["data"]["provider"] = {
+        "type": "afp_rag",
+        "params": {"index_dir": str(index_dir)}
+    }
+    # Set structuring and embedding to 'none'
+    config["structured_abstracts"] = {
+        "provider": "none"
+    }
+    config["embedding"] = {
+        "mode": "multi",
+        "provider": "none",
+        "n_dimensions": 16
+    }
+    config["labeling"]["provider"] = "mock"
+    config["clustering"] = {
+        "test_cluster": {
+            "source": "proj_p",
+            "algorithm": "kmeans",
+            "params": {"n_clusters": 2, "n_init": 10}
+        }
+    }
+    config["labeling"]["clusters"]["cluster_keys"] = ["test_cluster"]
+    
+    # Run full pipeline
+    results = run_full_pipeline(config, base_path=tmp_path / "pipeline_run")
+    
+    assert "data" in results
+    assert "structuring" in results
+    assert "embedding" in results
+    assert "projection" in results
+    assert "vector_field" in results
+    assert "clustering_df" in results
+    assert "labels" in results
+    assert "landscape" in results

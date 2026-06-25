@@ -17,7 +17,7 @@ try:
 except ImportError:
     hdbscan = None
 
-from edel.pipeline.projection import load_embeddings_to_matrix
+from edel.pipeline.projection import load_embeddings_to_matrix, detect_embedding_dimensions
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def run_clustering_stage(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Orchestrate the clustering stage."""
     cluster_cfg = config.get("clustering", {})
-    dimensions = config.get("embedding", {}).get("n_dimensions", 1536)
+    dimensions = detect_embedding_dimensions(df, config)
 
     out_df = df.copy()
     out_field = field.copy()

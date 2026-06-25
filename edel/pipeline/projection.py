@@ -263,13 +263,34 @@ def calculate_signatures_and_magnitudes(df: pd.DataFrame, dimensions: int) -> pd
     return df
 
 
+def detect_embedding_dimensions(df: pd.DataFrame, config: dict) -> int:
+    """Helper to detect actual embedding dimensions from the dataframe or config."""
+    embedding_cols = [c for c in df.columns if c.endswith("_embedding") or c == "embedding"]
+    for col in embedding_cols:
+        non_null = df[col].dropna()
+        if not non_null.empty:
+            first_val = non_null.iloc[0]
+            try:
+                if isinstance(first_val, str):
+                    parsed = json.loads(first_val)
+                else:
+                    parsed = first_val
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    logger.info(f"Auto-detected embedding dimension {len(parsed)} from column '{col}'")
+                    return len(parsed)
+            except Exception:
+                continue
+                
+    return config.get("embedding", {}).get("n_dimensions", 1536)
+
+
 def run_projection_stage(df: pd.DataFrame, config: dict) -> Tuple[pd.DataFrame, dict]:
     """Orchestrate the dimensionality reduction stage."""
     dr_cfg = config.get("dimensionality_reduction", {})
     method = dr_cfg.get("method", "umap")
     remove_pc = dr_cfg.get("remove_top_pcs", 0)
     anisotropy_method = dr_cfg.get("anisotropy_method", "pc_removal" if remove_pc > 0 else "none")
-    dimensions = config.get("embedding", {}).get("n_dimensions", 1536)
+    dimensions = detect_embedding_dimensions(df, config)
     
     out = df.copy()
     report = {}

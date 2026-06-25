@@ -47,12 +47,28 @@ def plot_publication_year_dist(
         return
 
     plt.figure(figsize=(10, 6))
-    sns.histplot(df["publication_year"], bins=50, kde=True, color=color, alpha=0.7)
-    
+    years = df["publication_year"].dropna()
+    if years.empty:
+        print("Warning: No publication year data available to plot.")
+        return
+
+    min_data = int(years.min())
+    max_data = int(years.max())
+
+    if min_data == max_data:
+        x_min = min_data - 1
+        x_max = max_data + 1
+        sns.histplot(df["publication_year"], bins=1, kde=False, color=color, alpha=0.7)
+    else:
+        x_min = min(min_year, min_data - 1)
+        x_max = max(max_year, max_data + 1)
+        bin_width = 1 if (x_max - x_min) <= 50 else None
+        sns.histplot(df["publication_year"], binwidth=bin_width, kde=True, color=color, alpha=0.7)
+
     plt.title("Distribution of Publication Years", fontsize=14, fontweight="bold", pad=20)
     plt.xlabel("Publication Year", fontsize=12)
     plt.ylabel("Number of Works", fontsize=12)
-    plt.xlim(min_year, max_year)
+    plt.xlim(x_min, x_max)
     plt.tight_layout()
     plt.show()
 

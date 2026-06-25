@@ -233,6 +233,20 @@ async def store_lemma(
     return f"Successfully stored lemma '{theory}.{name}' in RAG session index. It is now searchable."
 
 
+@mcp.tool(description="Permanently persist all dynamically stored session lemmas to the on-disk static index.")
+async def persist_session_lemmas() -> str:
+    """Merge the in-memory session index into the on-disk index."""
+    if not index.live_metadata:
+        return "No new session lemmas to persist."
+        
+    num_lemmas = len(index.live_metadata)
+    try:
+        index.persist_live_lemmas(INDEX_DIR)
+        return f"Successfully persisted {num_lemmas} session lemmas to the static index at '{INDEX_DIR}'."
+    except Exception as e:
+        return f"Failed to persist lemmas: {str(e)}"
+
+
 @mcp.tool(description="List all lemmas added to the RAG session index during this session.")
 async def session_lemmas() -> str:
     """Return all session lemmas."""
@@ -250,3 +264,4 @@ async def session_lemmas() -> str:
 
 if __name__ == "__main__":
     mcp.run()
+

@@ -52,8 +52,18 @@ def extract_lemma_name(stmt: str) -> str:
     return ""
 
 
+def extract_definition_name(stmt: str, keyword: str) -> str:
+    """Extract the formal name of a definition/function from its declaration statement."""
+    stmt = stmt.strip()
+    stmt_clean = re.sub(r'\s+', ' ', stmt)
+    m = re.match(rf'^(?:{keyword})\s+([a-zA-Z0-9_\'\.]+)', stmt_clean)
+    if m:
+        return m.group(1)
+    return ""
+
+
 def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str]) -> list[dict[str, Any]]:
-    """Group sequential segments into logical lemma units with statement and proof.
+    """Group sequential segments into logical lemma and definition units with statement and proof.
     
     Args:
         seg_map: Dict of {idx: {keyword, line, offset, file}}
@@ -65,10 +75,16 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
     indices = sorted(segments.keys())
     
     LEMMA_KEYWORDS = {"lemma", "theorem", "corollary", "proposition", "schematic_goal"}
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation"
+    }
+    ALL_INGEST_KEYWORDS = LEMMA_KEYWORDS | DEF_KEYWORDS
+    
     DECL_KEYWORDS = {
         "lemma", "theorem", "corollary", "proposition", "schematic_goal",
         "definition", "fun", "primrec", "function", "datatype", "type_synonym",
-        "inductive", "coinductive", "record", "class", "instantiation",
+        "inductive", "coinductive", "record", "abbreviation", "class", "instantiation",
         "locale", "context", "end", "theory"
     }
     PROOF_KEYWORDS = {"by", "apply", "proof", "qed", "sorry", "oops", "done", "defer", "prefer", "using", "unfolding"}
@@ -78,11 +94,12 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
         keyword = seg_info.get("keyword", "")
         text = segments[idx]
         
-        if keyword in LEMMA_KEYWORDS:
+        if keyword in ALL_INGEST_KEYWORDS:
             if current_unit:
                 units.append(current_unit)
+            name = extract_lemma_name(text) if keyword in LEMMA_KEYWORDS else extract_definition_name(text, keyword)
             current_unit = {
-                "name": extract_lemma_name(text),
+                "name": name,
                 "keyword": keyword,
                 "theory": seg_info.get("theory", ""),
                 "file": seg_info.get("file", ""),
@@ -112,9 +129,11 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
     final_units = []
     for u in units:
         proof_text = "\n".join(u["proof_segments"]).strip()
+        name_placeholder = f"{u['keyword']}_{u['segment_start']}"
         final_units.append({
-            "id": f"{u['theory']}.{u['name']}" if u['name'] else f"{u['theory']}.lemma_{u['segment_start']}",
+            "id": f"{u['theory']}.{u['name']}" if u['name'] else f"{u['theory']}.{name_placeholder}",
             "name": u["name"],
+            "keyword": u["keyword"],
             "theory": u["theory"],
             "file": u["file"],
             "line": u["start_line"],
@@ -124,3 +143,4 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
             "proof_text": proof_text,
         })
     return final_units
+

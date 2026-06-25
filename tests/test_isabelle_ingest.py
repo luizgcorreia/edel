@@ -26,14 +26,16 @@ def test_ingest_session_lemmas(monkeypatch):
         elif 'Ir.source "MockSession.TestTheory"' in ml_command:
             return (
                 "   0  theory TestTheory imports Main begin\n"
-                "   2  lemma test_lemma [simp]: \"A ==> A\"\n"
-                "   4    by simp\n"
+                "   2  definition my_definition where \"my_definition x = x\"\n"
+                "   4  lemma test_lemma [simp]: \"my_definition A = A\"\n"
+                "   6    by (simp add: my_definition_def)\n"
             )
         elif 'Ir.source_map "MockSession.TestTheory"' in ml_command:
             return (
                 "   0  theory                   1       0  TestTheory.thy\n"
-                "   2  lemma                    2      39  TestTheory.thy\n"
-                "   4  by                       3      75  TestTheory.thy\n"
+                "   2  definition               2      39  TestTheory.thy\n"
+                "   4  lemma                    3      90  TestTheory.thy\n"
+                "   6  by                       4     130  TestTheory.thy\n"
             )
         return ""
         
@@ -45,11 +47,20 @@ def test_ingest_session_lemmas(monkeypatch):
     df = ingest.ingest_session_lemmas(token="dummy-token")
     
     assert isinstance(df, pd.DataFrame)
-    assert len(df) == 1
-    assert df["title"].iloc[0] == "MockSession.TestTheory.test_lemma"
-    assert df["problem"].iloc[0] == "A ==> A"
-    assert "Mock Abstract" in df["method"].iloc[0]
-    assert df["finding"].iloc[0] == "simp"
-    assert df["interpretation"].iloc[0] == "none"
-    assert df["theory"].iloc[0] == "MockSession.TestTheory"
-    assert df["file"].iloc[0] == "TestTheory.thy"
+    assert len(df) == 2
+    
+    # Check definition
+    df_def = df[df["title"].str.contains("my_definition")]
+    assert len(df_def) == 1
+    assert "definition-style definition" in df_def["finding"].iloc[0]
+    assert df_def["interpretation"].iloc[0] == "MockSession.TestTheory.test_lemma"
+    
+    # Check lemma
+    df_lemma = df[df["title"].str.contains("test_lemma")]
+    assert len(df_lemma) == 1
+    assert df_lemma["problem"].iloc[0] == "my_definition A = A"
+    assert "simp" in df_lemma["finding"].iloc[0]
+    assert "simple-style" in df_lemma["finding"].iloc[0]
+    assert df_lemma["theory"].iloc[0] == "MockSession.TestTheory"
+    assert df_lemma["file"].iloc[0] == "TestTheory.thy"
+

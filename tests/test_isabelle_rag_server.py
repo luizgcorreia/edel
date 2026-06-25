@@ -92,3 +92,32 @@ async def test_store_and_session_lemmas(mock_index_and_client):
     res_list = await rag_server.session_lemmas()
     assert "my_new_lemma" in res_list
     assert "A ==> A" in res_list
+
+
+@pytest.mark.anyio
+async def test_persist_session_lemmas(mock_index_and_client, tmp_path, monkeypatch):
+    idx, client = mock_index_and_client
+    
+    # Set INDEX_DIR to a temp directory
+    monkeypatch.setattr(rag_server, "INDEX_DIR", str(tmp_path / "rag_index_persisted"))
+    
+    # 1. Try to persist when empty
+    res_empty = await rag_server.persist_session_lemmas()
+    assert "No new session lemmas to persist" in res_empty
+    
+    # 2. Store a lemma
+    await rag_server.store_lemma(
+        name="my_new_lemma",
+        statement="A ==> A",
+        proof_text="by simp",
+        theory="MyTheory"
+    )
+    
+    # 3. Persist and check success
+    res_persist = await rag_server.persist_session_lemmas()
+    assert "Successfully persisted 1 session lemmas" in res_persist
+    
+    # Verify index files were created in temp dir
+    assert (tmp_path / "rag_index_persisted" / "metadata.parquet").exists()
+    assert (tmp_path / "rag_index_persisted" / "embeddings.npz").exists()
+

@@ -127,6 +127,41 @@ class NumpyRAGIndex:
             if emb:
                 self.live_embeddings[aspect].append(emb)
 
+    def persist_live_lemmas(self, directory: str | Path):
+        """Merge live session lemmas into the static index and save to disk."""
+        if not self.live_metadata:
+            return
+            
+        # 1. Append live metadata to static metadata (clean of the 'source' key)
+        cleaned_live_meta = []
+        for meta in self.live_metadata:
+            cleaned = meta.copy()
+            cleaned.pop("source", None)
+            cleaned_live_meta.append(cleaned)
+            
+        self.metadata.extend(cleaned_live_meta)
+        
+        # 2. Append live embeddings to static embedding matrices
+        for aspect in ["problem", "method", "finding", "interpretation"]:
+            live_list = self.live_embeddings[aspect]
+            if not live_list:
+                continue
+            live_arr = np.array(live_list, dtype=np.float32)
+            
+            static_arr = self.embeddings[aspect]
+            if static_arr is None or len(static_arr) == 0:
+                self.embeddings[aspect] = live_arr
+            else:
+                self.embeddings[aspect] = np.vstack([static_arr, live_arr])
+                
+        # 3. Clear live data
+        self.live_metadata = []
+        for aspect in self.live_embeddings:
+            self.live_embeddings[aspect] = []
+            
+        # 4. Save to disk
+        self.save(directory)
+
     def search(
         self,
         query_vector: list[float],

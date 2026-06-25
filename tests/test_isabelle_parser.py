@@ -36,10 +36,19 @@ def test_group_segments_to_lemmas():
     }
     
     units = group_segments_to_lemmas(seg_map, segments)
-    assert len(units) == 1
-    unit = units[0]
-    assert unit["name"] == "test1"
-    assert unit["statement_text"] == 'lemma test1 [simp]: "A & B ==> A"'
-    assert unit["proof_text"] == "by simp"
-    assert unit["theory"] == "Test"
-    assert unit["file"] == "Test.thy"
+    assert len(units) == 2
+    
+    # Check Lemma unit
+    unit1 = units[0]
+    assert unit1["name"] == "test1"
+    assert unit1["keyword"] == "lemma"
+    assert unit1["statement_text"] == 'lemma test1 [simp]: "A & B ==> A"'
+    assert unit1["proof_text"] == "by simp"
+    
+    # Check Definition unit
+    unit2 = units[1]
+    assert unit2["name"] == "test2"
+    assert unit2["keyword"] == "definition"
+    assert unit2["statement_text"] == 'definition test2 where "test2 x = x"'
+    assert unit2["proof_text"] == ""
+

@@ -158,6 +158,43 @@ def ingest_session_lemmas(
             print(f"  Error processing theory {theory}: {e}")
             continue
             
+    # 7. Post-process definition dependencies (lemmas that use this definition)
+    compute_definition_dependencies(records)
+            
     df = pd.DataFrame(records)
     print(f"Ingestion completed. Total lemmas ingested: {len(df)}")
     return df
+
+
+def compute_definition_dependencies(records: list[dict[str, Any]]) -> None:
+    """Find all lemmas that use/reference each definition, and list them in the definition's interpretation aspect."""
+    definitions = []
+    for r in records:
+        finding = r.get("finding", "")
+        if "definition" in finding:
+            title = r.get("title", "")
+            name = title.split(".")[-1] if "." in title else title
+            if name:
+                definitions.append((r, name))
+                
+    for def_record, def_name in definitions:
+        using_lemmas = []
+        pattern = re.compile(rf'\b{re.escape(def_name)}(?:_def)?\b')
+        
+        for r in records:
+            # Skip self and other definitions
+            if r is def_record or "definition" in r.get("finding", ""):
+                continue
+            
+            stmt = r.get("statement_text", "") or r.get("problem", "")
+            proof = r.get("proof_text", "")
+            deps = r.get("interpretation", "")
+            
+            if pattern.search(stmt) or pattern.search(proof) or pattern.search(deps):
+                using_lemmas.append(r.get("title", ""))
+                
+        if using_lemmas:
+            def_record["interpretation"] = ", ".join(sorted(using_lemmas))
+        else:
+            def_record["interpretation"] = "none"
+

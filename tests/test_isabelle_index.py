@@ -84,3 +84,24 @@ def test_numpy_rag_index_lifecycle(tmp_path):
     results_filtered = idx2.search(query_vector=[0.6, 0.8], aspect="problem", max_results=5, theory_filter="HOL")
     assert len(results_filtered) == 2
     assert all("HOL" in r["lemma"]["theory"] for r in results_filtered)
+
+    # 7. Test persistence of live lemmas
+    persist_dir = tmp_path / "rag_index_persisted"
+    idx2.persist_live_lemmas(persist_dir)
+    
+    # Verify live metadata/embeddings are cleared in memory
+    assert len(idx2.live_metadata) == 0
+    assert len(idx2.live_embeddings["problem"]) == 0
+    
+    # Verify static metadata/embeddings now include the new lemma (total 3 lemmas)
+    assert len(idx2.metadata) == 3
+    assert idx2.embeddings["problem"].shape == (3, 2)
+    assert idx2.metadata[-1]["title"] == "MyTheory.my_new_lemma"
+    
+    # Load from disk and verify it has all 3 lemmas
+    idx3 = NumpyRAGIndex()
+    idx3.load(persist_dir)
+    assert len(idx3.metadata) == 3
+    assert idx3.embeddings["problem"].shape == (3, 2)
+    assert idx3.metadata[-1]["title"] == "MyTheory.my_new_lemma"
+

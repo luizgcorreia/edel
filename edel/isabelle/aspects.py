@@ -43,8 +43,11 @@ def extract_aspects(
             else:
                 aspect_statement = prop_part
         else:
-            # Fallback: remove lemma keyword and keep
-            aspect_statement = re.sub(r'^(lemma|theorem|corollary|proposition|schematic_goal)\s+', '', stmt_clean)
+            # Fallback: remove lemma or definition keyword and keep
+            aspect_statement = re.sub(
+                r'^(lemma|theorem|corollary|proposition|schematic_goal|definition|fun|primrec|function|datatype|type_synonym|inductive|coinductive|record|abbreviation)\s+',
+                '', stmt_clean
+            )
         
     # 2. Context aspect: theory imports + locale + entry abstract
     context_parts = []
@@ -59,13 +62,19 @@ def extract_aspects(
             context_parts.append(f"Topics: {', '.join(entry_metadata['topics'])}")
     aspect_context = "\n\n".join(context_parts) if context_parts else f"Theory: {lemma.get('theory', 'unknown')}"
     
-    # 3. Strategy aspect: extract proof methods
+    # 3. Strategy aspect: extract proof methods and classify style
+    keyword = lemma.get("keyword", "")
+    found_strategies = []
+    
+    # Label if this is a definition
+    if keyword in {"definition", "fun", "primrec", "function", "datatype", "type_synonym", "inductive", "coinductive", "record", "abbreviation"}:
+        found_strategies.append(f"{keyword}-style definition")
+        
     methods = [
         "induction", "coinduction", "cases", "simp_all", "simp", "auto", "blast", "metis",
         "fastforce", "force", "clarify", "clarsimp", "safe", "rule", "subst", "linarith",
         "presburger", "ring", "algebra", "arith", "pat_completeness", "relation", "computation"
     ]
-    found_strategies = []
     proof_lower = proof.lower()
     for m in methods:
         if re.search(rf'\b{m}\b', proof_lower):
@@ -77,6 +86,20 @@ def extract_aspects(
         found_strategies.append("sorry (unfinished)")
     if "oops" in proof_lower:
         found_strategies.append("oops (abandoned)")
+        
+    # Determine proof style (Teddy's apply-style, isa-style, hybrid, or simple)
+    if proof.strip():
+        has_apply = "apply" in proof_lower
+        has_isar = any(kw in proof_lower for kw in ["proof", "qed", "show", "have", "fix", "assume", "obtain"])
+        if has_apply and has_isar:
+            style = "hybrid-style"
+        elif has_apply:
+            style = "apply-style"
+        elif has_isar:
+            style = "isar-style"
+        else:
+            style = "simple-style"
+        found_strategies.append(style)
         
     aspect_strategy = ", ".join(found_strategies) if found_strategies else "unknown (direct or simple)"
     

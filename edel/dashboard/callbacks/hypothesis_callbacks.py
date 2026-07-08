@@ -58,7 +58,10 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
         # Load clustering/embeddings DataFrame
         df = load_artifact(record["artifact_refs"]["clustering"])
         
-        dimensions = record["config"].get("embedding", {}).get("n_dimensions", 1536)
+        dimensions = record["config"].get("embedding", {}).get("n_dimensions")
+        if dimensions is None:
+            from edel.pipeline.projection import detect_embedding_dimensions
+            dimensions = detect_embedding_dimensions(df, record["config"])
         
         # Norm and load matrices
         def load(aspect: str) -> np.ndarray:

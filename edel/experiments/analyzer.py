@@ -84,7 +84,12 @@ def analyze_experiments(
         try:
             # Build shared context: load all artifacts + pass config metadata
             artifacts = _load_artifacts(artifact_refs)
-            artifacts["_dimensions"] = _get(config, "embedding.n_dimensions", 1536)
+            df = artifacts.get("embedding")
+            if df is not None:
+                from edel.pipeline.projection import detect_embedding_dimensions
+                artifacts["_dimensions"] = detect_embedding_dimensions(df, config)
+            else:
+                artifacts["_dimensions"] = _get(config, "embedding.n_dimensions", 1536)
 
             # Run all metric functions via registry (shared mutable context)
             all_metrics, all_features = _compute_all_metrics(artifacts)

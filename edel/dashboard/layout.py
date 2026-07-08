@@ -13,6 +13,7 @@ from edel.dashboard.components import (
     hypothesis_panel_layout,
     convergence_panel_layout,
     report_generator_panel_layout,
+    robustness_panel_layout,
 )
 
 def create_layout() -> html.Div:
@@ -24,6 +25,7 @@ def create_layout() -> html.Div:
         dcc.Store(id='selected-paper-store'),
         dcc.Store(id='artifact-update-store', data=0),
         dcc.Store(id='traj-results-store'),
+        dcc.Store(id='rob-selected-ids-store', data=[]),
         
         # Navigation Bar
         dbc.NavbarSimple(
@@ -46,6 +48,7 @@ def create_layout() -> html.Div:
                 dbc.Tab(hypothesis_panel_layout(), label="7. Hypothesis Testing", tab_id="tab-hypothesis"),
                 dbc.Tab(convergence_panel_layout(), label="8. Convergence Analysis", tab_id="tab-convergence"),
                 dbc.Tab(report_generator_panel_layout(), label="9. Report Generator", tab_id="tab-report"),
+                dbc.Tab(robustness_panel_layout(), label="10. Robustness Tests", tab_id="tab-robustness"),
             ], id="main-tabs", active_tab="tab-metrics"),
         ], fluid=True, className="px-4"),
         

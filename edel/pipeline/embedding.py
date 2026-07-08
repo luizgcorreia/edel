@@ -15,45 +15,61 @@ from tqdm import tqdm
 from edel.io.llm import LLMClient, get_llm_client
 
 
-def filter_by_aspects(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Filter out rows where any of the four aspects (problem, method, finding, interpretation) are empty or missing."""
-    aspects = ["problem", "method", "finding", "interpretation"]
+def filter_by_aspects(
+    df: pd.DataFrame,
+    required_aspects: list[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Filter out rows where required aspects are empty or missing.
+
+    Args:
+        df: Input dataframe.
+        required_aspects: List of aspect column names that must be non-empty.
+            Defaults to all four aspects ``["problem", "method", "finding",
+            "interpretation"]`` for backward compatibility with the OpenAlex
+            pipeline.  For the Isabelle pipeline, pass ``["problem"]`` so that
+            definitions with empty ``method`` / ``finding`` are retained.
+    """
+    all_aspects = ["problem", "method", "finding", "interpretation"]
+    aspects_to_check = required_aspects if required_aspects is not None else all_aspects
+
     initial_count = len(df)
-    
+
     report = {
         "initial_count": initial_count,
         "aspect_coverage": {}
     }
-    
-    # 1. Calculate individual coverage
-    for aspect in aspects:
+
+    # 1. Calculate individual coverage (always report all four for visibility)
+    for aspect in all_aspects:
         if aspect in df.columns:
-            # We treat empty string, NaN, or whitespace-only as failed segmentation
             is_valid = df[aspect].notna() & (df[aspect].astype(str).str.strip() != "")
             stayed = int(is_valid.sum())
             filtered = initial_count - stayed
         else:
             filtered = initial_count
             stayed = 0
-            
+
         report["aspect_coverage"][aspect] = {
             "filtered": filtered,
             "stayed": stayed
         }
-        
-    # 2. Apply combined filter
-    if all(aspect in df.columns for aspect in aspects):
+
+    # 2. Apply combined filter only on required aspects
+    if all(aspect in df.columns for aspect in aspects_to_check):
         is_all_valid = pd.Series(True, index=df.index)
-        for aspect in aspects:
+        for aspect in aspects_to_check:
             is_all_valid &= df[aspect].notna() & (df[aspect].astype(str).str.strip() != "")
         df_filtered = df[is_all_valid].copy()
     else:
-        # If any aspect column is completely missing, filter everything
+        # If any required column is completely absent, reject everything
         df_filtered = df.iloc[0:0].copy()
-        
+
     report["total_filtered"] = initial_count - len(df_filtered)
     report["final_count"] = len(df_filtered)
-    
+
+    if required_aspects is not None and required_aspects != all_aspects:
+        report["required_aspects"] = required_aspects
+
     return df_filtered, report
 
 
@@ -61,11 +77,13 @@ def run_embedding_stage(
     df: pd.DataFrame, config: dict, base_path: str | Path = "artifacts", return_report: bool = False
 ) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, Any]]:
     """Orchestrate the text embedding stage."""
-    # Filter out entries where any of the 4 aspects are missing
-    df_filtered, filter_report = filter_by_aspects(df)
+    embed_cfg = config.get("embedding", {})
+
+    # Filter — use required_aspects from config if present (Isabelle uses ["problem"])
+    required_aspects = embed_cfg.get("required_aspects")
+    df_filtered, filter_report = filter_by_aspects(df, required_aspects=required_aspects)
     df = df_filtered
 
-    embed_cfg = config.get("embedding", {})
     provider = embed_cfg.get("provider", "openai")
     model = embed_cfg.get("model", "text-embedding-ada-002")
     mode = embed_cfg.get("mode", "multi")  # "single" or "multi"

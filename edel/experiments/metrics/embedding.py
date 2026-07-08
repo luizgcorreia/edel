@@ -174,7 +174,10 @@ def embedding_metrics(artifacts: dict, correction_method: str = "none", remove_p
     if df is None:
         return {"metrics": {}, "features": {}}
 
-    dimensions = artifacts.get("_dimensions", 1536)
+    dimensions = artifacts.get("_dimensions")
+    if dimensions is None:
+        from edel.pipeline.projection import detect_embedding_dimensions
+        dimensions = detect_embedding_dimensions(df, {})
     missing = [a for a in _ASPECTS if f"{a}_embedding" not in df.columns]
     if missing:
         return {"metrics": {}, "features": {}}

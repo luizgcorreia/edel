@@ -80,7 +80,13 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
         "inductive", "coinductive", "record", "abbreviation"
     }
     ALL_INGEST_KEYWORDS = LEMMA_KEYWORDS | DEF_KEYWORDS
-    
+
+    # Narrative/documentation segments — collected separately from proof steps
+    TEXT_COMMENT_KEYWORDS = {
+        "text", "txt", "section", "subsection", "subsubsection",
+        "paragraph", "chapter", "notepad"
+    }
+
     DECL_KEYWORDS = {
         "lemma", "theorem", "corollary", "proposition", "schematic_goal",
         "definition", "fun", "primrec", "function", "datatype", "type_synonym",
@@ -108,16 +114,20 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
                 "segment_end": idx,
                 "statement_text": text,
                 "proof_segments": [],
+                "text_comments": [],
             }
         elif current_unit:
+            if keyword in TEXT_COMMENT_KEYWORDS:
+                # Narrative segment — collect separately, not as a proof step
+                current_unit["text_comments"].append(text)
             # If we see another top-level declaration keyword, terminate current unit
-            if keyword in DECL_KEYWORDS and keyword not in PROOF_KEYWORDS:
+            elif keyword in DECL_KEYWORDS and keyword not in PROOF_KEYWORDS:
                 units.append(current_unit)
                 current_unit = None
             else:
                 current_unit["proof_segments"].append(text)
                 current_unit["segment_end"] = idx
-                
+
                 # If this segment terminates the proof
                 if keyword in {"by", "qed", "sorry", "oops"}:
                     units.append(current_unit)
@@ -141,6 +151,7 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
             "segment_end": u["segment_end"],
             "statement_text": u["statement_text"],
             "proof_text": proof_text,
+            "text_comments": u.get("text_comments", []),
         })
     return final_units
 

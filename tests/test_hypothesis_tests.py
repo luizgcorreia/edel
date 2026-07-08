@@ -128,3 +128,14 @@ def test_hypothesis_metrics(synthetic_artifacts):
     assert -1.0 <= metrics["h3_moran_i"] <= 1.0
     assert 0.0 <= metrics["h3_moran_pvalue"] <= 1.0
     assert 0.0 <= metrics["h3_gain_pvalue"] <= 1.0
+
+
+def test_hypothesis_metrics_dimension_autodiscovery(synthetic_artifacts):
+    """Verify that hypothesis metrics autodiscover dimensions when _dimensions is missing."""
+    artifacts = synthetic_artifacts.copy()
+    artifacts.pop("_dimensions", None)
+    
+    res = hypothesis_metrics(artifacts)
+    assert "metrics" in res
+    assert "h1a_energy_stat" in res["metrics"]
+

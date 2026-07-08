@@ -330,7 +330,10 @@ def hypothesis_metrics(artifacts: dict) -> dict:
     if df is None:
         return {"metrics": {}, "features": {}}
 
-    dimensions = artifacts.get("_dimensions", 1536)
+    dimensions = artifacts.get("_dimensions")
+    if dimensions is None:
+        from edel.pipeline.projection import detect_embedding_dimensions
+        dimensions = detect_embedding_dimensions(df, {})
     aspects = ["problem", "method", "finding", "interpretation"]
     if not all(f"{a}_embedding" in df.columns for a in aspects):
         return {"metrics": {}, "features": {}}

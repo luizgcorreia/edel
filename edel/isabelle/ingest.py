@@ -64,35 +64,6 @@ class EphemeralReplClient:
             sock.close()
 
 
-def expand_aspect_text(aspect: str, value: str) -> str:
-    """Expand sparse aspect text into a descriptive, natural language sentence."""
-    val_stripped = str(value).strip()
-    if aspect == "problem":
-        if not val_stripped:
-            return "No lemma statement is available."
-        return f"The theorem or lemma statement is: {val_stripped}"
-        
-    elif aspect == "method":
-        if not val_stripped:
-            return "No theory context is available."
-        if val_stripped.startswith("Theory context:"):
-            # Make it sound more natural
-            content = val_stripped[len("Theory context:"):].strip()
-            return f"This lemma is defined in the theory context: {content}"
-        return f"This lemma is defined in the context: {val_stripped}"
-        
-    elif aspect == "finding":
-        if not val_stripped:
-            return "No details about the proof method are available."
-        return f"The proof uses the following methods and structure: {val_stripped}"
-        
-    elif aspect == "interpretation":
-        if not val_stripped or val_stripped.lower() == "none":
-            return "No specific reference theorem or lemma interpretation is associated with this proof."
-        return f"This theorem represents or relies on the reference theorem: {val_stripped}"
-        
-    return val_stripped
-
 
 def ingest_session_lemmas(
     host: str = "127.0.0.1",
@@ -184,13 +155,16 @@ def ingest_session_lemmas(
             
             # 6. Extract aspects and build dataframe records
             for lemma in lemmas:
-                aspects = extract_aspects(lemma, theory_header=theory_header, entry_metadata=entry_meta)
+                aspects = extract_aspects(
+                    lemma,
+                    text_comments=lemma.get("text_comments", [])
+                )
                 records.append({
                     "title": lemma["id"],
-                    "problem": aspects["aspect_statement"],
-                    "method": aspects["aspect_context"],
-                    "finding": aspects["aspect_strategy"],
-                    "interpretation": aspects["aspect_dependencies"],
+                    "problem":        aspects["aspect_statement"],
+                    "method":         aspects["aspect_strategy"],
+                    "finding":        aspects["aspect_dependencies"],
+                    "interpretation": aspects["aspect_context"],
                     "theory": lemma["theory"],
                     "file": lemma["file"],
                     "line": lemma["line"],
@@ -206,48 +180,57 @@ def ingest_session_lemmas(
     # 7. Post-process definition dependencies (lemmas that use this definition)
     compute_definition_dependencies(records)
     
-    # 8. Expand aspects into descriptive sentences
-    print("Expanding aspects into descriptive descriptions...")
-    for r in records:
-        r["problem"] = expand_aspect_text("problem", r["problem"])
-        r["method"] = expand_aspect_text("method", r["method"])
-        r["finding"] = expand_aspect_text("finding", r["finding"])
-        r["interpretation"] = expand_aspect_text("interpretation", r["interpretation"])
-            
     df = pd.DataFrame(records)
     print(f"Ingestion completed. Total lemmas ingested: {len(df)}")
     return df
 
 
 def compute_definition_dependencies(records: list[dict[str, Any]]) -> None:
-    """Find all lemmas that use/reference each definition, and list them in the definition's interpretation aspect."""
+    """For each definition record, annotate its 'finding' with the names of lemmas that cite it.
+
+    In Format B:
+    - ``interpretation`` holds "keyword in Theory" (e.g. "definition in HOL.List").
+    - ``finding`` holds cited dependency identifiers for lemmas, and is the column
+      that gets populated here for definitions (listing their dependents).
+    """
     definitions = []
     for r in records:
-        finding = r.get("finding", "")
-        if "definition" in finding:
+        interp = r.get("interpretation", "")
+        # interpretation is now "<keyword> in <theory>"
+        if interp.startswith(("definition in ", "fun in ", "function in ",
+                              "primrec in ", "datatype in ", "type_synonym in ",
+                              "inductive in ", "coinductive in ", "record in ",
+                              "abbreviation in ")):
             title = r.get("title", "")
             name = title.split(".")[-1] if "." in title else title
             if name:
                 definitions.append((r, name))
-                
+
     for def_record, def_name in definitions:
         using_lemmas = []
+        # Match bare name or name_def convention
         pattern = re.compile(rf'\b{re.escape(def_name)}(?:_def)?\b')
-        
+
         for r in records:
-            # Skip self and other definitions
-            if r is def_record or "definition" in r.get("finding", ""):
+            if r is def_record:
                 continue
-            
-            stmt = r.get("statement_text", "") or r.get("problem", "")
+            # Only scan lemma records (non-definition constructs)
+            if r.get("interpretation", "").startswith(("definition in ", "fun in ",
+                                                        "function in ", "primrec in ",
+                                                        "datatype in ", "type_synonym in ",
+                                                        "inductive in ", "coinductive in ",
+                                                        "record in ", "abbreviation in ")):
+                continue
+
+            stmt  = r.get("statement_text", "") or r.get("problem", "")
             proof = r.get("proof_text", "")
-            deps = r.get("interpretation", "")
-            
+            deps  = r.get("finding", "")
+
             if pattern.search(stmt) or pattern.search(proof) or pattern.search(deps):
                 using_lemmas.append(r.get("title", ""))
-                
+
         if using_lemmas:
-            def_record["interpretation"] = ", ".join(sorted(using_lemmas))
+            def_record["finding"] = ", ".join(sorted(using_lemmas))
         else:
-            def_record["interpretation"] = "none"
+            def_record["finding"] = "none"
 

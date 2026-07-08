@@ -502,7 +502,8 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                     viz_components.append(html.Div(card_body))
 
                 from edel.experiments.metrics.embedding import embedding_metrics
-                n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
+                from edel.pipeline.projection import detect_embedding_dimensions
+                n_dims = detect_embedding_dimensions(data, config)
                 m_res = embedding_metrics(
                     {"embedding": data, "_dimensions": n_dims}, 
                     correction_method=method_resolved or "none",
@@ -542,7 +543,8 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 viz_components.append(capture_matplotlib_plot(viz.plot_paper_style_pca, data))
                 
                 # Transition space plot
-                n_dims = config.get("embedding", {}).get("n_dimensions", 1536)
+                from edel.pipeline.projection import detect_embedding_dimensions
+                n_dims = detect_embedding_dimensions(data, config)
                 viz_components.append(capture_matplotlib_plot(
                     viz.plot_epistemic_transition_space, 
                     data, 

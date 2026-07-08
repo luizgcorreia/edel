@@ -246,3 +246,19 @@ def test_compare_experiments(tmp_path):
     assert ks_df.iloc[0]["exp_b"] == eid2
     assert "ks_stat" in ks_df.columns
     assert "ks_pvalue" in ks_df.columns
+
+
+def test_embedding_metrics_dimension_autodiscovery(synthetic_data):
+    """Verify that embedding metrics and operators autodiscover dimension if missing."""
+    df, dim = synthetic_data
+    # artifacts has NO _dimensions key
+    artifacts = {"embedding": df}
+    
+    # Run embedding metrics
+    emb_res = embedding_metrics(artifacts)
+    assert "sim_pm" in emb_res["metrics"]
+    
+    # Run operator metrics
+    op_res = operator_metrics(artifacts)
+    assert "norm_pm" in op_res["metrics"]
+

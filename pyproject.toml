@@ -40,5 +40,10 @@ dependencies = [
     "openpyxl",
 ]
 
+[project.optional-dependencies]
+robustness = [
+    "spacy",
+]
+
 [tool.setuptools.packages.find]
 include = ["edel*"]

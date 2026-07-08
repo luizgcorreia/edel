@@ -54,17 +54,23 @@ def test_ingest_session_lemmas(monkeypatch):
     # Check definition
     df_def = df[df["title"].str.contains("my_definition")]
     assert len(df_def) == 1
-    assert "definition-style definition" in df_def["finding"].iloc[0]
-    assert "MockSession.TestTheory.test_lemma" in df_def["interpretation"].iloc[0]
+    # finding holds dependents for definitions
+    assert "MockSession.TestTheory.test_lemma" in df_def["finding"].iloc[0]
+    # interpretation holds keyword + theory
+    assert df_def["interpretation"].iloc[0] == "definition in MockSession.TestTheory"
     assert df_def["publication_year"].iloc[0] == 2024
     
     # Check lemma
     df_lemma = df[df["title"].str.contains("test_lemma")]
     assert len(df_lemma) == 1
-    assert "my_definition A = A" in df_lemma["problem"].iloc[0]
-    assert "simp" in df_lemma["finding"].iloc[0]
-    assert "simple-style" in df_lemma["finding"].iloc[0]
+    # problem is verbatim statement
+    assert 'lemma test_lemma [simp]: "my_definition A = A"' in df_lemma["problem"].iloc[0]
+    # finding is dependencies (cited identifiers)
+    assert "my_definition_def" in df_lemma["finding"].iloc[0]
+    # method is tactic lines
+    assert "by (simp add: my_definition_def)" in df_lemma["method"].iloc[0]
     assert df_lemma["theory"].iloc[0] == "MockSession.TestTheory"
     assert df_lemma["file"].iloc[0] == "TestTheory.thy"
     assert df_lemma["publication_year"].iloc[0] == 2024
+
 

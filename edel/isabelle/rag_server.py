@@ -71,26 +71,28 @@ def format_search_results(hits: list[dict]) -> str:
 
 @mcp.tool(description=(
     "Search for lemmas semantically similar to a goal or statement. "
-    "Specify aspect='statement' to match by goal structure, 'strategy' to find similar proofs, "
-    "'dependencies' to find lemmas using similar facts, 'context' for similar theories, "
+    "Specify aspect='statement' to match by proposition structure, "
+    "'proof_method' to find lemmas with similar proof tactics/strategy, "
+    "'dependencies' to find lemmas citing similar facts, "
+    "'construct' for the same construct type and theory context, "
     "or 'all' for a hybrid search across all aspects."
 ))
 async def search_lemmas(
     query: str,
-    aspect: str = "statement",  # "statement" | "context" | "strategy" | "dependencies" | "all"
+    aspect: str = "statement",  # "statement" | "proof_method" | "dependencies" | "construct" | "all"
     theory_filter: str = "",
     max_results: int = 10,
 ) -> str:
     """Perform semantic search on static and live session indices."""
     client = get_embedding_client()
     query_emb = client.generate_embedding(query)
-    
-    # Map tool aspects to index aspects
+
+    # Map user-facing aspect names to internal index keys (Format B)
     aspect_map = {
-        "statement": "problem",
-        "context": "method",
-        "strategy": "finding",
-        "dependencies": "interpretation"
+        "statement":    "problem",        # formal proposition (statement_text)
+        "proof_method": "method",         # tactic lines + cleaned text commentary
+        "dependencies": "finding",        # cited dependency identifiers
+        "construct":    "interpretation", # keyword + theory name
     }
     
     if aspect == "all":
@@ -197,13 +199,13 @@ async def store_lemma(
         "theory": theory
     }
     
-    # Extract aspects
-    aspects = extract_aspects(lemma_dict)
+    aspects = extract_aspects(lemma_dict, text_comments=[])
+    # Format B mapping: statement→problem, strategy→method, deps→finding, context→interpretation
     aspect_text_dict = {
-        "problem": aspects["aspect_statement"],
-        "method": aspects["aspect_context"],
-        "finding": aspects["aspect_strategy"],
-        "interpretation": aspects["aspect_dependencies"]
+        "problem":        aspects["aspect_statement"],
+        "method":         aspects["aspect_strategy"],
+        "finding":        aspects["aspect_dependencies"],
+        "interpretation": aspects["aspect_context"],
     }
     
     client = get_embedding_client()

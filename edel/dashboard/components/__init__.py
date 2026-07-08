@@ -9,6 +9,7 @@ from .trajectory_panel import trajectory_panel_layout
 from .hypothesis_panel import hypothesis_panel_layout
 from .convergence_panel import convergence_panel_layout
 from .report_generator_panel import report_generator_panel_layout
+from .robustness_panel import robustness_panel_layout
 
 __all__ = [
     "config_manager_layout",
@@ -20,4 +21,5 @@ __all__ = [
     "hypothesis_panel_layout",
     "convergence_panel_layout",
     "report_generator_panel_layout",
+    "robustness_panel_layout",
 ]

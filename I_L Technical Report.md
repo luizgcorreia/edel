@@ -207,7 +207,7 @@ The Definition Space is embedded as a single semantic entity based on the defini
 
 ## 6. Landscape Height (Transitive Dependents) & Epistemic Re-ranking
 
-A key property of the Isabelle/Landscape submodule is mapping the hierarchical topology of mathematical knowledge. The significance of a theorem or definition is not just a function of its statement, but of its **position on the landscape** — specifically, how many other theorems, proofs, or definitions transitively depend on it.
+A key property of the Isabelle/Landscape submodule is its ability to map the hierarchical topology of mathematical knowledge. A theorem or definition is a function of its statement, but its **position on the landscape** is only fully defined when its **epistemic significance** is added as the **height dimension**. As a proxy for significance, we calculate how many other theorems, proofs, or definitions transitively depend on it.
 
 ### Step 6.1: Global Dependency Graph Construction
 To count dependents accurately, I/L runs a post-processing pass over the unified index metadata after ingestion is complete.

@@ -212,7 +212,8 @@ def main():
                     session_index.build_from_dataframe(df_embedded)
                     
                     # Merge into master index
-                    if len(master_index.metadata) > 0:
+                    if len(master_index.metadata) > 0 or len(master_index.definition_metadata) > 0:
+                        # Merge lemmas
                         master_index.metadata.extend(session_index.metadata)
                         for aspect in ["problem", "method", "finding", "interpretation"]:
                             old_arr = master_index.embeddings.get(aspect)
@@ -222,6 +223,16 @@ def main():
                                     master_index.embeddings[aspect] = np.concatenate([old_arr, new_arr], axis=0)
                                 else:
                                     master_index.embeddings[aspect] = new_arr
+                                    
+                        # Merge definitions
+                        master_index.definition_metadata.extend(session_index.definition_metadata)
+                        old_def_arr = master_index.definition_embeddings
+                        new_def_arr = session_index.definition_embeddings
+                        if new_def_arr is not None:
+                            if old_def_arr is not None:
+                                master_index.definition_embeddings = np.concatenate([old_def_arr, new_def_arr], axis=0)
+                            else:
+                                master_index.definition_embeddings = new_def_arr
                     else:
                         master_index = session_index
                         

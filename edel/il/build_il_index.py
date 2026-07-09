@@ -68,12 +68,50 @@ def main():
         print("Error: No lemmas remained after aspect coverage filtering.")
         sys.exit(1)
         
-    # 3. Build and save index
-    print("Building and saving RAG vector index...")
-    index = NumpyRAGIndex()
-    index.build_from_dataframe(df_embedded)
-    index.save(output_dir)
-    print(f"Static RAG index built successfully and saved to: {output_dir}")
+    # 3. Load existing index if present to support incremental merging
+    master_index = NumpyRAGIndex()
+    if (output_dir / "metadata.parquet").exists() and (output_dir / "embeddings.npz").exists():
+        try:
+            master_index.load(output_dir)
+            print(f"Loaded existing index with {len(master_index.metadata)} lemmas and {len(master_index.definition_metadata)} definitions.")
+        except Exception as e:
+            print(f"Warning: Failed to load existing index, starting fresh: {e}")
+
+    # Build temporary index for the current session
+    print("Building temporary index for newly ingested theory...")
+    session_index = NumpyRAGIndex()
+    session_index.build_from_dataframe(df_embedded)
+
+    # Merge into master index
+    import numpy as np
+    if len(master_index.metadata) > 0 or len(master_index.definition_metadata) > 0:
+        print("Merging new theory into existing index...")
+        # Merge lemmas
+        master_index.metadata.extend(session_index.metadata)
+        for aspect in ["problem", "method", "finding", "interpretation"]:
+            old_arr = master_index.embeddings.get(aspect)
+            new_arr = session_index.embeddings.get(aspect)
+            if new_arr is not None:
+                if old_arr is not None:
+                    master_index.embeddings[aspect] = np.concatenate([old_arr, new_arr], axis=0)
+                else:
+                    master_index.embeddings[aspect] = new_arr
+                    
+        # Merge definitions
+        master_index.definition_metadata.extend(session_index.definition_metadata)
+        old_def_arr = master_index.definition_embeddings
+        new_def_arr = session_index.definition_embeddings
+        if new_def_arr is not None:
+            if old_def_arr is not None:
+                master_index.definition_embeddings = np.concatenate([old_def_arr, new_def_arr], axis=0)
+            else:
+                master_index.definition_embeddings = new_def_arr
+    else:
+        master_index = session_index
+
+    # Save final static index
+    master_index.save(output_dir)
+    print(f"Static RAG index built/updated successfully and saved to: {output_dir} (Total: {len(master_index.metadata)} lemmas, {len(master_index.definition_metadata)} definitions)")
 
 
 if __name__ == "__main__":

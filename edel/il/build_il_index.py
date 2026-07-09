@@ -113,6 +113,14 @@ def main():
     master_index.save(output_dir)
     print(f"Static RAG index built/updated successfully and saved to: {output_dir} (Total: {len(master_index.metadata)} lemmas, {len(master_index.definition_metadata)} definitions)")
 
+    # Run Phase 2: Landscape Height Post-Processing
+    print("\n==================================================")
+    print("Running Phase 2: Landscape Height Post-Processing...")
+    from edel.il.compute_landscape_height import compute_and_save_landscape_height
+    compute_and_save_landscape_height(output_dir)
+    print("Landscape height computation complete.")
+    print("==================================================")
+
 
 if __name__ == "__main__":
     main()

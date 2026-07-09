@@ -1,0 +1,69 @@
+Starting REPL daemon for session 'HOL-Library' on port 9155...
+  [REPL] [1mStarting Bash.Server...[0m
+  [REPL] ⠋ Starting Bash.Server... (0s)  ⠙ Starting Bash.Server... (0s)  ⠹ Starting Bash.Server... (0s)  ⠸ Starting Bash.Server... (0s)  ⠼ Starting Bash.Server... (0s)  ⠴ Starting Bash.Server... (0s)  ⠦ Starting Bash.Server... (0s)  ⠧ Starting Bash.Server... (0s)  ⠇ Starting Bash.Server... (0s)  ⠏ Starting Bash.Server... (0s)  ⠋ Starting Bash.Server... (1s)  ⠙ Starting Bash.Server... (1s)  ⠹ Starting Bash.Server... (1s)  ⠸ Starting Bash.Server... (1s)  ⠼ Starting Bash.Server... (1s)  ⠴ Starting Bash.Server... (1s)  ⠦ Starting Bash.Server... (1s)  ⠧ Starting Bash.Server... (1s)  ⠇ Starting Bash.Server... (1s)  ⠏ Starting Bash.Server... (1s)  ⠋ Starting Bash.Server... (2s)  ⠙ Starting Bash.Server... (2s)  ⠹ Starting Bash.Server... (2s)  ⠸ Starting Bash.Server... (2s)  ⠼ Starting Bash.Server... (2s)  ⠴ Starting Bash.Server... (2s)  ⠦ Starting Bash.Server... (2s)  ⠧ Starting Bash.Server... (2s)  ⠇ Starting Bash.Server... (2s)  ⠏ Starting Bash.Server... (2s)  ⠋ Starting Bash.Server... (3s)  ⠙ Starting Bash.Server... (3s)  ⠹ Starting Bash.Server... (3s)  ⠸ Starting Bash.Server... (3s)  ⠼ Starting Bash.Server... (3s)  [K[32m● Bash.Server ready at 127.0.0.1:41165[0m
+  [REPL] [1mStarting Isabelle ML_process (session=HOL-Library)...[0m
+  [REPL] ⠋ Loading heap + ML_Repl... (0s)  ⠙ Loading heap + ML_Repl... (0s)  ⠹ Loading heap + ML_Repl... (0s)  ⠸ Loading heap + ML_Repl... (0s)  ⠼ Loading heap + ML_Repl... (0s)  ⠴ Loading heap + ML_Repl... (0s)  ⠦ Loading heap + ML_Repl... (0s)  ⠧ Loading heap + ML_Repl... (0s)  ⠇ Loading heap + ML_Repl... (0s)  ⠏ Loading heap + ML_Repl... (0s)  ⠋ Loading heap + ML_Repl... (1s)  ⠙ Loading heap + ML_Repl... (1s)  ⠹ Loading heap + ML_Repl... (1s)  ⠸ Loading heap + ML_Repl... (1s)  ⠼ Loading heap + ML_Repl... (1s)  ⠴ Loading heap + ML_Repl... (1s)  ⠦ Loading heap + ML_Repl... (1s)  ⠧ Loading heap + ML_Repl... (1s)  ⠇ Loading heap + ML_Repl... (1s)  ⠏ Loading heap + ML_Repl... (1s)  ⠋ Loading heap + ML_Repl... (2s)  ⠙ Loading heap + ML_Repl... (2s)  ⠹ Loading heap + ML_Repl... (2s)  ⠸ Loading heap + ML_Repl... (2s)  ⠼ Loading heap + ML_Repl... (2s)  ⠴ Loading heap + ML_Repl... (2s)  ⠦ Loading heap + ML_Repl... (2s)  ⠧ Loading heap + ML_Repl... (2s)  ⠇ Loading heap + ML_Repl... (2s)  ⠏ Loading heap + ML_Repl... (2s)  ⠋ Loading heap + ML_Repl... (3s)  ⠙ Loading heap + ML_Repl... (3s)  ⠹ Loading heap + ML_Repl... (3s)  ⠸ Loading heap + ML_Repl... (3s)  ⠼ Loading heap + ML_Repl... (3s)  ⠴ Loading heap + ML_Repl... (3s)  ⠦ Loading heap + ML_Repl... (3s)  ⠧ Loading heap + ML_Repl... (3s)  ⠇ Loading heap + ML_Repl... (3s)  ⠏ Loading heap + ML_Repl... (3s)  ⠋ Loading heap + ML_Repl... (4s)  ⠙ Loading heap + ML_Repl... (4s)  ⠹ Loading heap + ML_Repl... (4s)  ⠸ Loading heap + ML_Repl... (4s)  ⠼ Loading heap + ML_Repl... (4s)  ⠴ Loading heap + ML_Repl... (4s)  ⠦ Loading heap + ML_Repl... (4s)  ⠧ Loading heap + ML_Repl... (4s)  ⠇ Loading heap + ML_Repl... (4s)  ⠏ Loading heap + ML_Repl... (4s)  ⠋ Loading heap + ML_Repl... (5s)  ⠙ Loading heap + ML_Repl... (5s)  ⠹ Loading heap + ML_Repl... (5s)  ⠸ Loading heap + ML_Repl... (5s)  ⠼ Loading heap + ML_Repl... (5s)  ⠴ Loading heap + ML_Repl... (5s)  ⠦ Loading heap + ML_Repl... (5s)  ⠧ Loading heap + ML_Repl... (5s)  ⠇ Loading heap + ML_Repl... (5s)  ⠏ Loading heap + ML_Repl... (5s)  ⠋ Loading heap + ML_Repl... (6s)  ⠙ Loading heap + ML_Repl... (6s)  ⠹ Loading heap + ML_Repl... (6s)  ⠸ Loading heap + ML_Repl... (6s)  ⠼ Loading heap + ML_Repl... (6s)  ⠴ Loading heap + ML_Repl... (6s)  ⠦ Loading heap + ML_Repl... (6s)  ⠧ Loading heap + ML_Repl... (6s)  ⠇ Loading heap + ML_Repl... (6s)  ⠏ Loading heap + ML_Repl... (6s)  ⠋ Loading heap + ML_Repl... (7s)  ⠙ Loading heap + ML_Repl... (7s)  ⠹ Loading heap + ML_Repl... (7s)  ⠸ Loading heap + ML_Repl... (7s)  ⠼ Loading heap + ML_Repl... (7s)  [K[32m● ML_Repl ready on 127.0.0.1:41951[0m
+  [REPL] [32m● Heap DB: /home/correia/.isabelle/Isabelle2025-2/heaps/polyml-5.9.2_x86_64_32-linux/log/HOL-Library.db[0m
+  [REPL] ML connection 1/5 established
+  [REPL] ML connection 2/5 established
+  [REPL] ML connection 3/5 established
+  [REPL] ML connection 4/5 established
+  [REPL] ML connection 5/5 established
+  [REPL] 4 pool + 1 console = 5 ML connections
+  [REPL] IR_Repl.token: fMO7wX55ziLHWWMUNIT_nJhyCLm85GJt
+Connected to REPL. Token: fMO7wX55ziLHWWMUNIT_nJhyCLm85GJt
+Theories in HOL session: ['HOL-Library.Multiset']
+
+--- Analyzing Theory: HOL-Library.Multiset ---
+Raw Segment Count: 4092
+Raw Segment Char Lengths: Mean=38.1, Median=24.0, Min=1, Max=1738
+Raw Segment Token Lengths: Mean=11.0, Median=6.0, Min=1, Max=382
+
+Grouped Lemma/Definition Count: 608
+Segments per Lemma: Mean=2.9, Max=14
+Statement Char Lengths: Mean=92.4, Median=82.0, Min=26, Max=284
+Statement Token Lengths: Mean=28.8, Median=25.0, Min=7, Max=105
+Proof Char Lengths: Mean=63.6, Median=46.0, Min=7, Max=461
+Proof Token Lengths: Mean=16.1, Median=9.0, Min=2, Max=178
+
+Top 3 Longest Statement Texts:
+  1. ID: HOL-Library.Multiset.sort_key_by_quicksort_code (284 chars, 89 tokens)
+     Text: lemma sort_key_by_quicksort_code [code]:   "sort_key f xs =     (case xs of       [] ⇒ []     | [x] ⇒ xs     | [x, y] ⇒ (if f x ≤ f y then xs else [y, x])     | _ ⇒         let (lts, eqs, gts) = part f (f (xs ! (length xs div 2))) xs         in sort_key f lts @ eqs @ sort_key f gts)"
+  2. ID: HOL-Library.Multiset.lemma_6753 (266 chars, 85 tokens)
+     Text: lemma   assumes pwleq: "pw_leq Z Z'"   shows ms_strictI: "(set_mset A, set_mset B) ∈ max_strict ⟹ (Z + A, Z' + B) ∈ ms_strict"     and ms_weakI1:  "(set_mset A, set_mset B) ∈ max_strict ⟹ (Z + A, Z' + B) ∈ ms_weak"     and ms_weakI2:  "(Z + {#}, Z' + {#}) ∈ ms_weak"
+  3. ID: HOL-Library.Multiset.subset_eq_mset_impl (264 chars, 76 tokens)
+     Text: fun subset_eq_mset_impl :: "'a list ⇒ 'a list ⇒ bool option" where   "subset_eq_mset_impl [] ys = Some (ys ≠ [])" | "subset_eq_mset_impl (Cons x xs) ys = (case List.extract ((=) x) ys of      None ⇒ None    | Some (ys1,_,ys2) ⇒ subset_eq_mset_impl xs (ys1 @ ys2))"
+
+Top 3 Longest Proof Texts:
+  1. ID: HOL-Library.Multiset.all_accessible (461 chars, 178 tokens)
+     Text: proof
+let ?R = "mult1 r"
+let ?W = "Wellfounded.acc ?R"
+{
+fix M M0 a
+assume M0: "M0 ∈ ?W"       and wf_hyp: "⋀b. (b, a) ∈ r ⟹ (∀M ∈ ?W. add_mset b M ∈ ?W)"       and acc_hyp: "∀M. (M, M0) ∈ ?R ⟶ add_mset a M ∈ ?W"
+have "add_mset a M0 ∈ ?W"
+proof (rule accI [of "add_mset a M0"])
+fix N
+assume "(N, add_mset a M0) ∈ ?R"
+then
+consider M where "(M, M0) ∈ ?R" "N = add_mset a M"         | K where "∀b. b ∈# K ⟶ (b, a) ∈ r" "N = M0 + K"
+by atomize_elim (rule less_add)
+  2. ID: HOL-Library.Multiset.bij_betw_multisets_of_size_insert (447 chars, 154 tokens)
+     Text: proof -
+define B where "B = (SIGMA m:{0..n}. multisets_of_size A (n - m))"
+define C where "C = (multisets_of_size (insert a A) n)"
+define f where "f = (λ(m,X). X + replicate_mset m a)"
+define g where "g = (λX. (count X a, filter_mset (λx. x ≠ a) X))"
+note defs = B_def C_def f_def g_def
+have *: "size (filter_mset (λx. x ≠ a) X) = size X - count X a" for X
+proof -
+have "size X = size (filter_mset (λx. x ≠ a) X) + count X a"
+by (induction X) auto
+  3. ID: HOL-Library.Multiset.abbreviation_691 (415 chars, 103 tokens)
+     Text: notation (input)   subseteq_mset  (infix ‹≤#› 50) and   supseteq_mset  (infix ‹≥#› 50)
+notation (ASCII)   subseteq_mset  (infix ‹<=#› 50) and   subset_mset  (infix ‹<#› 50) and   supseteq_mset  (infix ‹>=#› 50) and   supset_mset  (infix ‹>#› 50)
+global_interpretation subset_mset: ordering ‹(⊆#)› ‹(⊂#)›
+by standard (auto simp add: subset_mset_def subseteq_mset_def multiset_eq_iff intro: order.trans order.antisym)
+
+Stopping REPL daemon...

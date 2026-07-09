@@ -75,6 +75,8 @@ class NumpyRAGIndex:
             
         # Load lemmas
         meta_df = pd.read_parquet(directory / "metadata.parquet")
+        if "dependents_count" not in meta_df.columns:
+            meta_df["dependents_count"] = 0
         self.metadata = meta_df.to_dict(orient="records")
         
         with np.load(directory / "embeddings.npz") as data:
@@ -86,6 +88,8 @@ class NumpyRAGIndex:
         def_meta_path = directory / "definitions_metadata.parquet"
         if def_meta_path.exists():
             def_df = pd.read_parquet(def_meta_path)
+            if "dependents_count" not in def_df.columns:
+                def_df["dependents_count"] = 0
             self.definition_metadata = def_df.to_dict(orient="records")
         else:
             self.definition_metadata = []
@@ -273,8 +277,10 @@ class NumpyRAGIndex:
         aspect: str = "problem",
         max_results: int = 10,
         theory_filter: str = "",
+        sort_by_significance: bool = False,
+        min_dependents: int = 0,
     ) -> list[dict[str, Any]]:
-        """Search the Lemma Space static and live indices by cosine similarity."""
+        """Search the Lemma Space static and live indices by cosine similarity, optionally re-ranking by significance."""
         results = []
         q = np.array(query_vector, dtype=np.float32)
         q_norm = np.linalg.norm(q)
@@ -292,6 +298,9 @@ class NumpyRAGIndex:
             for idx, score in enumerate(scores):
                 meta = self.metadata[idx]
                 if theory_filter and theory_filter.lower() not in meta.get("theory", "").lower():
+                    continue
+                dep_count = int(meta.get("dependents_count", 0))
+                if dep_count < min_dependents:
                     continue
                 results.append({
                     "lemma": meta,
@@ -312,12 +321,29 @@ class NumpyRAGIndex:
                 meta = self.live_metadata[idx]
                 if theory_filter and theory_filter.lower() not in meta.get("theory", "").lower():
                     continue
+                dep_count = int(meta.get("dependents_count", 0))
+                if dep_count < min_dependents:
+                    continue
                 results.append({
                     "lemma": meta,
                     "score": float(score),
                     "source": "live",
                 })
                 
+        # Apply Epistemic Bias Re-ranking
+        if sort_by_significance and results:
+            import math
+            log_deps = []
+            for r in results:
+                meta = r["lemma"]
+                dep_count = int(meta.get("dependents_count", 0))
+                log_deps.append(math.log1p(dep_count))
+            max_log_dep = max(log_deps) if log_deps else 0.0
+            if max_log_dep > 1e-10:
+                for r, log_dep in zip(results, log_deps):
+                    # score = cosine_similarity + 0.15 * normalized_log_dependents
+                    r["score"] = r["score"] + 0.15 * (log_dep / max_log_dep)
+                    
         # Sort by score descending
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:max_results]
@@ -327,8 +353,10 @@ class NumpyRAGIndex:
         query_vector: list[float],
         max_results: int = 10,
         theory_filter: str = "",
+        sort_by_significance: bool = False,
+        min_dependents: int = 0,
     ) -> list[dict[str, Any]]:
-        """Search the Definition Space static and live indices by cosine similarity."""
+        """Search the Definition Space static and live indices by cosine similarity, optionally re-ranking by significance."""
         results = []
         q = np.array(query_vector, dtype=np.float32)
         q_norm = np.linalg.norm(q)
@@ -346,6 +374,9 @@ class NumpyRAGIndex:
             for idx, score in enumerate(scores):
                 meta = self.definition_metadata[idx]
                 if theory_filter and theory_filter.lower() not in meta.get("theory", "").lower():
+                    continue
+                dep_count = int(meta.get("dependents_count", 0))
+                if dep_count < min_dependents:
                     continue
                 results.append({
                     "definition": meta,
@@ -366,11 +397,27 @@ class NumpyRAGIndex:
                 meta = self.live_definition_metadata[idx]
                 if theory_filter and theory_filter.lower() not in meta.get("theory", "").lower():
                     continue
+                dep_count = int(meta.get("dependents_count", 0))
+                if dep_count < min_dependents:
+                    continue
                 results.append({
                     "definition": meta,
                     "score": float(score),
                     "source": "live",
                 })
                 
+        # Apply Epistemic Bias Re-ranking
+        if sort_by_significance and results:
+            import math
+            log_deps = []
+            for r in results:
+                meta = r["definition"]
+                dep_count = int(meta.get("dependents_count", 0))
+                log_deps.append(math.log1p(dep_count))
+            max_log_dep = max(log_deps) if log_deps else 0.0
+            if max_log_dep > 1e-10:
+                for r, log_dep in zip(results, log_deps):
+                    r["score"] = r["score"] + 0.15 * (log_dep / max_log_dep)
+                    
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:max_results]

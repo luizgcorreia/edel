@@ -1,0 +1,866 @@
+Towards a mathematical theory of science
+
+1
+
+Overview
+
+We propose a formal framework for representing scientific discourse as trajectories over a semantic embedding space. The framework distinguishes carefully between:
+(i) empirical objects constructed directly from data,
+(ii) statistical structures inferred from empirical regularities,
+(iii) and theoretical interpretations imposed on top of those structures.
+The framework does not assume that embeddings directly represent the true geometry of
+knowledge. Instead, embeddings are treated as noisy coordinate systems induced by statistical
+regularities in scientific language.
+
+2
+
+Representation Layer
+
+2.1
+
+Embedding Model
+
+Let
+E : T → Rd
+be a semantic embedding model mapping text segments into a d-dimensional vector space.
+Here:
+• T denotes the space of textual expressions,
+• E is a pretrained embedding function,
+• Rd is the embedding coordinate space.
+Importantly, Rd is not assumed to be the ontology of scientific knowledge itself. Rather, it
+is an empirical representation space induced by the statistical structure of language.
+
+2.2
+
+Discourse Segmentation
+
+For each scientific document i, we extract discourse-role segments:
+F I
+τitext = (tPi , tM
+i , ti , ti )
+
+where:
+• tPi is the problem discourse segment,
+• tM
+i is the method discourse segment,
+
+1
+
+• tFi is the finding discourse segment,
+• tIi is the interpretation discourse segment.
+These segments are rhetorical or discourse-functional partitions extracted from scientific
+texts.
+
+2.3
+
+Discourse-Role Embeddings
+
+Applying the embedding model to each segment yields:
+pi = E(tPi )
+mi = E(tM
+i )
+fi = E(tFi )
+ii = E(tIi )
+with:
+pi , mi , fi , ii ∈ Rd
+The tuple:
+τi = (pi , mi , fi , ii )
+defines the embedded discourse trajectory associated with document i.
+
+3
+
+Empirical State Distributions
+
+We define empirical discourse distributions over discourse-role embeddings:
+P = {pi }N
+i=1
+M = {mi }N
+i=1
+F = {fi }N
+i=1
+I = {ii }N
+i=1
+These are not assumed to be independent ontological spaces. Instead, they are empirical
+distributions induced by different discourse functions over the same embedding geometry.
+Thus:
+P, M, F, I ⊂ Rd
+represent semantically conditioned regions of the embedding space.
+
+2
+
+4
+
+Observed Discourse Trajectories
+
+A scientific document induces an ordered sequence:
+τi = (pi , mi , fi , ii )
+which we interpret empirically as an observed discourse trajectory.
+Importantly, this trajectory does not necessarily represent literal motion through an underlying epistemic manifold. Instead, it represents a sequence of semantically related discourse
+states co-occurring within a scientific reasoning process.
+
+5
+
+Local Displacement Operators
+
+5.1
+
+Definition
+
+For each document i, we define local displacement vectors:
+(i)
+
+∆P M = mi − pi
+(i)
+
+∆M F = fi − mi
+(i)
+
+∆F I = ii − fi
+where:
+(i)
+
+(i)
+
+(i)
+
+∆P M , ∆M F , ∆F I ∈ Rd
+These vectors are empirical displacement estimates between discourse-role embeddings.
+
+5.2
+
+Interpretation
+
+The displacement vectors are not assumed to be literal epistemic operators. Instead, they are
+interpreted as:
+semantic displacement estimates associated with transitions between discourse roles
+within scientific documents.
+For example:
+(i)
+
+∆P M
+captures the semantic displacement associated with moving from problem discourse to
+method discourse within document i.
+Similarly:
+• ∆M F captures transitions from methods to findings,
+• ∆F I captures transitions from findings to interpretation.
+
+3
+
+5.3
+
+Operator Distributions
+
+We define empirical displacement distributions:
+(i)
+
+·P M = {∆P M }N
+i=1
+(i)
+
+·M F = {∆M F }N
+i=1
+(i)
+
+·F I = {∆F I }N
+i=1
+These distributions characterize recurrent semantic transition patterns within scientific discourse.
+
+6
+
+Neighborhood Structure
+
+Let:
+Nk (x)
+be the k-nearest-neighbor neighborhood of point x under a similarity metric d(·, ·).
+Typically:
+d(x, y) = 1 − cos(x, y)
+or Euclidean distance after normalization.
+Neighborhoods define local empirical association structure in embedding space.
+
+7
+
+Conditional Transition Distributions
+
+7.1
+
+Definition
+
+We define conditional transition distributions between discourse-role states.
+For example:
+D(M | p)
+denotes the empirical distribution of method embeddings associated with problems near p.
+Operationally:
+D(M | p) = {mj | pj ∈ Nk (p)}
+Similarly:
+D(P | m) = {pj | mj ∈ Nk (m)}
+D(F | m) = {fj | mj ∈ Nk (m)}
+D(I | f ) = {ij | fj ∈ Nk (f )}
+and so forth.
+
+4
+
+7.2
+
+Interpretation
+
+These distributions are not displacement vectors. They are conditional empirical distributions
+over neighboring discourse states.
+Thus:
+D(Y | x)
+should be interpreted as:
+The empirical distribution of discourse states of type Y associated with semantic
+neighborhoods around state x.
+
+Relationship Between ∆ and D
+
+8
+
+The framework distinguishes two fundamentally different empirical objects.
+
+8.1
+
+Observed Local Displacements
+(i)
+
+∆XY ∈ Rd
+represents:
+a single observed displacement between discourse-role embeddings within document
+i.
+These are trajectory-local quantities.
+
+8.2
+
+Conditional Transition Structure
+D(Y | x)
+
+represents:
+The empirical distribution of possible neighboring discourse states associated with
+semantic region x.
+These are population-level conditional structures.
+
+9
+
+Hypothesis Structure
+
+The framework proposes three progressively stronger empirical hypotheses.
+• H1: local discourse displacements exhibit non-random structure,
+• H2: conditional transition distributions exhibit organized local geometry,
+• H3: transition structure possesses predictive value for future semantic occupation patterns.
+These hypotheses correspond respectively to:
+(i) existence of structured transition dynamics,
+(ii) organization of local transition landscapes,
+(iii) temporal predictive utility.
+5
+
+10
+
+H1 — Structural Transition Hypothesis
+
+10.1
+
+Informal Statement
+
+Scientific discourse transitions exhibit non-random geometric structure distinguishable from
+randomized baselines.
+
+10.2
+
+Formal Statement
+
+Let:
+·obs
+be an observed displacement distribution and:
+·null
+be a displacement distribution generated under a null model.
+H1 states that:
+·obs ̸∼ ·null
+under suitable geometric statistics.
+
+10.3
+
+Structural Metrics
+
+Examples of structural statistics include:
+• displacement norm distributions,
+• cosine-angle distributions,
+• local density distributions,
+• anisotropy measures,
+• neighborhood consistency,
+• PCA variance spectra.
+These quantities characterize geometric regularities of observed discourse transitions.
+
+10.4
+
+Null Models
+
+Null distributions may be generated through:
+(a) random permutation of discourse segments,
+(b) shuffled document-role assignments,
+(c) randomized trajectory pairing,
+(d) synthetic corpora,
+(e) lexically perturbed corpora,
+(f) embedding-space randomization.
+These models preserve varying degrees of lexical or embedding structure while destroying
+trajectory-level organization.
+6
+
+10.5
+
+Statistical Test
+
+For each metric distribution, we compare:
+Sobs
+against:
+Snull
+using the two-sample Kolmogorov–Smirnov statistic:
+DKS = sup |Fobs (x) − Fnull (x)|
+x
+
+where:
+• Fobs is the empirical cumulative distribution function of observed statistics,
+• Fnull is the cumulative distribution under the null model.
+The associated p-value tests:
+H0 : Fobs = Fnull
+against:
+HA : Fobs ̸= Fnull
+Rejecting H0 supports the existence of non-random transition structure.
+
+11
+
+H2 — Local Transition Organization Hypothesis
+
+11.1
+
+Informal Statement
+
+Conditional transition distributions exhibit organized local geometry beyond random neighborhood structure.
+
+11.2
+
+Formal Statement
+
+For a conditional transition distribution:
+D(Y | x)
+H2 states that local transition organization differs significantly from randomized neighborhood structure.
+
+11.3
+
+Transition Geometry
+
+For each semantic region x, we estimate:
+ρx (y)
+representing the empirical local transition density from states near x toward states of type
+Y.
+These local distributions define a transition landscape over embedding space.
+
+7
+
+11.4
+
+Null Models
+
+Null transition distributions are constructed through:
+(a) random permutation of neighborhood assignments,
+(b) random rewiring of k-nearest-neighbor graphs,
+(c) shuffled discourse-role correspondences,
+(d) randomized conditional pairings.
+These preserve global embedding geometry while destroying local transition organization.
+
+11.5
+
+Wasserstein Comparison
+
+Let:
+ρobs
+be the observed local transition distribution and:
+ρnull
+be the corresponding null distribution.
+We compute the Wasserstein distance:
+W (ρobs , ρnull )
+which measures the minimum transport cost required to transform one distribution into the
+other.
+Large Wasserstein distances indicate strong local organizational divergence from random
+structure.
+
+11.6
+
+Permutation-Based Significance
+
+To estimate significance, we repeatedly generate randomized neighborhood structures:
+(1)
+
+(B)
+
+ρnull , . . . , ρnull
+and compute:
+(b)
+
+W (b) = W (ρobs , ρnull )
+The empirical p-value is:
+p=
+
+1+
+
+PB
+
+b=1 1[W
+
+(b) ≥ W
+obs ]
+
+B+1
+
+where:
+Wobs
+is the Wasserstein distance obtained from the observed data.
+Rejecting the null hypothesis supports the existence of organized local transition structure.
+
+8
+
+12
+
+H3 — Predictive Transition Hypothesis
+
+12.1
+
+Informal Statement
+
+Historical transition structure extracted from scientific discourse predicts future semantic occupation patterns better than baseline forecasting models.
+
+12.2
+
+Temporal Construction
+
+Let:
+Pt
+represent the empirical problem-space distribution up to time t.
+Similarly define:
+Mt , Ft , It
+and corresponding conditional transition structures:
+Dt (Y | x)
+constructed exclusively from historical data available before time t.
+Using these structures, we estimate a predicted future occupation density:
+ρ̂t+∆t (p)
+representing expected future semantic occupation in problem space.
+Observed future occupation is defined as:
+ρt+∆t (p)
+constructed from papers appearing after time t.
+
+12.3
+
+Predictive Baselines
+
+Predictions are compared against simpler baseline models.
+Examples include:
+(a) persistence models:
+ρ̂base
+t+∆t = ρt
+(b) random diffusion models,
+(c) nearest-neighbor continuation models,
+(d) isotropic local expansion models.
+These baselines capture generic smoothness or temporal persistence without discoursetransition structure.
+
+9
+
+12.4
+
+Predictive Wasserstein Metric
+
+We evaluate predictive accuracy through Wasserstein transport distance:
+W (ρ̂t+∆t , ρt+∆t )
+Lower Wasserstein distance indicates stronger predictive alignment between predicted and
+observed future occupation.
+H3 predicts:
+WEDEL < Wbaseline
+for appropriate baseline predictors.
+
+12.5
+
+Spatial Predictive Alignment
+
+In addition to global transport similarity, we evaluate local spatial correspondence between
+predicted and observed density change.
+Let:
+∆ρ̂i
+and:
+∆ρi
+represent predicted and observed density variation over semantic regions indexed by i.
+We compute Bivariate Moran’s I:
+P P
+n
+i
+j wij (xi − x̄)(yj − ȳ)
+P
+IB =
+2
+W
+i (xi − x̄)
+where:
+• xi = ∆ρ̂i ,
+• yj = ∆ρj ,
+• wij encodes semantic neighborhood adjacency,
+P
+• W = ij wij .
+Positive Bivariate Moran’s I indicates that regions predicted to expand correspond systematically to regions that actually expand.
+
+12.6
+
+Significance Estimation
+
+Significance is estimated through temporal or spatial permutation procedures.
+Examples include:
+(a) temporal shuffling of publication years,
+(b) randomized density assignments,
+(c) semantic-region permutation,
+(d) randomized baseline forecasts.
+
+10
+
+For each permutation:
+(b)
+
+IB
+
+is recomputed, generating an empirical null distribution.
+The p-value is estimated as:
+p=
+
+1+
+
+(b)
+b=1 1[IB ≥ Iobs ]
+
+PB
+
+B+1
+
+where:
+Iobs
+is the observed Bivariate Moran statistic.
+Rejecting the null hypothesis supports predictive spatial alignment between transitionderived forecasts and future semantic occupation.
+
+13
+
+Novelty and Closure Metrics
+
+13.1
+
+Cycle Closure Approximation
+
+A complete epistemic cycle may be interpreted theoretically as a transformation:
+Φ:P →P
+mapping an initial problem state into a future problem state generated through scientific
+reasoning.
+Empirically, however, future problems are not directly observed within a single scientific
+abstract. Therefore, we define a first-order empirical approximation based on the semantic
+displacement between the initial problem embedding and the interpretation embedding.
+For document i:
+(i)
+
+∆cycle = ii − pi
+Since:
+(ii − fi ) + (fi − mi ) + (mi − pi ) = ii − pi
+this quantity represents the net open-cycle semantic displacement accumulated along the
+observed discourse trajectory.
+
+13.2
+
+Closure Condition
+
+We define an approximate closure condition:
+||ii − pi || < ϵ
+for some small threshold ϵ.
+Intuitively, this corresponds to trajectories in which the interpretation semantically returns
+near the original problem region.
+Such trajectories may correspond to:
+• confirmatory studies,
+• replication experiments,
+11
+
+• local theoretical validation,
+• or highly incremental scientific progress.
+In contrast:
+||ii − pi || ≫ 0
+indicates trajectories whose interpretations diverge substantially from the original problem
+framing.
+These may correspond to:
+• conceptual expansion,
+• methodological transfer,
+• paradigm generalization,
+• or broader epistemic reframing.
+
+13.3
+
+Novelty Metric
+
+We define the empirical novelty score:
+N (i) = ||ii − pi ||
+which measures the semantic displacement between the initial problem framing and the final
+interpretation framing of a scientific trajectory.
+Importantly, this metric does not measure truth, correctness, or scientific quality. Instead,
+it approximates the degree of semantic and conceptual displacement induced by the discourse
+trajectory.
+
+13.4
+
+Future Problem Approximation
+
+A more complete approximation of epistemic closure may be constructed using conditional
+transition distributions.
+Let:
+D(P | i)
+be the empirical distribution of problem embeddings associated with semantic neighborhoods
+around interpretation state i.
+We define the expected future problem embedding:
+p̄i = E[P | i]
+which may be estimated operationally using nearest-neighbor averaging over problem embeddings associated with neighboring interpretation states.
+This yields an approximate net epistemic displacement:
+(i)
+
+∆E = p̄i − pi
+where:
+(i)
+
+||∆E ||
+represents an estimate of the future problem displacement induced by the discourse trajectory.
+12
+
+14
+
+Theoretical Interpretation Layer
+
+The empirical framework described above constructs semantic representations from scientific
+discourse without requiring that embedding geometry correspond directly to literal epistemic
+structure. However, the observed regularities motivate a higher-level theoretical interpretation in which scientific activity is represented as a temporally evolving higher-order epistemic
+structure.
+Importantly, EDEL distinguishes between:
+(a) an empirical ontology, in which semantic and topological structures are reconstructed from
+scientific discourse data, and
+(b) a generative ontology, in which these structures become operational substrates for synthetic epistemic agents capable of generating and composing scientific reasoning trajectories.
+
+14.1
+
+EDEL as a Layered Formal Structure
+
+We define empirical EDEL as the pair:
+Ê = (Ê, T̂ )
+where:
+• Ê defines the semantic embedding substrate,
+• T̂ defines the temporally evolving epistemic-topological structure reconstructed from discourse.
+The semantic embedding structure is defined as:
+Ê = (E, ϕ)
+where:
+• E ⊆ Rd is the semantic embedding space,
+• ϕ : Tdisc → E maps discourse-role segments into semantic coordinates.
+Given a scientific artifact ai , segmentation produces discourse-role embeddings:
+pi , mi , fi , ii ∈ E
+corresponding respectively to problem, method, finding, and interpretation discourse.
+Importantly, these embeddings are treated as empirical semantic representations rather than
+direct epistemic states.
+
+14.2
+
+Discourse Simplices
+
+Each scientific artifact induces a discourse simplex:
+σi = (pi , mi , fi , ii )
+interpreted geometrically as a 3-simplex embedded in semantic space.
+Within this interpretation:
+• vertices correspond to discourse-role embeddings,
+13
+
+• edges correspond to pairwise discourse transitions,
+• triangular faces correspond to partial epistemic configurations,
+• the tetrahedral simplex represents a complete discourse trajectory associated with a research approach.
+Unlike conventional graph-based representations, discourse simplices preserve higher-order
+relational structure between all discourse components simultaneously.
+
+14.3
+
+Epistemic Simplicial Complex
+
+The global epistemic organization is represented as a temporally indexed simplicial complex:
+T = {Kt }t∈T
+where each:
+Kt = (St , Dt )
+contains:
+• a set of discourse simplices:
+St = {σi }
+• a family of conditional transition operators:
+Dt (Y | x), x ∈ X
+defined over discourse spaces:
+X, Y ∈ {P, M, F, I}
+The transition operators define asymmetric semantic attachment structure between discourse regions.
+For example:
+D(M | p)
+describes methods empirically associated with neighboring problem states, while:
+D(P | m)
+describes problem regions empirically associated with neighboring methods.
+Importantly:
+D(M | p) ̸= D(P | m)
+in general.
+The resulting structure therefore defines a directed higher-order epistemic topology rather
+than a purely symmetric simplicial complex.
+
+14
+
+14.4
+
+Empirical Interpretation
+
+Within the empirical ontology, the simplicial complex is interpreted as a statistical reconstruction of scientific discourse organization.
+In this setting:
+• semantic geometry approximates discourse similarity,
+• simplicial attachment approximates higher-order epistemic organization,
+• transition operators approximate empirical semantic affordances between discourse regions.
+Importantly, the framework does not claim that embeddings or simplices constitute literal
+epistemic states. Rather, they provide computable approximations of structural regularities
+observable in scientific discourse corpora.
+
+14.5
+
+Closure and Epistemic Expansion
+
+The displacement:
+∆E (i) = ii − pi
+defines the net semantic displacement between the initial problem discourse and the final
+interpretive discourse of a scientific artifact.
+Its norm:
+N (i) = ∥ii − pi ∥
+is interpreted as an empirical approximation of epistemic expansion.
+Small values correspond to semantically closed trajectories in which interpretive discourse
+remains close to the original problem framing, while large values correspond to semantically
+expansive trajectories generating displaced conceptual regions.
+Higher-order geometric observables may also be defined over discourse simplices, including:
+• edge lengths,
+• face areas,
+• simplex volumes,
+• operator-space simplices constructed from displacement operators.
+These quantities characterize increasingly complex forms of epistemic transformation geometry.
+
+15
+
+Generative Interpretation Layer
+
+We define generative EDEL as:
+E = (E, T , C)
+where:
+C = (O, M, ◦)
+defines a compositional epistemic structure.
+Here:
+15
+
+• O = {P, M, F, I} defines discourse-role objects,
+• M defines epistemic morphisms between discourse spaces,
+• ◦ defines compositional structure over epistemic transformations.
+In this interpretation:
+P →M →F →I
+is treated as a compositional scientific reasoning trajectory rather than merely an observed
+semantic sequence.
+The conditional transition operators become generative affordance structures.
+For example:
+m∗ ∼ D(M | p)
+defines admissible methodological continuations for a problem state p.
+Similarly:
+f ∗ ∼ D(F | m∗ )
+and:
+i∗ ∼ D(I | f ∗ )
+define generative transitions through epistemic discourse spaces.
+Agents may therefore construct novel discourse simplices not explicitly observed in the
+empirical corpus:
+σ ∗ = (p, m∗ , f ∗ , i∗ )
+which can subsequently attach to the evolving epistemic complex.
+Within this ontology, scientific discovery is interpreted as growth and restructuring of the
+epistemic simplicial complex through compositional epistemic operations.
+Importantly, the category-theoretic layer is not directly observable empirically. Rather, it
+provides a formal operational semantics for generative scientific systems built on top of empirically reconstructed epistemic topology.
+
+15.1
+
+Epistemic Value
+
+The original Epistemic Landscape (EL) framework models scientific exploration as search over
+a landscape whose topology represents research approaches and whose height corresponds to
+their epistemic value. In EDEL, this idea is generalized from isolated points to higher-order
+epistemic structures represented as discourse simplices.
+Formally, let:
+σi = (pi , mi , fi , ii )
+denote the discourse simplex associated with scientific artifact i, where:
+• pi is the problem discourse embedding,
+• mi is the method discourse embedding,
+• fi is the finding discourse embedding,
+
+16
+
+• ii is the interpretation discourse embedding.
+We define the epistemic value operator:
+V:S→R
+where:
+S = {σi }
+is the set of discourse simplices composing the EDEL complex.
+The quantity:
+V(σi )
+represents the epistemic utility associated with the corresponding scientific reasoning configuration. Importantly, epistemic value is treated as formally distinct from semantic geometry
+and topological structure. A simplex may occupy a dense or central region of the epistemic
+complex while still having low epistemic utility, and conversely highly valuable simplices may
+emerge in sparse or weakly connected regions.
+This distinction separates:
+• the structure of scientific discourse,
+• from the value of exploring particular epistemic regions.
+Empirical EDEL In empirical EDEL, epistemic value cannot be observed directly and must
+therefore be approximated through external scientometric or social indicators. Let:
+V̂(σi )
+denote an empirical estimator of epistemic value.
+Examples include:
+• citation counts,
+• field-normalized citations,
+• PageRank-style influence metrics,
+• theorem reuse frequency,
+• downstream clinical or technological adoption.
+In the present work, we primarily consider:
+V̂(σi ) = log(1 + ci )
+where ci denotes the citation count associated with artifact i.
+These quantities should not be interpreted as direct measures of truth or intrinsic scientific
+merit. Instead, they provide imperfect observational proxies for the social and epistemic impact
+of scientific artifacts. Epistemic value in empirical EDEL therefore remains partially latent and
+institutionally mediated.
+
+17
+
+Generative EDEL In generative EDEL, epistemic value is not inferred from historical traces
+but defined explicitly through the ground-truth structure of the target problem domain.
+Let:
+G
+denote the ground-truth environment associated with a scientific domain or task. Epistemic
+value is then defined as:
+V :S ×G →R
+assigning utility to discourse simplices according to their contribution toward solving or
+explaining the target environment.
+Examples include:
+• predictive accuracy,
+• theorem proving success,
+• simulation performance,
+• optimization objectives,
+• explanatory compression,
+• environment reward.
+In this setting, epistemic value becomes operationally well-defined and externally grounded.
+Scientific agents operating over the EDEL structure can therefore optimize exploration policies
+relative to explicit utility functions while remaining constrained by the transition structure of
+the epistemic complex.
+Extended EDEL Formalism With the inclusion of epistemic value, the empirical EDEL
+framework can be summarized as:
+Ê = (Ê, T̂ , V̂)
+where:
+• Ê defines the semantic and topological epistemic structure,
+• T̂ defines the epistemic transition dynamics,
+• V̂ defines the epistemic valuation structure.
+Including the compositional semantics layer on the generative ontology yields the extended
+formulation:
+E = (E, T , C, V)
+where:
+C
+defines the compositional and categorical structure governing admissible epistemic operations and scientific reasoning processes.
+
+18
+
+

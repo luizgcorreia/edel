@@ -69,6 +69,8 @@ def format_search_results(hits: list[dict]) -> str:
         lines.append(f"- **Location**: {location}")
         if meta.get("cited_deps") and meta["cited_deps"] != "none":
             lines.append(f"- **Cited Dependencies**: `{meta['cited_deps']}`")
+        if meta.get("dependents_count") is not None:
+            lines.append(f"- **Landscape Dependents Count**: `{meta['dependents_count']}`")
         lines.append("")
         
     return "\n".join(lines)
@@ -91,6 +93,8 @@ def format_definition_results(hits: list[dict]) -> str:
         lines.append(f"- **Location**: {location}")
         if meta.get("dependents") and meta["dependents"] != "none":
             lines.append(f"- **Used in Lemmas**: `{meta['dependents']}`")
+        if meta.get("dependents_count") is not None:
+            lines.append(f"- **Landscape Dependents Count**: `{meta['dependents_count']}`")
         lines.append("")
         
     return "\n".join(lines)
@@ -105,13 +109,17 @@ def format_definition_results(hits: list[dict]) -> str:
     "or 'all' for a hybrid search across all aspects. "
     "Transitions can be performed by searching on one aspect and reading the others. "
     "For example, to find what tactics proved a goal: query the goal with aspect='conclusion', "
-    "then read the 'Tactics' field in the returned results."
+    "then read the 'Tactics' field in the returned results. "
+    "Set sort_by_significance=True to bias search results toward widely cited, foundational lemmas. "
+    "Set min_dependents=K to filter out obscure helper lemmas with fewer than K direct/transitive dependents."
 ))
 async def search_lemmas(
     query: str,
     aspect: str = "conclusion",  # "premises" | "skeleton" | "tactics" | "conclusion" | "all"
     theory_filter: str = "",
     max_results: int = 10,
+    sort_by_significance: bool = False,
+    min_dependents: int = 0,
 ) -> str:
     """Perform semantic search on static and live session indices."""
     client = get_embedding_client()
@@ -127,7 +135,14 @@ async def search_lemmas(
     if aspect == "all":
         all_results = {}
         for asp_name, idx_asp in aspect_map.items():
-            hits = index.search(query_emb, aspect=idx_asp, max_results=max_results, theory_filter=theory_filter)
+            hits = index.search(
+                query_emb,
+                aspect=idx_asp,
+                max_results=max_results,
+                theory_filter=theory_filter,
+                sort_by_significance=sort_by_significance,
+                min_dependents=min_dependents
+            )
             for h in hits:
                 lemma_id = h["lemma"]["title"]
                 if lemma_id not in all_results or h["score"] > all_results[lemma_id]["score"]:
@@ -137,24 +152,41 @@ async def search_lemmas(
         hits = sorted_hits[:max_results]
     else:
         idx_asp = aspect_map.get(aspect, "interpretation")
-        hits = index.search(query_emb, aspect=idx_asp, max_results=max_results, theory_filter=theory_filter)
+        hits = index.search(
+            query_emb,
+            aspect=idx_asp,
+            max_results=max_results,
+            theory_filter=theory_filter,
+            sort_by_significance=sort_by_significance,
+            min_dependents=min_dependents
+        )
         
     return format_search_results(hits)
 
 
 @mcp.tool(description=(
     "Search for definitions, types, or abbreviations in the dedicated Definition Space. "
-    "Returns matching definitions by statement similarity."
+    "Returns matching definitions by statement similarity. "
+    "Set sort_by_significance=True to bias search results toward foundational/frequently cited entities. "
+    "Set min_dependents=K to filter out obscure items used by fewer than K lemmas."
 ))
 async def search_definitions(
     query: str,
     theory_filter: str = "",
     max_results: int = 10,
+    sort_by_significance: bool = False,
+    min_dependents: int = 0,
 ) -> str:
     """Perform semantic search on definitions in the Definition Space."""
     client = get_embedding_client()
     query_emb = client.generate_embedding(query)
-    hits = index.search_definitions(query_emb, max_results=max_results, theory_filter=theory_filter)
+    hits = index.search_definitions(
+        query_emb,
+        max_results=max_results,
+        theory_filter=theory_filter,
+        sort_by_significance=sort_by_significance,
+        min_dependents=min_dependents
+    )
     return format_definition_results(hits)
 
 

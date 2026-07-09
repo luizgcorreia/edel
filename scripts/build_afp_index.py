@@ -255,6 +255,14 @@ def main():
     print(f"Total size of final static RAG index: {len(master_index.metadata)} lemmas.")
     print("==================================================")
 
+    # Run Phase 2: Landscape Height Post-Processing
+    print("\n==================================================")
+    print("Running Phase 2: Landscape Height Post-Processing...")
+    from edel.il.compute_landscape_height import compute_and_save_landscape_height
+    compute_and_save_landscape_height(output_dir)
+    print("Landscape height computation complete.")
+    print("==================================================")
+
 
 if __name__ == "__main__":
     main()

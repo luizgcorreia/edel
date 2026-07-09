@@ -1,0 +1,374 @@
+[
+  {
+    "query_id": "Q1",
+    "query_type": "Natural Language",
+    "query_text": "prove that two multisets are equal if they have the same element count",
+    "target_title": "HOL-Library.Multiset.multiset_eq_iff",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.6877421408015966,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.6877421408015966,
+        "avg_non_target_similarity": 0.5359569754463703,
+        "signal_to_noise_ratio": 1.2832040113458965,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.6877421408015966,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.529092613634404,
+          "HOL-Library.Multiset.size_empty": 0.5159692334497361,
+          "HOL-Library.Multiset.union_commute": 0.5472938105466457,
+          "HOL-Library.Multiset.union_assoc": 0.49089881541787384,
+          "HOL-Library.Multiset.add_mset_commute": 0.5467170730645275,
+          "HOL-Library.Multiset.count_single": 0.5647499845334848,
+          "HOL-Library.Multiset.diff_empty": 0.5569772974779208
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.6878853427177244,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.6878853427177244,
+        "avg_non_target_similarity": 0.4933606306692754,
+        "signal_to_noise_ratio": 1.3942850319948792,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.6878853427177244,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.49623697255794047,
+          "HOL-Library.Multiset.size_empty": 0.48302824978490616,
+          "HOL-Library.Multiset.union_commute": 0.5260524983473123,
+          "HOL-Library.Multiset.union_assoc": 0.465150589674975,
+          "HOL-Library.Multiset.add_mset_commute": 0.5724347006664068,
+          "HOL-Library.Multiset.count_single": 0.4666814138011154,
+          "HOL-Library.Multiset.diff_empty": 0.4439399898522712
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.646730227814361,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.646730227814361,
+        "avg_non_target_similarity": 0.5052873666502485,
+        "signal_to_noise_ratio": 1.2799255839341355,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.646730227814361,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.49810935238805704,
+          "HOL-Library.Multiset.size_empty": 0.48741914310749057,
+          "HOL-Library.Multiset.union_commute": 0.5026909783289065,
+          "HOL-Library.Multiset.union_assoc": 0.45715464331904393,
+          "HOL-Library.Multiset.add_mset_commute": 0.5564731227805361,
+          "HOL-Library.Multiset.count_single": 0.5164704802427397,
+          "HOL-Library.Multiset.diff_empty": 0.5186938463849661
+        }
+      }
+    }
+  },
+  {
+    "query_id": "Q2",
+    "query_type": "Code Subgoal",
+    "query_text": "(\u22c0x. count A x = count B x) \u27f9 A = B",
+    "target_title": "HOL-Library.Multiset.multiset_eq_iff",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.6907734078136153,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.6907734078136153,
+        "avg_non_target_similarity": 0.4484178769358107,
+        "signal_to_noise_ratio": 1.5404680396194304,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.6907734078136153,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.4265779845505453,
+          "HOL-Library.Multiset.size_empty": 0.43277185253681827,
+          "HOL-Library.Multiset.union_commute": 0.43482931246388123,
+          "HOL-Library.Multiset.union_assoc": 0.37760351632996864,
+          "HOL-Library.Multiset.add_mset_commute": 0.4471412699190908,
+          "HOL-Library.Multiset.count_single": 0.5399378982774716,
+          "HOL-Library.Multiset.diff_empty": 0.4800633044728987
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.7104585697656031,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.7104585697656031,
+        "avg_non_target_similarity": 0.4441704980255734,
+        "signal_to_noise_ratio": 1.5995176917956806,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.7104585697656031,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.42611450422114333,
+          "HOL-Library.Multiset.size_empty": 0.3820322546322445,
+          "HOL-Library.Multiset.union_commute": 0.44971091252843426,
+          "HOL-Library.Multiset.union_assoc": 0.3953628069965195,
+          "HOL-Library.Multiset.add_mset_commute": 0.4715352450387432,
+          "HOL-Library.Multiset.count_single": 0.5187425369261642,
+          "HOL-Library.Multiset.diff_empty": 0.46569522583576456
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.6489543503461592,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.multiset_eq_iff",
+        "top_1_similarity": 0.6489543503461592,
+        "avg_non_target_similarity": 0.42869764192403004,
+        "signal_to_noise_ratio": 1.51378101226216,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.6489543503461592,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.4133056885419277,
+          "HOL-Library.Multiset.size_empty": 0.3912544837105792,
+          "HOL-Library.Multiset.union_commute": 0.40801486306393464,
+          "HOL-Library.Multiset.union_assoc": 0.3704804533983871,
+          "HOL-Library.Multiset.add_mset_commute": 0.45278745579059226,
+          "HOL-Library.Multiset.count_single": 0.49592660182253656,
+          "HOL-Library.Multiset.diff_empty": 0.46911394714025323
+        }
+      }
+    }
+  },
+  {
+    "query_id": "Q3",
+    "query_type": "Natural Language",
+    "query_text": "monotonicity of multiset union with respect to ordering",
+    "target_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.5995008744553989,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.5995008744553989,
+        "avg_non_target_similarity": 0.4642154693414095,
+        "signal_to_noise_ratio": 1.291428041607319,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.4566117668114224,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.5995008744553989,
+          "HOL-Library.Multiset.size_empty": 0.39704988456583146,
+          "HOL-Library.Multiset.union_commute": 0.5131214032856294,
+          "HOL-Library.Multiset.union_assoc": 0.5207647291097348,
+          "HOL-Library.Multiset.add_mset_commute": 0.5248157599294406,
+          "HOL-Library.Multiset.count_single": 0.39875685987818077,
+          "HOL-Library.Multiset.diff_empty": 0.4383878818096269
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.6301093673116864,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.6301093673116864,
+        "avg_non_target_similarity": 0.4512652549769666,
+        "signal_to_noise_ratio": 1.3963170449359066,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.42962889996994336,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.6301093673116864,
+          "HOL-Library.Multiset.size_empty": 0.3676211126074856,
+          "HOL-Library.Multiset.union_commute": 0.5594148494559545,
+          "HOL-Library.Multiset.union_assoc": 0.5848720149420356,
+          "HOL-Library.Multiset.add_mset_commute": 0.555103738088868,
+          "HOL-Library.Multiset.count_single": 0.32172785811607096,
+          "HOL-Library.Multiset.diff_empty": 0.34048831165840826
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.6046988915260313,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.6046988915260313,
+        "avg_non_target_similarity": 0.4499027420178257,
+        "signal_to_noise_ratio": 1.344065805898272,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.41790692803802765,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.6046988915260313,
+          "HOL-Library.Multiset.size_empty": 0.3616619997263811,
+          "HOL-Library.Multiset.union_commute": 0.5270722660105959,
+          "HOL-Library.Multiset.union_assoc": 0.5567419027695247,
+          "HOL-Library.Multiset.add_mset_commute": 0.514121952410418,
+          "HOL-Library.Multiset.count_single": 0.3780804935723417,
+          "HOL-Library.Multiset.diff_empty": 0.393733651597491
+        }
+      }
+    }
+  },
+  {
+    "query_id": "Q4",
+    "query_type": "Code Subgoal",
+    "query_text": "A <# B \u27f9 C + A <# C + B",
+    "target_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.5518333409532155,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.5518333409532155,
+        "avg_non_target_similarity": 0.440441116536364,
+        "signal_to_noise_ratio": 1.2529105940263745,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.41635380156004254,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.5518333409532155,
+          "HOL-Library.Multiset.size_empty": 0.39439021147056114,
+          "HOL-Library.Multiset.union_commute": 0.48521623775826866,
+          "HOL-Library.Multiset.union_assoc": 0.47872053684752297,
+          "HOL-Library.Multiset.add_mset_commute": 0.4531315833688541,
+          "HOL-Library.Multiset.count_single": 0.42874686597636696,
+          "HOL-Library.Multiset.diff_empty": 0.4265285787729315
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.5274152382173376,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.5274152382173376,
+        "avg_non_target_similarity": 0.4215083222278072,
+        "signal_to_noise_ratio": 1.2512569987462603,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.366082765881678,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.5274152382173376,
+          "HOL-Library.Multiset.size_empty": 0.347138370321462,
+          "HOL-Library.Multiset.union_commute": 0.4813767897923171,
+          "HOL-Library.Multiset.union_assoc": 0.48653373462568716,
+          "HOL-Library.Multiset.add_mset_commute": 0.4657883071968276,
+          "HOL-Library.Multiset.count_single": 0.3901625843113749,
+          "HOL-Library.Multiset.diff_empty": 0.41347570346530327
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.5123122517182812,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.mset_subset_eq_mono_add",
+        "top_1_similarity": 0.5123122517182812,
+        "avg_non_target_similarity": 0.38704994724960057,
+        "signal_to_noise_ratio": 1.3236334363531164,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.3410986985545525,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.5123122517182812,
+          "HOL-Library.Multiset.size_empty": 0.34263120958126325,
+          "HOL-Library.Multiset.union_commute": 0.42412754147851656,
+          "HOL-Library.Multiset.union_assoc": 0.4373115143051103,
+          "HOL-Library.Multiset.add_mset_commute": 0.42532499755039443,
+          "HOL-Library.Multiset.count_single": 0.35726262791677427,
+          "HOL-Library.Multiset.diff_empty": 0.3815930413605929
+        }
+      }
+    }
+  },
+  {
+    "query_id": "Q5",
+    "query_type": "Natural Language",
+    "query_text": "the size of a multiset is zero if and only if it is empty",
+    "target_title": "HOL-Library.Multiset.size_empty",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.6876816250831949,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6876816250831949,
+        "avg_non_target_similarity": 0.4923313914127993,
+        "signal_to_noise_ratio": 1.3967860613352654,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.549789155844559,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.4699507794054176,
+          "HOL-Library.Multiset.size_empty": 0.6876816250831949,
+          "HOL-Library.Multiset.union_commute": 0.4728824588126716,
+          "HOL-Library.Multiset.union_assoc": 0.4418064952323953,
+          "HOL-Library.Multiset.add_mset_commute": 0.4652254904102265,
+          "HOL-Library.Multiset.count_single": 0.5080263612406153,
+          "HOL-Library.Multiset.diff_empty": 0.5386389989437103
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.6957622299306961,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6957622299306961,
+        "avg_non_target_similarity": 0.4577605133307447,
+        "signal_to_noise_ratio": 1.5199262707659291,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.5347646654143133,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.4194397875565403,
+          "HOL-Library.Multiset.size_empty": 0.6957622299306961,
+          "HOL-Library.Multiset.union_commute": 0.430012987360088,
+          "HOL-Library.Multiset.union_assoc": 0.40686892437839134,
+          "HOL-Library.Multiset.add_mset_commute": 0.47404771800106676,
+          "HOL-Library.Multiset.count_single": 0.45431637004263564,
+          "HOL-Library.Multiset.diff_empty": 0.4848731405621777
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.6760129549330445,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6760129549330445,
+        "avg_non_target_similarity": 0.47259804215555923,
+        "signal_to_noise_ratio": 1.4304184415358405,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.5206013891361485,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.43023649852431384,
+          "HOL-Library.Multiset.size_empty": 0.6760129549330445,
+          "HOL-Library.Multiset.union_commute": 0.42838883122983373,
+          "HOL-Library.Multiset.union_assoc": 0.41411173975886345,
+          "HOL-Library.Multiset.add_mset_commute": 0.4672960874074336,
+          "HOL-Library.Multiset.count_single": 0.5105956158207617,
+          "HOL-Library.Multiset.diff_empty": 0.5369561332115595
+        }
+      }
+    }
+  },
+  {
+    "query_id": "Q6",
+    "query_type": "Code Subgoal",
+    "query_text": "size M = 0 \u27f7 M = {#}",
+    "target_title": "HOL-Library.Multiset.size_empty",
+    "formats": {
+      "format_A": {
+        "target_similarity": 0.6619716780635565,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6619716780635565,
+        "avg_non_target_similarity": 0.4162622473768255,
+        "signal_to_noise_ratio": 1.5902755588216966,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.4932394395850295,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.3597590290764383,
+          "HOL-Library.Multiset.size_empty": 0.6619716780635565,
+          "HOL-Library.Multiset.union_commute": 0.36869151146808266,
+          "HOL-Library.Multiset.union_assoc": 0.33300852774720674,
+          "HOL-Library.Multiset.add_mset_commute": 0.3740664537854284,
+          "HOL-Library.Multiset.count_single": 0.45719302993775923,
+          "HOL-Library.Multiset.diff_empty": 0.5278777400378339
+        }
+      },
+      "format_B": {
+        "target_similarity": 0.6509432206546022,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6509432206546022,
+        "avg_non_target_similarity": 0.40236742889915483,
+        "signal_to_noise_ratio": 1.61778308556319,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.45409451657808847,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.3138058037101777,
+          "HOL-Library.Multiset.size_empty": 0.6509432206546022,
+          "HOL-Library.Multiset.union_commute": 0.34759182585499265,
+          "HOL-Library.Multiset.union_assoc": 0.3159917219175495,
+          "HOL-Library.Multiset.add_mset_commute": 0.36561966677473023,
+          "HOL-Library.Multiset.count_single": 0.45323977909737095,
+          "HOL-Library.Multiset.diff_empty": 0.5662286883611746
+        }
+      },
+      "format_C": {
+        "target_similarity": 0.6179175207533413,
+        "target_rank": 1,
+        "top_1_title": "HOL-Library.Multiset.size_empty",
+        "top_1_similarity": 0.6179175207533413,
+        "avg_non_target_similarity": 0.38019911738361406,
+        "signal_to_noise_ratio": 1.6252471205236219,
+        "all_similarities": {
+          "HOL-Library.Multiset.multiset_eq_iff": 0.42345739632137785,
+          "HOL-Library.Multiset.mset_subset_eq_mono_add": 0.32162945048733327,
+          "HOL-Library.Multiset.size_empty": 0.6179175207533413,
+          "HOL-Library.Multiset.union_commute": 0.3282910939588876,
+          "HOL-Library.Multiset.union_assoc": 0.30915542443696736,
+          "HOL-Library.Multiset.add_mset_commute": 0.3485897173381066,
+          "HOL-Library.Multiset.count_single": 0.43238536267776106,
+          "HOL-Library.Multiset.diff_empty": 0.49788537646486425
+        }
+      }
+    }
+  }
+]

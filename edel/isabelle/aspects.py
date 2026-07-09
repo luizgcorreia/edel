@@ -109,75 +109,149 @@ def _extract_dependencies(proof: str) -> str:
     return ", ".join(sorted(deps)) if deps else "none"
 
 
+def _split_on_top_level_implies(prop: str) -> list[str]:
+    """Split a proposition string on top-level ==> or ⟹ operators, respecting parenthesis nesting."""
+    parts = []
+    current = []
+    depth = 0
+    i = 0
+    n = len(prop)
+    while i < n:
+        char = prop[i]
+        if char in "([{‹":
+            depth += 1
+            current.append(char)
+            i += 1
+        elif char in ")]}›":
+            depth = max(0, depth - 1)
+            current.append(char)
+            i += 1
+        elif depth == 0 and (prop[i:i+3] == "⟹" or prop[i:i+3] == "==>"):
+            parts.append("".join(current).strip())
+            current = []
+            i += 3
+        else:
+            current.append(char)
+            i += 1
+    if current:
+        parts.append("".join(current).strip())
+    return [p for p in parts if p]
+
+
+def _parse_premises_and_conclusion(statement: str) -> tuple[str, str]:
+    """Parse a lemma/theorem statement to extract its premises and conclusion."""
+    # Normalise whitespace
+    stmt = re.sub(r'\s+', ' ', statement).strip()
+    
+    # 1. Handle Isar assumes/shows form
+    if "shows" in stmt:
+        assumes_part = stmt[:stmt.find("shows")]
+        shows_part = stmt[stmt.find("shows") + len("shows"):]
+        
+        # Extract assumptions inside quotes
+        assumptions = re.findall(r'\bassumes\s+"([^"]+)"', assumes_part)
+        if not assumptions:
+            assumptions = re.findall(r'"([^"]+)"', assumes_part)
+            
+        conclusion_match = re.search(r'"([^"]+)"', shows_part)
+        conclusion = conclusion_match.group(1) if conclusion_match else shows_part.strip()
+        
+        premises = ", ".join(assumptions) if assumptions else "none"
+        return premises, conclusion
+        
+    # 2. Standard forms: lemma foo: "A ==> B" or lemma "A ==> B"
+    # Find content of outermost quotes
+    m = re.search(r'"([^"]+)"', stmt)
+    if not m:
+        # Fallback: if no quotes, strip keyword/name and parse
+        clean = re.sub(
+            r'^(?:lemma|theorem|corollary|proposition|schematic_goal)\s+'
+            r'(?:[a-zA-Z0-9_\'\.]+\s*(?:\[[^\]]*\])?\s*:)?\s*',
+            '',
+            stmt
+        )
+        prop = clean
+    else:
+        prop = m.group(1)
+        
+    parts = _split_on_top_level_implies(prop)
+    if len(parts) > 1:
+        premises = ", ".join(parts[:-1])
+        conclusion = parts[-1]
+    else:
+        premises = "none"
+        conclusion = parts[0]
+        
+    return premises, conclusion
+
+
 def extract_aspects(
     lemma: dict[str, Any],
     theory_header: str = "",          # kept for backward compatibility; unused
     entry_metadata: dict[str, Any] | None = None,  # kept for backward compatibility; unused
     text_comments: list[str] | None = None,
 ) -> dict[str, str]:
-    """Extract source-enriched Format B aspects from a parsed lemma.
+    """Extract source-enriched aspects from a parsed lemma.
 
     Aspects:
-        aspect_statement   — Full ``statement_text`` verbatim (keyword + name + proposition).
-        aspect_context     — Isabelle construct keyword + qualified theory name.
-        aspect_strategy    — Proof tactic/structural lines, plus cleaned text-block commentary.
-        aspect_dependencies — Cited dependency identifiers extracted from the proof.
-
-    Args:
-        lemma: Parsed lemma dict with keys ``statement_text``, ``proof_text``,
-               ``theory``, ``keyword``.
-        theory_header: Legacy parameter; no longer used.
-        entry_metadata: Legacy parameter; no longer used.
-        text_comments: Optional list of raw text-block segment contents adjacent
-                       to this lemma (e.g. from ``text ‹...›`` commands).
+        aspect_statement    — Premises/hypotheses (or "none" if unconditional).
+        aspect_context      — Conclusion / consequent.
+        aspect_strategy     — Proof skeleton (declarative have/show/also/case segments).
+        aspect_dependencies  — Operational tactics/automation (apply/by/using segments).
     """
     statement = lemma.get("statement_text", "").strip()
     proof = lemma.get("proof_text", "").strip()
-    theory = lemma.get("theory", "unknown")
-    keyword = lemma.get("keyword", "")
+    comments = text_comments or lemma.get("text_comments", [])
 
-    # ------------------------------------------------------------------
-    # 1. aspect_statement: full statement_text verbatim
-    # ------------------------------------------------------------------
-    aspect_statement = statement
+    # 1. Parse statement into premises and conclusion
+    premises, conclusion = _parse_premises_and_conclusion(statement)
+    aspect_statement = premises
+    aspect_context = conclusion
 
-    # ------------------------------------------------------------------
-    # 2. aspect_context: construct keyword + qualified theory name
-    # ------------------------------------------------------------------
-    # Determine the keyword from the statement if not supplied in the dict
-    if not keyword:
-        kw_match = re.match(
-            r'^(lemma|theorem|corollary|proposition|schematic_goal|'
-            r'definition|fun|function|primrec|datatype|type_synonym|'
-            r'inductive|coinductive|record|abbreviation)\b',
-            statement,
-        )
-        keyword = kw_match.group(1) if kw_match else "unknown"
+    # 2. Extract skeleton and tactics
+    skeleton_segs = list(lemma.get("skeleton_segments", []))
+    tactic_segs = list(lemma.get("tactic_segments", []))
 
-    # Normalise: strip internal qualifiers from the keyword string
-    kw_label = keyword if keyword in _CONSTRUCT_KEYWORDS else keyword.split()[0]
-    aspect_context = f"{kw_label} in {theory}"
+    # Fallback if segments are missing but proof is present
+    if not skeleton_segs and not tactic_segs and proof:
+        ISAR_SKELETON_KEYWORDS = {
+            "proof", "qed", "have", "show", "also", "finally", "next",
+            "case", "assume", "fix", "obtain", "define", "let", "presume", "suppose"
+        }
+        for line in proof.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            tokens = set(re.findall(r'[a-zA-Z_]+', stripped))
+            if tokens & ISAR_SKELETON_KEYWORDS:
+                skeleton_segs.append(stripped)
+            else:
+                tactic_segs.append(stripped)
 
-    # ------------------------------------------------------------------
-    # 3. aspect_strategy: tactic lines + cleaned text-block commentary
-    # ------------------------------------------------------------------
-    tactic_part = _extract_tactic_lines(proof)
+    # Clean the segments
+    cleaned_skeleton = []
+    for seg in skeleton_segs:
+        cleaned = _strip_isabelle_markup(seg)
+        if cleaned:
+            cleaned_skeleton.append(cleaned)
 
+    cleaned_tactics = []
+    for seg in tactic_segs:
+        cleaned = _strip_isabelle_markup(seg)
+        if cleaned:
+            cleaned_tactics.append(cleaned)
+
+    # 3. Incorporate text comments into the skeleton aspect (method)
     comment_parts: list[str] = []
-    if text_comments:
-        for raw_comment in text_comments:
+    if comments:
+        for raw_comment in comments:
             cleaned = _strip_isabelle_markup(raw_comment)
-            # Only include if there's meaningful prose left after stripping
             if len(cleaned) > 20:
                 comment_parts.append(cleaned)
 
-    strategy_parts = [p for p in [tactic_part] + comment_parts if p]
+    strategy_parts = cleaned_skeleton + comment_parts
     aspect_strategy = "\n".join(strategy_parts)
-
-    # ------------------------------------------------------------------
-    # 4. aspect_dependencies: cited dependency identifiers
-    # ------------------------------------------------------------------
-    aspect_dependencies = _extract_dependencies(proof)
+    aspect_dependencies = "\n".join(cleaned_tactics)
 
     return {
         "aspect_statement": aspect_statement,

@@ -53,33 +53,63 @@ def format_search_results(hits: list[dict]) -> str:
     for i, hit in enumerate(hits):
         meta = hit["lemma"]
         lines.append(f"### {i+1}. `{meta['title']}` (Score: {hit['score']:.3f})")
-        lines.append(f"- **Statement**: `{meta['problem']}`")
-        if meta.get("finding") and meta["finding"] != "unknown":
-            lines.append(f"- **Strategy**: `{meta['finding']}`")
-        if meta.get("interpretation") and meta["interpretation"] != "none":
-            lines.append(f"- **Dependencies**: `{meta['interpretation']}`")
+        if meta.get("problem") and meta["problem"] != "none":
+            lines.append(f"- **Premises**: `{meta['problem']}`")
+        if meta.get("interpretation"):
+            lines.append(f"- **Conclusion**: `{meta['interpretation']}`")
+        if meta.get("method"):
+            lines.append(f"- **Skeleton**:\n```isabelle\n{meta['method']}\n```")
+        if meta.get("finding"):
+            lines.append(f"- **Tactics**:\n```isabelle\n{meta['finding']}\n```")
         
         # Source location
-        location = f"{meta['theory']}"
+        location = f"{meta.get('theory', '')}"
         if meta.get("file"):
             location += f" ({meta['file']}:{meta.get('line', '')})"
         lines.append(f"- **Location**: {location}")
+        if meta.get("cited_deps") and meta["cited_deps"] != "none":
+            lines.append(f"- **Cited Dependencies**: `{meta['cited_deps']}`")
+        lines.append("")
+        
+    return "\n".join(lines)
+
+
+def format_definition_results(hits: list[dict]) -> str:
+    """Format definition index hits into a readable Markdown block."""
+    if not hits:
+        return "No matching definitions found."
+        
+    lines = []
+    for i, hit in enumerate(hits):
+        meta = hit["definition"]
+        lines.append(f"### {i+1}. `{meta['title']}` (Score: {hit['score']:.3f})")
+        lines.append(f"- **Statement**: `{meta['problem']}`")
+        
+        location = f"{meta.get('theory', '')}"
+        if meta.get("file"):
+            location += f" ({meta['file']}:{meta.get('line', '')})"
+        lines.append(f"- **Location**: {location}")
+        if meta.get("dependents") and meta["dependents"] != "none":
+            lines.append(f"- **Used in Lemmas**: `{meta['dependents']}`")
         lines.append("")
         
     return "\n".join(lines)
 
 
 @mcp.tool(description=(
-    "Search for lemmas semantically similar to a goal or statement. "
-    "Specify aspect='statement' to match by proposition structure, "
-    "'proof_method' to find lemmas with similar proof tactics/strategy, "
-    "'dependencies' to find lemmas citing similar facts, "
-    "'construct' for the same construct type and theory context, "
-    "or 'all' for a hybrid search across all aspects."
+    "Search for lemmas semantically similar to a query term or pattern. "
+    "Set aspect='premises' to search by hypotheses/assumptions, "
+    "'skeleton' to search by declarative proof structure/steps (have/show/case), "
+    "'tactics' to search by operational tactics/commands (apply/by), "
+    "'conclusion' to search by the final goal/lemma statement conclusion, "
+    "or 'all' for a hybrid search across all aspects. "
+    "Transitions can be performed by searching on one aspect and reading the others. "
+    "For example, to find what tactics proved a goal: query the goal with aspect='conclusion', "
+    "then read the 'Tactics' field in the returned results."
 ))
 async def search_lemmas(
     query: str,
-    aspect: str = "statement",  # "statement" | "proof_method" | "dependencies" | "construct" | "all"
+    aspect: str = "conclusion",  # "premises" | "skeleton" | "tactics" | "conclusion" | "all"
     theory_filter: str = "",
     max_results: int = 10,
 ) -> str:
@@ -87,16 +117,14 @@ async def search_lemmas(
     client = get_embedding_client()
     query_emb = client.generate_embedding(query)
 
-    # Map user-facing aspect names to internal index keys (Format B)
     aspect_map = {
-        "statement":    "problem",        # formal proposition (statement_text)
-        "proof_method": "method",         # tactic lines + cleaned text commentary
-        "dependencies": "finding",        # cited dependency identifiers
-        "construct":    "interpretation", # keyword + theory name
+        "premises":     "problem",
+        "skeleton":     "method",
+        "tactics":      "finding",
+        "conclusion":   "interpretation",
     }
     
     if aspect == "all":
-        # Multi-aspect hybrid search
         all_results = {}
         for asp_name, idx_asp in aspect_map.items():
             hits = index.search(query_emb, aspect=idx_asp, max_results=max_results, theory_filter=theory_filter)
@@ -108,50 +136,26 @@ async def search_lemmas(
         sorted_hits = sorted(all_results.values(), key=lambda x: x["score"], reverse=True)
         hits = sorted_hits[:max_results]
     else:
-        idx_asp = aspect_map.get(aspect, "problem")
+        idx_asp = aspect_map.get(aspect, "interpretation")
         hits = index.search(query_emb, aspect=idx_asp, max_results=max_results, theory_filter=theory_filter)
         
     return format_search_results(hits)
 
 
 @mcp.tool(description=(
-    "Find proof strategies that worked for goals similar to the query goal. "
-    "Returns ranked proof methods with example lemmas."
+    "Search for definitions, types, or abbreviations in the dedicated Definition Space. "
+    "Returns matching definitions by statement similarity."
 ))
-async def search_strategies(
-    goal: str,
-    max_results: int = 5,
+async def search_definitions(
+    query: str,
+    theory_filter: str = "",
+    max_results: int = 10,
 ) -> str:
-    """Query statement index and aggregate strategies used by matching lemmas."""
+    """Perform semantic search on definitions in the Definition Space."""
     client = get_embedding_client()
-    query_emb = client.generate_embedding(goal)
-    
-    hits = index.search(query_emb, aspect="problem", max_results=max_results * 3)
-    
-    strategies = {}
-    for h in hits:
-        strat = h["lemma"].get("finding", "unknown")
-        if strat in ("unknown", "unknown (direct or simple)"):
-            continue
-        if strat not in strategies:
-            strategies[strat] = []
-        strategies[strat].append({
-            "name": h["lemma"]["title"],
-            "statement": h["lemma"]["problem"],
-            "score": h["score"]
-        })
-        
-    sorted_strats = sorted(strategies.items(), key=lambda x: max(e["score"] for e in x[1]), reverse=True)
-    
-    lines = ["### Suggested Proof Strategies", ""]
-    for i, (strat, examples) in enumerate(sorted_strats[:max_results]):
-        best_example = examples[0]
-        lines.append(f"{i+1}. **Strategy**: `{strat}` (Confidence: {best_example['score']:.2f})")
-        lines.append(f"   - *Example Lemma*: `{best_example['name']}`")
-        lines.append(f"   - *Example Goal*: `{best_example['statement']}`")
-        lines.append("")
-        
-    return "\n".join(lines)
+    query_emb = client.generate_embedding(query)
+    hits = index.search_definitions(query_emb, max_results=max_results, theory_filter=theory_filter)
+    return format_definition_results(hits)
 
 
 @mcp.tool(description=(
@@ -161,7 +165,7 @@ async def related_lemmas(
     lemma_name: str,
     max_results: int = 10,
 ) -> str:
-    """Retrieve similar lemmas using the target lemma's pre-computed statement embedding."""
+    """Retrieve similar lemmas using the target lemma's pre-computed conclusion embedding."""
     target_idx = None
     for idx, meta in enumerate(index.metadata):
         if meta["title"].lower() == lemma_name.lower():
@@ -171,8 +175,9 @@ async def related_lemmas(
     if target_idx is None:
         return f"Lemma '{lemma_name}' not found in static RAG index."
         
-    vector = index.embeddings["problem"][target_idx]
-    hits = index.search(vector.tolist(), aspect="problem", max_results=max_results + 1)
+    # Query using conclusion embedding for related lemmas
+    vector = index.embeddings["interpretation"][target_idx]
+    hits = index.search(vector.tolist(), aspect="interpretation", max_results=max_results + 1)
     
     # Filter out target lemma itself
     hits = [h for h in hits if h["lemma"]["title"].lower() != lemma_name.lower()]
@@ -188,7 +193,7 @@ async def store_lemma(
     statement: str,
     proof_text: str,
     theory: str,
-    dependencies: list[str] = [],
+    cited_deps: list[str] = [],
 ) -> str:
     """Parse and embed a new lemma, adding it to the runtime session index."""
     from edel.isabelle.aspects import extract_aspects
@@ -196,16 +201,16 @@ async def store_lemma(
     lemma_dict = {
         "statement_text": f'lemma {name}: "{statement}"',
         "proof_text": proof_text,
-        "theory": theory
+        "theory": theory,
+        "keyword": "lemma"
     }
     
     aspects = extract_aspects(lemma_dict, text_comments=[])
-    # Format B mapping: statement→problem, strategy→method, deps→finding, context→interpretation
     aspect_text_dict = {
-        "problem":        aspects["aspect_statement"],
-        "method":         aspects["aspect_strategy"],
-        "finding":        aspects["aspect_dependencies"],
-        "interpretation": aspects["aspect_context"],
+        "problem":         aspects["aspect_statement"],
+        "method":          aspects["aspect_strategy"],
+        "finding":         aspects["aspect_dependencies"],
+        "interpretation":  aspects["aspect_context"],
     }
     
     client = get_embedding_client()
@@ -213,7 +218,7 @@ async def store_lemma(
     
     # Embed aspects
     for aspect_name, text in aspect_text_dict.items():
-        if text.strip():
+        if text.strip() and text != "none":
             embeddings_dict[aspect_name] = client.generate_embedding(text)
             
     # Set default zero embeddings for any empty aspects
@@ -229,41 +234,96 @@ async def store_lemma(
         embeddings_dict=embeddings_dict,
         theory=theory,
         proof_text=proof_text,
-        dependencies=dependencies
+        cited_deps=cited_deps
     )
     
     return f"Successfully stored lemma '{theory}.{name}' in RAG session index. It is now searchable."
 
 
-@mcp.tool(description="Permanently persist all dynamically stored session lemmas to the on-disk static index.")
+@mcp.tool(description=(
+    "Store a newly defined construct (e.g. definition, fun, primrec, datatype) "
+    "in the session definition index."
+))
+async def store_definition(
+    name: str,
+    statement: str,
+    theory: str,
+    dependents: list[str] = [],
+) -> str:
+    """Embed and store a new definition in the session Definition Space."""
+    client = get_embedding_client()
+    embedding = client.generate_embedding(statement)
+    
+    index.add_live_definition(
+        name=name,
+        statement_text=statement,
+        embedding=embedding,
+        theory=theory,
+        dependents=", ".join(dependents) if dependents else "none"
+    )
+    return f"Successfully stored definition '{theory}.{name}' in the RAG session definition index."
+
+
+@mcp.tool(description="Permanently persist all dynamically stored session lemmas and definitions to the on-disk static index.")
 async def persist_session_lemmas() -> str:
     """Merge the in-memory session index into the on-disk index."""
-    if not index.live_metadata:
-        return "No new session lemmas to persist."
-        
     num_lemmas = len(index.live_metadata)
+    num_defs = len(index.live_definition_metadata)
+    if num_lemmas == 0 and num_defs == 0:
+        return "No new session items to persist."
+        
     try:
         index.persist_live_lemmas(INDEX_DIR)
-        return f"Successfully persisted {num_lemmas} session lemmas to the static index at '{INDEX_DIR}'."
+        return f"Successfully persisted {num_lemmas} session lemmas and {num_defs} session definitions to the static index at '{INDEX_DIR}'."
     except Exception as e:
-        return f"Failed to persist lemmas: {str(e)}"
+        return f"Failed to persist session items: {str(e)}"
 
 
-@mcp.tool(description="List all lemmas added to the RAG session index during this session.")
+@mcp.tool(description="List all lemmas and definitions added to the RAG session index during this session.")
 async def session_lemmas() -> str:
-    """Return all session lemmas."""
-    if not index.live_metadata:
-        return "No lemmas have been stored in this session yet."
-        
-    lines = ["### Session Lemmas", ""]
-    for i, meta in enumerate(index.live_metadata):
-        lines.append(f"{i+1}. `{meta['title']}`")
-        lines.append(f"   - **Statement**: `{meta['problem']}`")
-        lines.append(f"   - **Proof**: `{meta['proof_text']}`")
+    """Return all session lemmas and definitions."""
+    lines = []
+    if index.live_metadata:
+        lines.append("### Session Lemmas")
         lines.append("")
+        for i, meta in enumerate(index.live_metadata):
+            lines.append(f"{i+1}. `{meta['title']}`")
+            if meta.get("problem") and meta["problem"] != "none":
+                lines.append(f"   - **Premises**: `{meta['problem']}`")
+            lines.append(f"   - **Conclusion**: `{meta['interpretation']}`")
+            lines.append("")
+            
+    if index.live_definition_metadata:
+        lines.append("### Session Definitions")
+        lines.append("")
+        for i, meta in enumerate(index.live_definition_metadata):
+            lines.append(f"{i+1}. `{meta['title']}`")
+            lines.append(f"   - **Statement**: `{meta['problem']}`")
+            lines.append("")
+            
+    if not lines:
+        return "No lemmas or definitions have been stored in this session yet."
+        
     return "\n".join(lines)
+
+
+@mcp.prompt(name="edel_proof_strategy", description="Instructions on using I/L (Isabelle/Landscape) during a proof session.")
+def edel_proof_strategy() -> str:
+    """Provide structured guidelines for using I/L (Isabelle/Landscape)."""
+    return (
+        "You are an Isabelle/Isar assistant. You have access to the I/L (Isabelle/Landscape) vector index, "
+        "which separates lemmas into 4 discourse spaces and definitions into a dedicated Definition Space:\n\n"
+        "1. Premises (aspect='premises'): The assumptions, premises, or hypotheses of a lemma (defaults to 'none' if unconditional).\n"
+        "2. Skeleton (aspect='skeleton'): The declarative Isar proof structure, containing skeleton steps (e.g., have/show/case/proof).\n"
+        "3. Tactics (aspect='tactics'): The operational commands and tactics (e.g., apply/by/simp/auto/blast/metis).\n"
+        "4. Conclusion (aspect='conclusion'): The final goal proposition proved by the lemma.\n\n"
+        "To find proof breakthroughs, use 'discourse transitions' (cross-space querying):\n"
+        "- **Find tactics for a target goal**: Query your target proposition using aspect='conclusion', and read the 'Tactics' and 'Skeleton' fields of the retrieved lemmas.\n"
+        "- **Find lemmas with similar premises**: Query your assumptions/premises using aspect='premises'.\n"
+        "- **Find useful or related definitions for a statement**: Query your statement (or parts of it) using the `search_definitions` tool. This will retrieve definition statements that are semantically close or relevant to your proposition (e.g., to discover definition names, types, or related constructs).\n"
+        "- **Look up dependents**: Definitions include a list of 'dependents' (the names of lemmas in the archive that cite/use this definition), which can guide you to usage examples.\n"
+    )
 
 
 if __name__ == "__main__":
     mcp.run()
-

@@ -87,6 +87,14 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
         "paragraph", "chapter", "notepad"
     }
 
+    ISAR_SKELETON_KEYWORDS = {
+        "proof", "qed", "have", "show", "also", "finally", "next",
+        "case", "assume", "fix", "obtain", "define", "let", "presume", "suppose"
+    }
+    ISAR_TACTIC_KEYWORDS = {
+        "apply", "by", "using", "unfolding", "with", "from",
+        "then", "hence", "thus", "note", "done", "defer", "prefer", "sorry", "oops"
+    }
     DECL_KEYWORDS = {
         "lemma", "theorem", "corollary", "proposition", "schematic_goal",
         "definition", "fun", "primrec", "function", "datatype", "type_synonym",
@@ -114,6 +122,8 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
                 "segment_end": idx,
                 "statement_text": text,
                 "proof_segments": [],
+                "skeleton_segments": [],
+                "tactic_segments": [],
                 "text_comments": [],
             }
         elif current_unit:
@@ -127,6 +137,13 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
             else:
                 current_unit["proof_segments"].append(text)
                 current_unit["segment_end"] = idx
+
+                # Partition based on command keyword
+                if keyword in ISAR_SKELETON_KEYWORDS:
+                    current_unit["skeleton_segments"].append(text)
+                else:
+                    # Default to tactic for any other segment inside proof
+                    current_unit["tactic_segments"].append(text)
 
                 # If this segment terminates the proof
                 if keyword in {"by", "qed", "sorry", "oops"}:
@@ -151,6 +168,8 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
             "segment_end": u["segment_end"],
             "statement_text": u["statement_text"],
             "proof_text": proof_text,
+            "skeleton_segments": u.get("skeleton_segments", []),
+            "tactic_segments": u.get("tactic_segments", []),
             "text_comments": u.get("text_comments", []),
         })
     return final_units

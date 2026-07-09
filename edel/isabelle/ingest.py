@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from edel.isabelle.parser import parse_source_segments, group_segments_to_lemmas
-from edel.isabelle.aspects import extract_aspects
+from edel.isabelle.aspects import extract_aspects, _extract_dependencies
 from edel.isabelle.metadata import AFPMetadataParser
 
 SENTINEL = "<<DONE>>"
@@ -28,38 +28,34 @@ class EphemeralReplClient:
         """Send command to ML server and return output."""
         if not self.token:
             raise RuntimeError("Authentication token not set. Set IR_AUTH_TOKEN env var.")
-            
-        sock = socket.create_connection((self.host, self.port), timeout=30)
+        
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            # 1. Authenticate
-            sock.sendall((self.token + "\n").encode())
-            auth_buf = b""
-            while b"\n" not in auth_buf:
-                chunk = sock.recv(1024)
-                if not chunk:
-                    raise RuntimeError("Connection closed during auth handshake")
-                auth_buf += chunk
-            if not auth_buf.startswith(b"OK"):
-                raise RuntimeError("REPL authentication failed")
+            sock.connect((self.host, self.port))
+            # Handshake / Auth
+            sock.sendall(f"AUTH {self.token}\n".encode())
+            resp = sock.recv(1024).decode()
+            if not resp.startswith("OK"):
+                raise RuntimeError(f"Authentication failed: {resp}")
                 
-            # 2. Send command
-            cmd = ml_command.strip()
-            if not cmd.endswith(";"):
-                cmd += ";"
-            sock.sendall((cmd + "\n").encode())
+            # Send payload
+            sock.sendall(ml_command.encode())
+            sock.sendall(f"\n{SENTINEL}\n".encode())
             
-            # 3. Read until sentinel
-            buf = b""
+            # Read response
+            chunks = []
             while True:
-                chunk = sock.recv(4096)
+                chunk = sock.recv(4096).decode()
                 if not chunk:
-                    raise EOFError("Connection closed by repl.py")
-                buf += chunk
-                text = buf.decode("utf-8", errors="replace")
-                if SENTINEL in text:
-                    raw = text[:text.index(SENTINEL)].strip()
-                    # Strip control characters
-                    return raw.replace("\x05", "").replace("\x06", "")
+                    break
+                chunks.append(chunk)
+                if SENTINEL in chunk:
+                    break
+            text = "".join(chunks)
+            if SENTINEL in text:
+                raw = text[:text.index(SENTINEL)].strip()
+                # Strip control characters
+                return raw.replace("\x05", "").replace("\x06", "")
         finally:
             sock.close()
 
@@ -108,7 +104,7 @@ def ingest_session_lemmas(
                 
             segments = parse_source_segments(raw_source)
             
-            # 2. Fetch source map
+            # 2. Fetch segment keyword mapping
             raw_map = client.send(f'Ir.source_map "{theory}" 0 ~1;')
             seg_map = {}
             for line in raw_map.splitlines():
@@ -122,29 +118,14 @@ def ingest_session_lemmas(
                         "theory": theory
                     }
                     
-            if not seg_map:
-                print(f"  No source map available for {theory}")
-                continue
-                
-            # 3. Extract header for theory context
-            theory_header = ""
-            for idx in sorted(segments.keys()):
-                if seg_map.get(idx, {}).get("keyword") == "theory":
-                    theory_header = segments[idx]
-                    break
-                    
-            # 4. Group segments into lemma units
+            # 3. Group segments into logical lemma/definition units
             lemmas = group_segments_to_lemmas(seg_map, segments)
-            print(f"  Found {len(lemmas)} lemmas/theorems.")
             
-            # 5. Get entry metadata
-            # For AFP theories, name is usually Entry_Name.Theory_Name
+            # 4. Resolve AFP theory metadata (author, year etc.)
             entry_name = theory.split('.')[0] if '.' in theory else theory
             entry_meta = metadata_parser.load_entry_metadata(entry_name)
-            
-            # Parse publication year from metadata date (typically YYYY-MM-DD)
+            pub_year = None
             date_str = entry_meta.get("date", "")
-            pub_year = 2025  # Default/fallback to current Isabelle/AFP session year
             if date_str:
                 try:
                     parts = date_str.split("-")
@@ -161,15 +142,18 @@ def ingest_session_lemmas(
                 )
                 records.append({
                     "title": lemma["id"],
-                    "problem":        aspects["aspect_statement"],
-                    "method":         aspects["aspect_strategy"],
-                    "finding":        aspects["aspect_dependencies"],
-                    "interpretation": aspects["aspect_context"],
-                    "theory": lemma["theory"],
-                    "file": lemma["file"],
-                    "line": lemma["line"],
-                    "proof_text": lemma["proof_text"],
-                    "statement_text": lemma["statement_text"],
+                    "problem":         aspects["aspect_statement"],
+                    "method":          aspects["aspect_strategy"],
+                    "finding":         aspects["aspect_dependencies"],
+                    "interpretation":  aspects["aspect_context"],
+                    "theory":          lemma["theory"],
+                    "keyword":         lemma["keyword"],
+                    "file":            lemma["file"],
+                    "line":            lemma["line"],
+                    "proof_text":      lemma["proof_text"],
+                    "statement_text":  lemma["statement_text"],
+                    "cited_deps":      _extract_dependencies(lemma["proof_text"]),
+                    "dependents":      "none",
                     "publication_year": pub_year,
                 })
                 
@@ -186,21 +170,14 @@ def ingest_session_lemmas(
 
 
 def compute_definition_dependencies(records: list[dict[str, Any]]) -> None:
-    """For each definition record, annotate its 'finding' with the names of lemmas that cite it.
-
-    In Format B:
-    - ``interpretation`` holds "keyword in Theory" (e.g. "definition in HOL.List").
-    - ``finding`` holds cited dependency identifiers for lemmas, and is the column
-      that gets populated here for definitions (listing their dependents).
-    """
+    """For each definition record, annotate its 'dependents' with the names of lemmas that cite it."""
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation"
+    }
     definitions = []
     for r in records:
-        interp = r.get("interpretation", "")
-        # interpretation is now "<keyword> in <theory>"
-        if interp.startswith(("definition in ", "fun in ", "function in ",
-                              "primrec in ", "datatype in ", "type_synonym in ",
-                              "inductive in ", "coinductive in ", "record in ",
-                              "abbreviation in ")):
+        if r.get("keyword") in DEF_KEYWORDS:
             title = r.get("title", "")
             name = title.split(".")[-1] if "." in title else title
             if name:
@@ -208,29 +185,23 @@ def compute_definition_dependencies(records: list[dict[str, Any]]) -> None:
 
     for def_record, def_name in definitions:
         using_lemmas = []
-        # Match bare name or name_def convention
         pattern = re.compile(rf'\b{re.escape(def_name)}(?:_def)?\b')
 
         for r in records:
             if r is def_record:
                 continue
-            # Only scan lemma records (non-definition constructs)
-            if r.get("interpretation", "").startswith(("definition in ", "fun in ",
-                                                        "function in ", "primrec in ",
-                                                        "datatype in ", "type_synonym in ",
-                                                        "inductive in ", "coinductive in ",
-                                                        "record in ", "abbreviation in ")):
+            # Only scan lemma records
+            if r.get("keyword") in DEF_KEYWORDS:
                 continue
 
             stmt  = r.get("statement_text", "") or r.get("problem", "")
             proof = r.get("proof_text", "")
-            deps  = r.get("finding", "")
+            deps  = r.get("cited_deps", "")
 
             if pattern.search(stmt) or pattern.search(proof) or pattern.search(deps):
                 using_lemmas.append(r.get("title", ""))
 
         if using_lemmas:
-            def_record["finding"] = ", ".join(sorted(using_lemmas))
+            def_record["dependents"] = ", ".join(sorted(using_lemmas))
         else:
-            def_record["finding"] = "none"
-
+            def_record["dependents"] = "none"

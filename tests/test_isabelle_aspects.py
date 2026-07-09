@@ -34,17 +34,17 @@ def test_extract_aspects_basic():
 
     aspects = extract_aspects(lemma)
 
-    # problem: full statement_text verbatim
-    assert aspects["aspect_statement"] == 'lemma append_Nil [simp]: "[] @ ys = ys"'
+    # problem: premises of the statement (none for unconditional)
+    assert aspects["aspect_statement"] == 'none'
 
-    # method: tactic line(s) from the proof
-    assert "by simp" in aspects["aspect_strategy"]
+    # method: declarative skeleton (empty for simple proof)
+    assert aspects["aspect_strategy"] == ""
 
-    # finding: no explicit citations in "by simp"
-    assert aspects["aspect_dependencies"] == "none"
+    # finding: tactics
+    assert "by simp" in aspects["aspect_dependencies"]
 
-    # interpretation: keyword + theory
-    assert aspects["aspect_context"] == "lemma in HOL.List"
+    # interpretation: conclusion of the statement
+    assert aspects["aspect_context"] == '[] @ ys = ys'
 
 
 # ---------------------------------------------------------------------------
@@ -65,21 +65,18 @@ def test_extract_aspects_complex():
 
     aspects = extract_aspects(lemma)
 
-    # problem: full statement verbatim
-    assert 'theorem my_complex_thm' in aspects["aspect_statement"]
-    assert 'mset (xs @ ys) = mset xs + mset ys' in aspects["aspect_statement"]
+    # problem: premises of statement (none for shows without assumptions)
+    assert aspects["aspect_statement"] == 'none'
 
-    # method: apply, induction, auto, metis lines all present
-    assert "apply" in aspects["aspect_strategy"]
-    assert "induction" in aspects["aspect_strategy"]
+    # method: declarative skeleton (empty as there are no declare statements)
+    assert aspects["aspect_strategy"] == ""
 
-    # finding: other_lemma and lemma2 extracted as citations
-    deps = [d.strip() for d in aspects["aspect_dependencies"].split(",")]
-    assert "other_lemma" in deps
-    assert "lemma2" in deps
+    # finding: tactics
+    assert "apply (induction xs)" in aspects["aspect_dependencies"]
+    assert "by (metis lemma2)" in aspects["aspect_dependencies"]
 
-    # interpretation
-    assert aspects["aspect_context"] == "theorem in HOL.Multiset"
+    # interpretation: conclusion
+    assert aspects["aspect_context"] == "mset (xs @ ys) = mset xs + mset ys"
 
 
 # ---------------------------------------------------------------------------
@@ -96,17 +93,17 @@ def test_extract_aspects_definition():
 
     aspects = extract_aspects(defn)
 
-    # problem: full definition text verbatim
-    assert aspects["aspect_statement"] == 'definition my_def where "my_def x = x + 1"'
+    # problem: premises (none)
+    assert aspects["aspect_statement"] == 'none'
 
-    # method: empty — no proof body
+    # method: empty
     assert aspects["aspect_strategy"] == ""
 
-    # finding: no citations
-    assert aspects["aspect_dependencies"] == "none"
+    # finding: empty tactics
+    assert aspects["aspect_dependencies"] == ""
 
-    # interpretation: keyword + theory
-    assert aspects["aspect_context"] == "definition in HOL.List"
+    # interpretation: definition body (conclusion)
+    assert aspects["aspect_context"] == 'my_def x = x + 1'
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +120,13 @@ def test_extract_aspects_inductive():
     aspects = extract_aspects(defn)
 
     assert aspects["aspect_strategy"] == ""
-    assert aspects["aspect_context"] == "inductive in HOL.Nat"
-    assert "inductive even" in aspects["aspect_statement"]
+    assert aspects["aspect_dependencies"] == ""
+    assert aspects["aspect_context"] == "nat ⇒ bool"
+    assert aspects["aspect_statement"] == "none"
 
 
 # ---------------------------------------------------------------------------
-# Text comments are cleaned and appended to method
+# Text comments are cleaned and appended to method (tactics)
 # ---------------------------------------------------------------------------
 
 def test_extract_aspects_text_comments_cleaned_and_appended():
@@ -146,10 +144,10 @@ def test_extract_aspects_text_comments_cleaned_and_appended():
 
     aspects = extract_aspects(lemma, text_comments=raw_comments)
 
-    # The tactic line must be present
-    assert "by (rule bar)" in aspects["aspect_strategy"]
+    # The tactic line must be present in tactics (aspect_dependencies)
+    assert "by (rule bar)" in aspects["aspect_dependencies"]
 
-    # The cleaned long comment must be appended
+    # The cleaned long comment must be appended/prepended to skeleton (aspect_strategy)
     assert "We proceed by" in aspects["aspect_strategy"]
     assert "@{" not in aspects["aspect_strategy"]  # antiquotation stripped
 
@@ -202,6 +200,6 @@ def test_extract_aspects_legacy_params_ignored():
         theory_header="theory Foo imports Main begin",
         entry_metadata={"title": "Foo Entry", "abstract": "Stuff"},
     )
-    # interpretation comes from keyword + theory, NOT from entry_metadata
-    assert aspects["aspect_context"] == "lemma in HOL.Foo"
+    # interpretation comes from conclusion, NOT from entry_metadata
+    assert aspects["aspect_context"] == "True"
     assert "Foo Entry" not in aspects["aspect_context"]

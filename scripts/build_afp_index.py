@@ -23,9 +23,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-from edel.isabelle.ingest import ingest_session_lemmas
+from edel.il.ingest import ingest_session_lemmas
 from edel.pipeline.embedding import run_embedding_stage
-from edel.isabelle.index import NumpyRAGIndex
+from edel.il.index import NumpyRAGIndex
 
 
 def get_afp_sessions(roots_file: Path) -> list[str]:

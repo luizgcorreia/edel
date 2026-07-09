@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from edel.providers.base import ensure_schema
-from edel.isabelle.index import NumpyRAGIndex
+from edel.il.index import NumpyRAGIndex
 
 def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     """Load AFP RAG index and return a lemma-level dataset.

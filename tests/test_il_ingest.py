@@ -3,7 +3,7 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock
-from edel.isabelle import ingest
+from edel.il import ingest
 
 def test_ingest_session_lemmas(monkeypatch):
     # Mock AFPMetadataParser to return dummy metadata

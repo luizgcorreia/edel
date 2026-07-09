@@ -9,9 +9,9 @@ import pandas as pd
 from pathlib import Path
 from typing import Any
 
-from edel.isabelle.parser import parse_source_segments, group_segments_to_lemmas
-from edel.isabelle.aspects import extract_aspects, _extract_dependencies
-from edel.isabelle.metadata import AFPMetadataParser
+from edel.il.parser import parse_source_segments, group_segments_to_lemmas
+from edel.il.aspects import extract_aspects, _extract_dependencies
+from edel.il.metadata import AFPMetadataParser
 
 SENTINEL = "<<DONE>>"
 

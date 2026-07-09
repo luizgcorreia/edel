@@ -1,5 +1,5 @@
 #!/bin/bash
-# start_rag_server.sh - Launch the EDEL-RAG MCP server
+# start_il_server.sh - Launch the I/L (Isabelle/Landscape) MCP server
 
 # Define paths
 CONDA_ENV_PYTHON="/home/correia/miniforge3/envs/edel/bin/python"
@@ -15,15 +15,15 @@ if [ -z "${VOYAGE_API_KEY}" ] && [ -z "${OPENAI_API_KEY}" ]; then
 fi
 
 # Default configuration if not set
-export EDEL_EMBEDDING_PROVIDER="${EDEL_EMBEDDING_PROVIDER:-openai}"
-export EDEL_EMBEDDING_MODEL="${EDEL_EMBEDDING_MODEL:-text-embedding-3-large}"
-export EDEL_RAG_INDEX_DIR="${EDEL_RAG_INDEX_DIR:-${PROJECT_DIR}/artifacts/rag_index}"
+export IL_EMBEDDING_PROVIDER="${IL_EMBEDDING_PROVIDER:-openai}"
+export IL_EMBEDDING_MODEL="${IL_EMBEDDING_MODEL:-text-embedding-3-large}"
+export IL_INDEX_DIR="${IL_INDEX_DIR:-${PROJECT_DIR}/artifacts/rag_index}"
 
-echo "Starting EDEL-RAG MCP server using:"
+echo "Starting I/L MCP server using:"
 echo "  Python:    ${CONDA_ENV_PYTHON}"
-echo "  Provider:  ${EDEL_EMBEDDING_PROVIDER}"
-echo "  Model:     ${EDEL_EMBEDDING_MODEL}"
-echo "  Index Dir: ${EDEL_RAG_INDEX_DIR}"
+echo "  Provider:  ${IL_EMBEDDING_PROVIDER}"
+echo "  Model:     ${IL_EMBEDDING_MODEL}"
+echo "  Index Dir: ${IL_INDEX_DIR}"
 echo ""
 
-exec "${CONDA_ENV_PYTHON}" -m edel.isabelle.rag_server
+exec "${CONDA_ENV_PYTHON}" -m edel.il.il_server

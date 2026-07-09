@@ -316,7 +316,7 @@ def test_openalex_deterministic_proportional_temporal_mocked():
 def test_afp_rag_provider(tmp_path):
     """Test the afp_rag provider using a temporary RAG index."""
     import numpy as np
-    from edel.isabelle.index import NumpyRAGIndex
+    from edel.il.index import NumpyRAGIndex
     from edel.providers.afp_rag import generate_dataset as generate_afp_rag
     
     # 1. Create a dummy index with 3 lemmas

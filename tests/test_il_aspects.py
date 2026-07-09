@@ -1,6 +1,6 @@
 """Unit tests for Isabelle aspect extraction (Format B: source-enriched)."""
 
-from edel.isabelle.aspects import extract_aspects, _strip_isabelle_markup
+from edel.il.aspects import extract_aspects, _strip_isabelle_markup
 
 
 # ---------------------------------------------------------------------------

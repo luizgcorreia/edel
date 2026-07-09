@@ -1,6 +1,6 @@
 """Unit tests for the Isabelle parser."""
 
-from edel.isabelle.parser import parse_source_segments, extract_lemma_name, group_segments_to_lemmas
+from edel.il.parser import parse_source_segments, extract_lemma_name, group_segments_to_lemmas
 
 def test_parse_source_segments():
     raw_source = (

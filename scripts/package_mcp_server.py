@@ -21,16 +21,18 @@ REQUIRED_CODE_FILES = [
     "edel/__init__.py",
     "edel/io/__init__.py",
     "edel/io/llm.py",
-    "edel/isabelle/__init__.py",
-    "edel/isabelle/rag_server.py",
-    "edel/isabelle/index.py",
-    "edel/isabelle/aspects.py",
+    "edel/il/__init__.py",
+    "edel/il/il_server.py",
+    "edel/il/index.py",
+    "edel/il/aspects.py",
 ]
 
 # Static index files to include
 REQUIRED_INDEX_FILES = [
     "metadata.parquet",
     "embeddings.npz",
+    "definitions_metadata.parquet",
+    "definitions_embeddings.npz",
 ]
 
 REQUIREMENTS_CONTENT = """mcp[cli]
@@ -44,18 +46,18 @@ requests
 """
 
 RUN_SERVER_CONTENT = """#!/bin/bash
-# run_server.sh - Startup script for the bundled EDEL-RAG MCP server
+# run_server.sh - Startup script for the bundled I/L (Isabelle/Landscape) MCP server
 
 # Determine directory where this script resides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH}"
 
 # Set default index directory (relative to script) if not set
-export EDEL_RAG_INDEX_DIR="${EDEL_RAG_INDEX_DIR:-${SCRIPT_DIR}/artifacts/rag_index}"
+export IL_INDEX_DIR="${IL_INDEX_DIR:-${SCRIPT_DIR}/artifacts/rag_index}"
 
 # Default embedding parameters (can be overridden by environment)
-export EDEL_EMBEDDING_PROVIDER="${EDEL_EMBEDDING_PROVIDER:-voyage}"
-export EDEL_EMBEDDING_MODEL="${EDEL_EMBEDDING_MODEL:-voyage-code-3}"
+export IL_EMBEDDING_PROVIDER="${IL_EMBEDDING_PROVIDER:-voyage}"
+export IL_EMBEDDING_MODEL="${IL_EMBEDDING_MODEL:-voyage-code-3}"
 
 # Warn if keys aren't set
 if [ -z "${VOYAGE_API_KEY}" ] && [ -z "${OPENAI_API_KEY}" ]; then
@@ -63,14 +65,14 @@ if [ -z "${VOYAGE_API_KEY}" ] && [ -z "${OPENAI_API_KEY}" ]; then
   echo "Please set the appropriate key before querying the RAG server."
 fi
 
-echo "Starting EDEL-RAG MCP Server..."
-echo "  Index Dir: ${EDEL_RAG_INDEX_DIR}"
-echo "  Provider:  ${EDEL_EMBEDDING_PROVIDER}"
-echo "  Model:     ${EDEL_EMBEDDING_MODEL}"
+echo "Starting I/L MCP Server..."
+echo "  Index Dir: ${IL_INDEX_DIR}"
+echo "  Provider:  ${IL_EMBEDDING_PROVIDER}"
+echo "  Model:     ${IL_EMBEDDING_MODEL}"
 echo ""
 
 # Execute the MCP server module
-python -m edel.isabelle.rag_server
+python -m edel.il.il_server
 """
 
 

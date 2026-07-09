@@ -12,13 +12,13 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-from edel.isabelle.ingest import ingest_session_lemmas
+from edel.il.ingest import ingest_session_lemmas
 from edel.pipeline.embedding import run_embedding_stage
-from edel.isabelle.index import NumpyRAGIndex
+from edel.il.index import NumpyRAGIndex
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build EDEL RAG static index for Isabelle/AFP.")
+    parser = argparse.ArgumentParser(description="Build I/L static index for Isabelle/AFP.")
     parser.add_argument("--host", default="127.0.0.1", help="I/R daemon host")
     parser.add_argument("--port", type=int, default=9147, help="I/R daemon port")
     parser.add_argument("--token", default="", help="I/R auth token (or set IR_AUTH_TOKEN)")

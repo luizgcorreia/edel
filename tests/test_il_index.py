@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from edel.isabelle.index import NumpyRAGIndex
+from edel.il.index import NumpyRAGIndex
 
 def test_numpy_rag_index_lifecycle(tmp_path):
     # 1. Create a dummy dataframe with lemmas and definitions

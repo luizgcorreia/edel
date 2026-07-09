@@ -1,4 +1,4 @@
-"""EDEL-RAG MCP server for Isabelle/AFP proof assistance."""
+"""I/L (Isabelle/Landscape) MCP server for Isabelle/AFP proof assistance."""
 
 from __future__ import annotations
 
@@ -10,27 +10,27 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-from edel.isabelle.index import NumpyRAGIndex
+from edel.il.index import NumpyRAGIndex
 from edel.io.llm import get_llm_client
 
 # Initialize MCP Server
-mcp = FastMCP("EDEL-RAG")
+mcp = FastMCP("I/L")
 
 # Load Index
 index = NumpyRAGIndex()
-INDEX_DIR = os.getenv("EDEL_RAG_INDEX_DIR", "artifacts/rag_index")
+INDEX_DIR = os.getenv("IL_INDEX_DIR", "artifacts/rag_index")
 
 try:
     index.load(INDEX_DIR)
 except Exception as e:
     print(f"Warning: Could not load static RAG index from {INDEX_DIR}: {e}")
-    print("EDEL-RAG will operate in session-only mode unless a static index is loaded.")
+    print("I/L will operate in session-only mode unless a static index is loaded.")
 
 
 def get_embedding_client():
     """Build the embedding client from environment configuration."""
-    provider = os.getenv("EDEL_EMBEDDING_PROVIDER", "voyage")
-    model = os.getenv("EDEL_EMBEDDING_MODEL", "voyage-code-3")
+    provider = os.getenv("IL_EMBEDDING_PROVIDER", "voyage")
+    model = os.getenv("IL_EMBEDDING_MODEL", "voyage-code-3")
     api_key = os.getenv("VOYAGE_API_KEY" if provider == "voyage" else "OPENAI_API_KEY", "")
     
     config = {
@@ -196,7 +196,7 @@ async def store_lemma(
     cited_deps: list[str] = [],
 ) -> str:
     """Parse and embed a new lemma, adding it to the runtime session index."""
-    from edel.isabelle.aspects import extract_aspects
+    from edel.il.aspects import extract_aspects
     
     lemma_dict = {
         "statement_text": f'lemma {name}: "{statement}"',
@@ -307,8 +307,8 @@ async def session_lemmas() -> str:
     return "\n".join(lines)
 
 
-@mcp.prompt(name="edel_proof_strategy", description="Instructions on using I/L (Isabelle/Landscape) during a proof session.")
-def edel_proof_strategy() -> str:
+@mcp.prompt(name="il_proof_strategy", description="Instructions on using I/L (Isabelle/Landscape) during a proof session.")
+def il_proof_strategy() -> str:
     """Provide structured guidelines for using I/L (Isabelle/Landscape)."""
     return (
         "You are an Isabelle/Isar assistant. You have access to the I/L (Isabelle/Landscape) vector index, "

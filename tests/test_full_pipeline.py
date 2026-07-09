@@ -65,7 +65,7 @@ def test_full_pipeline_mock(tmp_path):
 def test_full_pipeline_afp_rag(tmp_path):
     """Run the pipeline end-to-end with the afp_rag provider and 'none' for structuring and embedding."""
     import numpy as np
-    from edel.isabelle.index import NumpyRAGIndex
+    from edel.il.index import NumpyRAGIndex
     
     # 1. Create a dummy index with 5 lemmas
     index = NumpyRAGIndex()

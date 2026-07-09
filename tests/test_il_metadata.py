@@ -1,6 +1,6 @@
 """Unit tests for the AFP metadata parser."""
 
-from edel.isabelle.metadata import AFPMetadataParser, find_afp_metadata_dir
+from edel.il.metadata import AFPMetadataParser, find_afp_metadata_dir
 
 def test_find_afp_metadata_dir():
     metadata_dir = find_afp_metadata_dir()

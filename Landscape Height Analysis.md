@@ -45,15 +45,18 @@ This is the approach currently initiated by our `edel.il.parser` and REPL comman
 * **Pros**: High semantic signal. It captures exactly what the mathematician explicitly cited, ignoring low-level compiler-inserted logical rules.
 * **Cons**: Misses implicit dependencies (e.g., lemmas automatically applied by the simplifier or classical reasoner that were not named in the source file).
 
-### Pathway 2.2: Kernel-Level Proof Derivations (`Thm.deriv_of`)
+### Pathway 2.2: Kernel-Level Proof Derivations (`Thm.deriv_of`) with Index-Based Filtering
 Isabelle keeps track of proof derivations in Poly/ML. When proofs are recorded (`record_theories=true`), every `thm` object contains a derivation tree.
 * In Poly/ML, we can query:
   ```ml
   val deriv = Thm.deriv_of thm;
   ```
   This returns a `deriv` tree structure containing the names of all theorems referenced during the kernel-level verification of the proof.
-* **Pros**: 100% sound and complete. Captures both explicit and implicit dependencies.
-* **Cons**: Extremely verbose. The derivation tree contains thousands of low-level primitive logical rules (e.g., `trans`, `sym`, `conjI`) and intermediate simplifier steps, requiring complex filtering to extract human-meaningful lemmas.
+* **Filtering Primitives**: The raw derivation tree is extremely verbose, containing thousands of low-level logical rules (e.g., `Pure.conjI`, `Pure.trans`, `HOL.refl`). To eliminate this noise, we perform **Index-Key Membership Filtering**:
+  * We compare each name in the derivation tree against the set of keys/titles in our **Lemma and Definition indices**.
+  * Since only mathematically significant lemmas/definitions from `HOL-Library` or the AFP have their own 3-simplex (or definition record) indexed, we discard any derivation name that is not present in the index.
+* **Pros**: 100% sound and complete (captures implicit simplifier/solver facts) while completely filtering out logical primitives and metadata noise.
+* **Cons**: Requires the static index to be loaded first, or requires a predefined whitelist of theory namespaces (e.g. only matching names starting with `HOL-Library.` or an AFP entry name).
 
 ### Pathway 2.3: Editor-Level Scala PIDE Links
 The Isabelle/jEdit PIDE editor matches formal names to their definitions and proofs using Scala markup trees.

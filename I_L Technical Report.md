@@ -205,7 +205,37 @@ The Definition Space is embedded as a single semantic entity based on the defini
 
 ---
 
-## 6. Extraction Summary
+## 6. Landscape Height (Transitive Dependents) & Epistemic Re-ranking
+
+A key property of the Isabelle/Landscape submodule is mapping the hierarchical topology of mathematical knowledge. The significance of a theorem or definition is not just a function of its statement, but of its **position on the landscape** — specifically, how many other theorems, proofs, or definitions transitively depend on it.
+
+### Step 6.1: Global Dependency Graph Construction
+To count dependents accurately, I/L runs a post-processing pass over the unified index metadata after ingestion is complete.
+1. **Nodes**: Every indexed lemma and definition is a node.
+2. **Edges**: Direct citation edges are resolved:
+   - For lemmas: parsed from `cited_deps` (names of cited theorems).
+   - For definitions: parsed from `dependents` (lemmas using the definition).
+3. **Graph Transpose ($G^T$)**: We construct the transpose graph $G^T$ where an edge $A \to B$ represents that $A$ is cited by or supports $B$ (i.e. $B$ depends on $A$).
+
+### Step 6.2: Transitive Reachability (Landscape Height)
+To find the total number of transitive dependents of a node $N$, we compute the reachability size of $N$ in $G^T$ using a cycle-safe memoized depth-first search:
+- **Algorithm**:
+  - Maintain a global memoization dictionary of reachable node sets.
+  - Traverse the transpose graph recursively, avoiding cycles via path tracking.
+  - For each node $N$, its **landscape height / dependents count** $H(N)$ is defined as the size of its transitive reachability set minus 1 (excluding itself).
+  - This value is written back to the index metadata files as the `dependents_count` column.
+
+### Step 6.3: Fused Epistemic Re-ranking
+When an agent searches the index, it can optionally apply log-prior re-ranking to bias the results toward foundational, highly-cited theorems.
+The final ranking score $Score(L)$ for a candidate result $L$ is computed by fusing the cosine similarity $S_{\text{semantic}}(L)$ with a normalized log-prior of its landscape height $H(L)$:
+
+$$Score(L) = S_{\text{semantic}}(L) + 0.15 \cdot \frac{\log(1 + H(L))}{\max_{C} \log(1 + H(C))}$$
+
+where $C$ ranges over all candidate results retrieved in the search.
+
+---
+
+## 7. Extraction Summary
 
 | Aspect | Source | REPL Required? |
 |:-------|:-------|:---------------|
@@ -221,30 +251,34 @@ The Definition Space is embedded as a single semantic entity based on the defini
 
 ---
 
-## 7. Exposed MCP Tools & Computational Profiles
+## 8. Exposed MCP Tools & Computational Profiles
 
-The I/L server exposes six tools and one prompt to the agent:
+The I/L server exposes six tools and one prompt to the agent. With Phase 2, the agent can leverage landscape height to filter out low-level helper lemmas and prioritize foundational theorems:
 
 | Tool Name | Input Arguments | Search Target | Computational Profile | Memory Profile |
 | :--- | :--- | :--- | :--- | :--- |
-| `search_lemmas` | `query` (str)<br>`aspect` (str)<br>`theory_filter` (str)<br>`max_results` (int) | Lemma Space by aspect (`premises`, `skeleton`, `tactics`, `conclusion`, `all`). | **1 API call** (query embedding).<br>Cosine similarity: $O(N \cdot D)$ matrix multiply.<br>Sorting: $O(N \log N)$ (typically <5ms via NumPy). | Shared memory footprint: ~2.45 GB for full AFP index (150K lemmas at $D=1024$). |
-| `search_definitions` | `query` (str)<br>`theory_filter` (str)<br>`max_results` (int) | Definition Space (semantic match on statement). | **1 API call** (query embedding).<br>Cosine similarity search on definition vectors. | Lightweight: ~300 MB for definitions index. |
+| `search_lemmas` | `query` (str)<br>`aspect` (str)<br>`theory_filter` (str)<br>`max_results` (int)<br>`sort_by_significance` (bool)<br>`min_dependents` (int) | Lemma Space by aspect (`premises`, `skeleton`, `tactics`, `conclusion`, `all`). | **1 API call** (query embedding).<br>Cosine similarity: $O(N \cdot D)$ matrix multiply.<br>Re-ranking: $O(R)$ for $R$ hits (<1ms).<br>Sorting: $O(N \log N)$ (typically <5ms via NumPy). | Shared memory footprint: ~2.45 GB for full AFP index (150K lemmas at $D=1024$). |
+| `search_definitions` | `query` (str)<br>`theory_filter` (str)<br>`max_results` (int)<br>`sort_by_significance` (bool)<br>`min_dependents` (int) | Definition Space (semantic match on statement). | **1 API call** (query embedding).<br>Cosine similarity search on definition vectors. | Lightweight: ~300 MB for definitions index. |
 | `related_lemmas` | `lemma_name` (str)<br>`max_results` (int) | Lemma Space (queries statement index using reference vector). | **0 API calls** (retrieves cached vector).<br>Cosine similarity search.<br>Zero token cost and extremely fast. | Shared memory footprint. |
 | `store_lemma` | `name` (str)<br>`statement` (str)<br>`proof_text` (str)<br>`theory` (str)<br>`dependencies` (list) | Appends to live Lemma Space. | **4 API calls** (one embedding per aspect).<br>Aspect extraction: $O(\text{len}(\text{proof}))$.<br>Append: $O(1)$ operations. | Inserts one dictionary and 4 vectors ($4 \times 1024 \times 4$ bytes $\approx 16$ KB per lemma). |
 | `store_definition` | `name` (str)<br>`statement` (str)<br>`theory` (str)<br>`dependents` (list) | Appends to live Definition Space. | **1 API call** (definition statement embedding).<br>Append: $O(1)$ operations. | Inserts one dictionary and 1 vector (~4 KB). |
 | `session_lemmas` | *None* | Lists all session lemmas and definitions. | $O(L)$ where $L$ is number of stored session items. | Negligible. |
 | `persist_session_lemmas` | *None* | Saves live lemmas/definitions to static files on disk. | **0 API calls**.<br>Merges metadata list and vertically stacks NumPy embedding arrays. | Empties in-memory session index. Saves parquet/npz to disk. |
 
+### How the Agent Leverages Landscape Height
+* **Filtering Noise (`min_dependents`)**: Proof exploration often gets cluttered with hundreds of obscure, single-use helper lemmas. By setting `min_dependents = 2` (or higher), the agent can prune these from the search results, retrieving only lemmas that serve as dependencies for other proofs.
+* **Significance Prioritization (`sort_by_significance`)**: When seeking a general tool or high-level theorem to close a proof step, the agent can set `sort_by_significance = True`. This elevates widely used, foundational theorems (which have large transitive reachability counts) even if their raw cosine similarity is slightly lower than a highly specific, narrow helper lemma.
+
 ### Exposed MCP Prompt
-* `il_proof_strategy`: Explains the I/L (Isabelle/Landscape) structure, how to run discourse transitions (cross-space queries), how to query definitions semantically, and how to utilize definition dependents to find usage examples.
+* `il_proof_strategy`: Explains the I/L (Isabelle/Landscape) structure, how to run discourse transitions (cross-space queries), how to query definitions semantically, how to utilize definition dependents to find usage examples, and how to use significance re-ranking parameters.
 
 ---
 
-## 8. How to Run the MCP Server and Connect to Claude Code
+## 9. How to Run the MCP Server and Connect to Claude Code
 
 To run the complete system, both the active prover (REPL) and the semantic RAG index must run concurrently. Claude Code connects to both via standard Input/Output pipelines.
 
-### Step 8.1: Start the I/R REPL Daemon
+### Step 9.1: Start the I/R REPL Daemon
 Ensure the recorded heap for your target session (e.g. `HOL-Library`) is built, then launch the REPL server:
 ```bash
 python AutoCorrode/ir/repl.py \
@@ -254,7 +288,7 @@ python AutoCorrode/ir/repl.py \
 ```
 *Make a note of the TCP authentication token printed in the terminal (e.g. `IR_Repl.token: abc123xyz`).*
 
-### Step 8.2: Build the Static RAG Index (Optional)
+### Step 9.2: Build the Static RAG Index (Optional)
 If a pre-built index does not exist, build one for your target theories:
 ```bash
 export IR_AUTH_TOKEN="abc123xyz"
@@ -267,7 +301,7 @@ python -m edel.il.build_il_index \
   --output artifacts/rag_index
 ```
 
-### Step 8.3: Configure the MCP Client
+### Step 9.3: Configure the MCP Client
 Add both servers to your Claude Code configuration file (located at `~/.config/claude/mcp_config.json`):
 
 ```json
@@ -297,7 +331,7 @@ Add both servers to your Claude Code configuration file (located at `~/.config/c
 }
 ```
 
-### Step 8.4: Run the Assistant
+### Step 9.4: Run the Assistant
 Launch the Claude Code CLI:
 ```bash
 claude
@@ -310,7 +344,7 @@ Claude will connect to both MCP servers. You can now use the dual-loop workflow:
 
 ---
 
-## 9. Multi-Server Collaboration & Human-in-the-Loop Integration (I/Q, I/R, and I/L)
+## 10. Multi-Server Collaboration & Human-in-the-Loop Integration (I/Q, I/R, and I/L)
 
 Expanding the agent's environment to connect concurrently to **three MCP servers**—I/L (`isabelle-landscape`), I/R (`isabelle-repl`), and I/Q (`isabelle-iq`)—creates a complete human-in-the-loop proof engineering suite. 
 
@@ -330,9 +364,9 @@ graph TB
     end
 
     subgraph "MCP Infrastructure Layer"
-        RAG["I/L MCP Server (isabelle-landscape)"]
-        IR["isabelle-repl MCP Server (I/R)"]
-        IQ["isabelle-iq MCP Server (I/Q)"]
+        RAG["Isabelle/Landscape MCP Server (I/L)"]
+        IR["Isabelle/REPL MCP Server (I/R)"]
+        IQ["Isabelle/Query MCP Server (I/Q)"]
     end
 
     subgraph "Editor Interface & Environment"

@@ -60,10 +60,9 @@ I/L requires Isabelle2025-2 because it relies on the `record_theories` proof rec
    ```bash
    pip install -r AutoCorrode/ir/requirements.txt
    ```
-3. Install the `edel` package in editable mode along with its additional libraries:
+3. Install the `edel` package in editable mode:
    ```bash
    pip install -e .
-   pip install mcp fastmcp pandas pyarrow numpy voyageai openai
    ```
 
 ---

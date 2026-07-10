@@ -38,6 +38,10 @@ dependencies = [
     "dash>=2.17",
     "dash-bootstrap-components",
     "openpyxl",
+    
+    "mcp",
+    "fastmcp",
+    "voyageai",
 ]
 
 [project.optional-dependencies]

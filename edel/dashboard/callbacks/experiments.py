@@ -24,6 +24,64 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
 
+def split_filter_part(filter_part):
+    for operator in [['eq', '=='],
+                     ['ne', '!='],
+                     ['lt', '<'],
+                     ['le', '<='],
+                     ['gt', '>'],
+                     ['ge', '>='],
+                     ['contains'],
+                     ['datestartswith']]:
+        if len(operator) == 2:
+            operator_name, operator_string = operator
+        else:
+            operator_name = operator[0]
+            operator_string = operator[0]
+        if ' ' + operator_name + ' ' in filter_part:
+            return filter_part.split(' ' + operator_name + ' ', 1) + [operator_string]
+    return [None]
+
+def parse_filter_query(filter_query, df):
+    if not filter_query:
+        return df
+    
+    current_df = df
+    for part in filter_query.split(' && '):
+        split_part = split_filter_part(part)
+        if len(split_part) == 3:
+            col_name, val, operator = split_part
+            col_name = col_name.replace('{', '').replace('}', '').strip()
+            val = val.strip()
+            if val.startswith('"') and val.endswith('"'):
+                val = val[1:-1]
+            elif val.startswith("'") and val.endswith("'"):
+                val = val[1:-1]
+                
+            try:
+                if operator == 'contains':
+                    current_df = current_df[current_df[col_name].astype(str).str.contains(val, case=False, na=False)]
+                elif operator == 'datestartswith':
+                    current_df = current_df[current_df[col_name].astype(str).str.startswith(val)]
+                elif operator == '==':
+                    current_df = current_df[current_df[col_name].astype(str) == val]
+                elif operator == '!=':
+                    current_df = current_df[current_df[col_name].astype(str) != val]
+                else:
+                    val_num = float(val)
+                    if operator == '<':
+                        current_df = current_df[current_df[col_name] < val_num]
+                    elif operator == '<=':
+                        current_df = current_df[current_df[col_name] <= val_num]
+                    elif operator == '>':
+                        current_df = current_df[current_df[col_name] > val_num]
+                    elif operator == '>=':
+                        current_df = current_df[current_df[col_name] >= val_num]
+            except Exception as e:
+                print(f"Error applying filter part '{part}': {e}")
+                
+    return current_df
+
 def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
     
     # --- Helper: Generate IDs for callbacks ---
@@ -644,21 +702,44 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 except Exception as e:
                     viz_components.append(html.Div(f"Could not load data for Epistemic Map: {e}", className="text-warning small"))
 
-            # --- RENDER TABLE/SUMMARY ---
             if isinstance(data, pd.DataFrame):
                 info = f"{info_prefix}: DataFrame ({len(data)} rows × {len(data.columns)} cols)"
                 table = dash_table.DataTable(
+                    id="debug-data-table",
                     columns=df_to_dash_columns(data),
-                    data=df_to_dash_records(data, max_rows=50),
+                    data=[],  # Will be populated dynamically by the callback
+                    page_current=0,
                     page_size=10,
+                    page_action="custom",
+                    filter_action="custom",
+                    filter_query="",
+                    sort_action="custom",
+                    sort_by=[],
                     style_table={'overflowX': 'auto'},
-                    style_cell={'textAlign': 'left', 'padding': '5px'},
+                    style_cell={
+                        'textAlign': 'left',
+                        'padding': '8px',
+                        'overflow': 'hidden',
+                        'textOverflow': 'ellipsis',
+                        'maxWidth': '180px',
+                    },
+                    style_header={
+                        'fontWeight': 'bold',
+                        'backgroundColor': '#f8f9fa',
+                        'border': '1px solid #dee2e6'
+                    },
+                    style_data={
+                        'border': '1px solid #dee2e6'
+                    },
+                    tooltip_delay=250,
+                    tooltip_duration=None,
                 )
                 return html.Div([
                     html.Div(viz_components),
                     html.Hr(),
-                    html.P("Showing first 50 rows:", className="text-muted small"),
-                    table
+                    html.H5("Artifact Data Explorer", className="mb-2"),
+                    table,
+                    html.Div(id="debug-row-detail-viewer", className="mt-3")
                 ]), info, time.time()
                 
             elif isinstance(data, dict):
@@ -687,3 +768,173 @@ def register_experiment_callbacks(app: Dash, base_path: Path) -> None:
                 html.Hr(),
                 html.Pre(str(e), className="mb-0 small")
             ], color="danger", className="mt-3"), f"Error in {stage_name}", time.time()
+
+    @app.callback(
+        [Output("debug-data-table", "data"),
+         Output("debug-data-table", "page_count"),
+         Output("debug-data-table", "tooltip_data")],
+        [Input("debug-data-table", "page_current"),
+         Input("debug-data-table", "page_size"),
+         Input("debug-data-table", "sort_by"),
+         Input("debug-data-table", "filter_query")],
+        [State("debug-experiment-select", "value"),
+         State("debug-stage-select", "value"),
+         State("config-editor", "value"),
+         State("debug-correction-method", "value"),
+         State("debug-remove-pc", "value")]
+    )
+    def update_table_data(page_current, page_size, sort_by, filter_query, experiment_name, stage_name, config_json, correction_method, remove_pc):
+        if not experiment_name or not stage_name:
+            raise PreventUpdate
+            
+        try:
+            # Reconstruct the config object
+            if config_json:
+                from edel.dashboard.utils import parse_config_json
+                config = parse_config_json(config_json)
+            else:
+                config = get_experiment(experiment_name)
+                
+            if not config:
+                raise PreventUpdate
+                
+            # Resolve anisotropy correction parameters (same as in handle_debug_action)
+            if correction_method != "follow":
+                if "dimensionality_reduction" not in config:
+                    config["dimensionality_reduction"] = {}
+                config["dimensionality_reduction"]["anisotropy_method"] = correction_method
+                config["dimensionality_reduction"]["remove_top_pcs"] = remove_pc
+                
+            # Load artifact from disk
+            art_names = CANONICAL_ARTIFACT_NAMES.get(stage_name, [])
+            if not art_names:
+                raise PreventUpdate
+            art_name = art_names[0]
+            artifact = make_stage_artifact(config, base_path, stage_name, art_name)
+            
+            # Check if artifact exists on disk before loading
+            if not (artifact.parquet_path.exists() or artifact.pkl_path.exists()):
+                return [], 0, []
+                
+            data = load_artifact(artifact)
+            if isinstance(data, tuple) and len(data) > 0 and isinstance(data[0], pd.DataFrame):
+                data = data[0]
+                
+            if not isinstance(data, pd.DataFrame):
+                raise PreventUpdate
+                
+            # 1. Apply filtering
+            filtered_df = parse_filter_query(filter_query, data)
+            
+            # 2. Apply sorting
+            if sort_by and len(sort_by) > 0:
+                by_cols = [s['column_id'] for s in sort_by]
+                ascending_flags = [s['direction'] == 'asc' for s in sort_by]
+                filtered_df = filtered_df.sort_values(by=by_cols, ascending=ascending_flags)
+                
+            # 3. Paginate
+            total_rows = len(filtered_df)
+            page_count = (total_rows + page_size - 1) // page_size
+            
+            start_idx = page_current * page_size
+            end_idx = start_idx + page_size
+            paginated_df = filtered_df.iloc[start_idx:end_idx]
+            
+            # Convert to records
+            records = df_to_dash_records(paginated_df)
+            
+            # 4. Generate tooltips
+            tooltip_data = [
+                {
+                    col: {'value': str(val), 'type': 'markdown'}
+                    for col, val in row.items() if val is not None
+                }
+                for row in records
+            ]
+            
+            return records, page_count, tooltip_data
+            
+        except Exception as e:
+            print(f"Error in update_table_data: {e}")
+            import traceback
+            traceback.print_exc()
+            return [], 0, []
+
+    @app.callback(
+        Output("debug-row-detail-viewer", "children"),
+        [Input("debug-data-table", "active_cell")],
+        [State("debug-data-table", "data")]
+    )
+    def display_row_details(active_cell, table_data):
+        if not active_cell or not table_data:
+            return html.Div(
+                "Click on any cell in the table to view its full details here.",
+                className="text-muted italic my-3 text-center small border p-3 rounded"
+            )
+            
+        row_idx = active_cell['row']
+        if row_idx >= len(table_data):
+            return html.Div("Row index out of bounds.", className="text-danger small")
+            
+        row_data = table_data[row_idx]
+        
+        # Build a beautiful bootstrap details layout
+        cards = []
+        
+        # Special layouts for aspects
+        aspects = ["problem", "method", "finding", "interpretation"]
+        has_aspects = any(a in row_data for a in aspects)
+        
+        if has_aspects:
+            # Map internal aspect names to the Isabelle terms:
+            # problem -> Premises
+            # method -> Skeleton
+            # finding -> Tactics
+            # interpretation -> Conclusion
+            aspect_mapping = {
+                "problem": ("Premises", "info"),
+                "method": ("Skeleton", "secondary"),
+                "finding": ("Tactics", "success"),
+                "interpretation": ("Conclusion", "primary")
+            }
+            
+            aspect_cards = []
+            for aspect in aspects:
+                val = row_data.get(aspect, "none")
+                title, color = aspect_mapping[aspect]
+                if not val or str(val).strip() == "":
+                    val = "none"
+                    
+                aspect_cards.append(dbc.Col(
+                    dbc.Card([
+                        dbc.CardHeader(title, className=f"bg-{color} text-white py-1 fw-bold small"),
+                        dbc.CardBody(
+                            html.Pre(str(val), className="mb-0 small", style={"whiteSpace": "pre-wrap", "fontFamily": "monospace"}),
+                            style={"maxHeight": "200px", "overflowY": "auto", "padding": "10px"}
+                        )
+                    ], className="mb-3 shadow-sm"),
+                    md=6
+                ))
+            cards.append(html.H6("Epistemic Aspects (I/L Isabelle RAG System)", className="mt-2 mb-3 text-muted"))
+            cards.append(dbc.Row(aspect_cards))
+            
+        # Display other key-value metadata in a table or list
+        metadata_rows = []
+        for k, v in row_data.items():
+            if k not in aspects and v is not None:
+                val_str = str(v)
+                if len(val_str) > 1000:
+                    val_str = val_str[:1000] + " ... [truncated]"
+                metadata_rows.append(html.Tr([
+                    html.Td(html.Strong(k), style={"width": "20%"}),
+                    html.Td(html.Pre(val_str, className="mb-0", style={"whiteSpace": "pre-wrap", "fontSize": "0.85em"}))
+                ]))
+                
+        if metadata_rows:
+            cards.append(html.H6("Entry Metadata & Attributes", className="mt-2 mb-3 text-muted"))
+            cards.append(html.Table(
+                [html.Tbody(metadata_rows)],
+                className="table table-sm table-striped border small shadow-sm"
+            ))
+            
+        return html.Div(cards, className="p-3 border rounded bg-light")

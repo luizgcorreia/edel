@@ -226,3 +226,78 @@ def test_voyage_client_embedding(monkeypatch):
     assert emb == [0.1, 0.2, 0.3]
 
 
+def test_embedding_deduplication_optimization(df_structured, base_run_config):
+    """Test that embedding stage correctly deduplicates identical aspect values to minimize API calls."""
+    from unittest.mock import MagicMock
+    from edel.io.llm import MockClient
+    from edel.pipeline.embedding import run_embedding_stage
+
+    # Create a DataFrame with duplicate aspect values
+    # e.g. "by simp" is shared, and unconditional lemma has P=I
+    df = pd.DataFrame([
+        # Lemma 1: Tactic proof where method = finding = "by simp"
+        {
+            "problem": "A ⟹ B",
+            "method": "by simp",
+            "finding": "by simp",
+            "interpretation": "B",
+        },
+        # Lemma 2: Unconditional lemma where problem = interpretation = "x = y"
+        {
+            "problem": "x = y",
+            "method": "by simp",
+            "finding": "by simp",
+            "interpretation": "x = y",
+        },
+    ])
+
+    # Total aspect slots: 2 rows * 4 aspects = 8 slots
+    # Unique text aspects: {"A ⟹ B", "by simp", "B", "x = y"} -> exactly 4 unique strings.
+
+    # We spy on generate_embedding or create_batch by mocking the client
+    spy_client = MockClient()
+    original_generate = spy_client.generate_embedding
+    called_texts = []
+
+    def mock_generate(text, **kwargs):
+        if isinstance(text, list):
+            called_texts.extend(text)
+        else:
+            called_texts.append(text)
+        return original_generate(text, **kwargs)
+
+    spy_client.generate_embedding = mock_generate
+
+    # Mock get_llm_client to return our spy_client
+    import edel.pipeline.embedding
+    from unittest.mock import patch
+    with patch("edel.pipeline.embedding.get_llm_client", return_value=spy_client):
+        df_embedded = run_embedding_stage(df, base_run_config)
+
+    # Verify output embeddings are correctly mapped to all columns
+    assert "problem_embedding" in df_embedded.columns
+    assert "method_embedding" in df_embedded.columns
+    assert "finding_embedding" in df_embedded.columns
+    assert "interpretation_embedding" in df_embedded.columns
+
+    # Verify that the generated embeddings for identical text are exactly equal
+    # Row 0: method = finding = "by simp"
+    assert df_embedded["method_embedding"].iloc[0] == df_embedded["finding_embedding"].iloc[0]
+    # Row 1: problem = interpretation = "x = y", method = finding = "by simp"
+    assert df_embedded["problem_embedding"].iloc[1] == df_embedded["interpretation_embedding"].iloc[1]
+    assert df_embedded["method_embedding"].iloc[1] == df_embedded["finding_embedding"].iloc[1]
+    assert df_embedded["method_embedding"].iloc[0] == df_embedded["method_embedding"].iloc[1]
+
+    # Verify that only the 4 unique texts were actually sent to the embedding model
+    unique_called = set(called_texts)
+    assert len(unique_called) == 4
+    assert unique_called == {
+        "Theory: Unknown | Lemma: unnamed | Premises:\nA ⟹ B",
+        "Theory: Unknown | Lemma: unnamed | Proof:\nby simp",
+        "Theory: Unknown | Lemma: unnamed | Conclusion:\nB",
+        "Theory: Unknown | Lemma: unnamed | Statement:\nx = y",
+    }
+    assert len(called_texts) == 4, f"Expected 4 total embedding generations (deduplicated), but got {len(called_texts)}: {called_texts}"
+
+
+

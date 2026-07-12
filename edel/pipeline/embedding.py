@@ -76,7 +76,7 @@ def filter_by_aspects(
 def run_embedding_stage(
     df: pd.DataFrame, config: dict, base_path: str | Path = "artifacts", return_report: bool = False
 ) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, Any]]:
-    """Orchestrate the text embedding stage."""
+    """Orchestrate the text embedding stage with deduplication optimization."""
     embed_cfg = config.get("embedding", {})
 
     # Filter — use required_aspects from config if present (Isabelle uses ["problem"])
@@ -111,34 +111,116 @@ def run_embedding_stage(
     # Pass the entire embed_cfg so that additional kwargs like 'location' reach the LLM client
     client = get_llm_client(embed_cfg)
 
+    # 1. Determine fields to embed and extract texts
+    if mode == "single":
+        fields_to_embed = ["_combined_text"]
+        df_copy = df.copy()
+        df_copy["_combined_text"] = df_copy.apply(
+            lambda r: f"Problem: {r['problem']}. Method: {r['method']}. Finding: {r['finding']}. Interpretation: {r['interpretation']}.",
+            axis=1,
+        )
+    else:
+        fields_to_embed = ["problem", "method", "finding", "interpretation"]
+        df_copy = df
+
+    # 2. Collect unique non-empty text strings globally to optimize calls
+    from edel.il.aspects import format_aspect_with_metadata
+
+    formatted_mapping = {}
+    unique_texts = set()
+    for idx, row in df_copy.iterrows():
+        aspect_text_dict = {
+            "problem": str(row.get("problem", "")),
+            "method": str(row.get("method", "")),
+            "finding": str(row.get("finding", "")),
+            "interpretation": str(row.get("interpretation", "")),
+        }
+        theory = str(row.get("theory", "Unknown"))
+        lemma_title = str(row.get("title", "")) if "title" in row else str(row.get("id", ""))
+        
+        for field in fields_to_embed:
+            if field in df_copy.columns:
+                val = row[field]
+                if pd.notna(val) and str(val).strip():
+                    if mode != "single":
+                        formatted = format_aspect_with_metadata(
+                            theory=theory,
+                            lemma_title=lemma_title,
+                            aspect=field,
+                            aspect_text_dict=aspect_text_dict
+                        )
+                    else:
+                        formatted = str(val).strip()
+                    
+                    if formatted:
+                        formatted_mapping[(idx, field)] = formatted
+                        unique_texts.add(formatted)
+
+    unique_list = sorted(list(unique_texts))
+    print(f"Optimization: found {len(unique_list)} unique text aspects to embed out of {len(df) * len(fields_to_embed)} total entries.")
+
+    df_unique = pd.DataFrame({"text": unique_list})
+
+    # 3. Generate embeddings on the unique set
     if processing_mode == "batch":
         from edel.io.artifact import make_stage_artifact
         batch_log_art = make_stage_artifact(config, Path(base_path), "embeddings", "batch_log")
         batch_log_path = batch_log_art.path_prefix.with_suffix(".json")
         batch_log_path.parent.mkdir(parents=True, exist_ok=True)
         
-        df_out = process_batch(df, client, mode, batch_size, provider=provider, batch_log_path=batch_log_path)
+        df_unique_embedded = process_batch(
+            df_unique, client, mode="multi", batch_size=batch_size, provider=provider,
+            batch_log_path=batch_log_path, fields_to_embed=["text"]
+        )
     else:
-        df_out = process_simple(df, client, mode, batch_size=128)
+        df_unique_embedded = process_simple(
+            df_unique, client, mode="multi", batch_size=128, fields_to_embed=["text"]
+        )
+
+    # 4. Create text -> embedding mapping
+    text_to_embedding = {}
+    if "text_embedding" in df_unique_embedded.columns:
+        for _, row in df_unique_embedded.iterrows():
+            text_to_embedding[str(row["text"])] = row["text_embedding"]
+
+    # 5. Map embeddings back to the original DataFrame
+    df_out = df.copy()
+    for field in fields_to_embed:
+        target_col = "embedding" if mode == "single" else f"{field}_embedding"
+        
+        if mode == "single":
+            # For single mode, we map using the generated _combined_text values
+            df_out[target_col] = df_copy["_combined_text"].apply(
+                lambda x: text_to_embedding.get(str(x).strip()) if pd.notna(x) else None
+            )
+        else:
+            col_data = []
+            for idx in df_out.index:
+                formatted = formatted_mapping.get((idx, field))
+                emb = text_to_embedding.get(formatted) if formatted else None
+                col_data.append(emb)
+            df_out[target_col] = col_data
 
     if return_report:
         return df_out, filter_report
     return df_out
 
 
-def process_simple(df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int = 128) -> pd.DataFrame:
+def process_simple(
+    df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int = 128, fields_to_embed: list[str] | None = None
+) -> pd.DataFrame:
     """Generate embeddings sequentially using batching if supported."""
     out = df.copy()
 
-    fields_to_embed = []
-    if mode == "single":
-        fields_to_embed = ["_combined_text"]
-        out["_combined_text"] = out.apply(
-            lambda r: f"Problem: {r['problem']}. Method: {r['method']}. Finding: {r['finding']}. Interpretation: {r['interpretation']}.",
-            axis=1,
-        )
-    else:
-        fields_to_embed = ["problem", "method", "finding", "interpretation"]
+    if fields_to_embed is None:
+        if mode == "single":
+            fields_to_embed = ["_combined_text"]
+            out["_combined_text"] = out.apply(
+                lambda r: f"Problem: {r['problem']}. Method: {r['method']}. Finding: {r['finding']}. Interpretation: {r['interpretation']}.",
+                axis=1,
+            )
+        else:
+            fields_to_embed = ["problem", "method", "finding", "interpretation"]
 
     for field in fields_to_embed:
         target_col = "embedding" if mode == "single" else f"{field}_embedding"
@@ -200,21 +282,27 @@ def process_simple(df: pd.DataFrame, client: LLMClient, mode: str, batch_size: i
 
 
 def process_batch(
-    df: pd.DataFrame, client: LLMClient, mode: str, batch_size: int, provider: str = "openai", batch_log_path: Path | None = None
+    df: pd.DataFrame,
+    client: LLMClient,
+    mode: str,
+    batch_size: int,
+    provider: str = "openai",
+    batch_log_path: Path | None = None,
+    fields_to_embed: list[str] | None = None,
 ) -> pd.DataFrame:
     """Generate embeddings using Batch API with optimal chunking and resume capabilities."""
     out = df.copy()
 
     # 1. Collect all texts to embed across all fields
-    fields_to_embed = []
-    if mode == "single":
-        fields_to_embed = ["_combined_text"]
-        out["_combined_text"] = out.apply(
-            lambda r: f"Problem: {r['problem']}. Method: {r['method']}. Finding: {r['finding']}. Interpretation: {r['interpretation']}.",
-            axis=1,
-        )
-    else:
-        fields_to_embed = ["problem", "method", "finding", "interpretation"]
+    if fields_to_embed is None:
+        if mode == "single":
+            fields_to_embed = ["_combined_text"]
+            out["_combined_text"] = out.apply(
+                lambda r: f"Problem: {r['problem']}. Method: {r['method']}. Finding: {r['finding']}. Interpretation: {r['interpretation']}.",
+                axis=1,
+            )
+        else:
+            fields_to_embed = ["problem", "method", "finding", "interpretation"]
 
     all_prompts = {}
     for idx, row in out.iterrows():

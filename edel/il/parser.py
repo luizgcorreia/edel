@@ -125,6 +125,7 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
                 "skeleton_segments": [],
                 "tactic_segments": [],
                 "text_comments": [],
+                "proof_depth": 0,
             }
         elif current_unit:
             if keyword in TEXT_COMMENT_KEYWORDS:
@@ -145,8 +146,18 @@ def group_segments_to_lemmas(seg_map: dict[int, dict], segments: dict[int, str])
                     # Default to tactic for any other segment inside proof
                     current_unit["tactic_segments"].append(text)
 
+                # Track proof nesting depth
+                if keyword == "proof":
+                    current_unit["proof_depth"] += 1
+                elif keyword == "qed":
+                    current_unit["proof_depth"] = max(0, current_unit["proof_depth"] - 1)
+
                 # If this segment terminates the proof
-                if keyword in {"by", "qed", "sorry", "oops"}:
+                is_terminal = (
+                    (current_unit["proof_depth"] == 0 and keyword in {"by", "qed", "done", "sorry", "oops"})
+                    or keyword in {"sorry", "oops"}
+                )
+                if is_terminal:
                     units.append(current_unit)
                     current_unit = None
                     

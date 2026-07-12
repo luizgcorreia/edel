@@ -52,16 +52,35 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
 
     df["title"] = df.apply(enrich_title, axis=1)
     
-    # 2. Calculate "cited_by_count" (epistemic significance) by counting uses in AFP
-    print("Calculating epistemic significance (citation counts) for lemmas/definitions...")
-    citation_counts = resolve_and_count_citations(index.metadata)
-    df["cited_by_count"] = df["title"].map(citation_counts).fillna(0).astype(int)
+    # 2. Calculate "cited_by_count" (epistemic significance) by counting transitive dependents
+    print("Calculating epistemic significance (transitive dependents count) for lemmas/definitions...")
+    if "dependents_count" in df.columns and (df["dependents_count"] > 0).any():
+        df["cited_by_count"] = df["dependents_count"].fillna(0).astype(int)
+    elif "cited_deps" in df.columns:
+        # Calculate transitive dependents count on the fly using the new format
+        citation_counts = resolve_and_count_citations_transitive(
+            index.metadata
+        )
+        df["cited_by_count"] = df["title"].map(citation_counts).fillna(0).astype(int)
+    else:
+        df["cited_by_count"] = 0
     
     # 3. Fill schema requirements
     # 'id' is required and should be unique. We use the qualified title of the lemma.
     df["id"] = df["title"]
-    # 'abstract_text' is required. Let's use proof_text or statement_text
-    df["abstract_text"] = df.get("proof_text", "")
+    # 'abstract_text' is required. Concatenate the four aspects (separated by newlines) to match structured abstract task
+    def build_abstract(row):
+        parts = []
+        for aspect in ["problem", "method", "finding", "interpretation"]:
+            val = row.get(aspect, "")
+            if val and str(val).lower() not in ("none", "unknown"):
+                parts.append(str(val))
+        if not parts:
+            fallback = row.get("statement_text") or row.get("proof_text") or ""
+            return str(fallback)
+        return "\n".join(parts)
+        
+    df["abstract_text"] = df.apply(build_abstract, axis=1)
     df["source_provider"] = "afp_rag"
     df["type"] = "lemma"
     df["theories"] = df.apply(lambda r: [r["theory"]] if isinstance(r.get("theory"), str) else [], axis=1)
@@ -86,86 +105,81 @@ def generate_dataset(config: dict) -> tuple[pd.DataFrame, dict]:
     
     return df, {}
 
-def resolve_and_count_citations(metadata: list[dict]) -> dict[str, int]:
-    """Resolve references and count how many times each lemma/definition is used.
+def resolve_and_count_citations_transitive(
+    metadata: list[dict]
+) -> dict[str, int]:
+    """Compute the transitive dependents count (landscape height) for each lemma/definition.
     
-    Returns a dict mapping lemma title -> citation count.
+    Uses cited_deps and dependents to construct the dependency graph, then runs a
+    cycle-safe depth-first search to find the size of the transitive reachability set.
     """
-    from collections import defaultdict
+    all_titles = set(r["title"] for r in metadata)
     
-    # 1. Map base names and qualified names to the full lemma titles.
-    title_to_record = {}
-    base_to_titles = defaultdict(list)
-    qual2_to_titles = defaultdict(list)  # e.g., 'Theory.Lemma'
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation"
+    }
+
+    # Map short names (e.g. "append_assoc") to list of fully qualified titles
+    short_name_map = {}
+    for title in all_titles:
+        short = title.split(".")[-1]
+        if short:
+            short_name_map.setdefault(short, []).append(title)
+            
+    # Build Transpose Graph G^T (dependency -> set of direct dependents)
+    adj_transpose = {title: set() for title in all_titles}
     
     for r in metadata:
         title = r["title"]
-        title_to_record[title] = r
-        parts = title.split(".")
-        base = parts[-1]
-        base_to_titles[base].append(title)
-        if len(parts) >= 2:
-            qual2 = ".".join(parts[-2:])
-            qual2_to_titles[qual2].append(title)
-            
-    citation_counts = defaultdict(int)
+        keyword = r.get("keyword", "lemma")
+        
+        if keyword in DEF_KEYWORDS:
+            # Process definition dependents (via dependents field)
+            dependents_str = r.get("dependents", "none")
+            if dependents_str and dependents_str != "none":
+                deps = [d.strip() for d in dependents_str.split(",") if d.strip()]
+                for dep in deps:
+                    if dep in adj_transpose:
+                        adj_transpose[title].add(dep)
+                    elif dep in short_name_map:
+                        for target_title in short_name_map[dep]:
+                            adj_transpose[title].add(target_title)
+        else:
+            # Process Lemma (via cited_deps)
+            cited_str = r.get("cited_deps", "none")
+            if cited_str and cited_str != "none":
+                cites = [c.strip() for c in cited_str.split(",") if c.strip()]
+                for cite in cites:
+                    # Check exact match
+                    if cite in adj_transpose:
+                        adj_transpose[cite].add(title)
+                    # Check short name match
+                    elif cite in short_name_map:
+                        for target_title in short_name_map[cite]:
+                            adj_transpose[target_title].add(title)
+                            
+    # Compute Transitive Dependents Count using Cycle-Safe DFS
+    memo = {}
     
-    # 2. Process each lemma's dependencies to count references
-    for r in metadata:
-        theory = r.get("theory", "")
-        session = theory.split(".")[0] if "." in theory else theory
+    def dfs(node: str, path: set[str]) -> set[str]:
+        if node in memo:
+            return memo[node]
+        if node in path:
+            return set()  # Cycle detected
+            
+        path.add(node)
+        reachable = {node}
+        for neighbor in adj_transpose.get(node, []):
+            reachable.update(dfs(neighbor, path))
+        path.remove(node)
         
-        # Dependencies are in 'interpretation' (comma-separated list of tokens)
-        deps_str = r.get("interpretation", "")
-        if not deps_str or deps_str == "none" or deps_str.startswith("No specific reference theorem"):
-            continue
-            
-        prefix = "This theorem represents or relies on the reference theorem: "
-        if deps_str.startswith(prefix):
-            deps_str = deps_str[len(prefix):]
-            
-        deps = [d.strip() for d in deps_str.split(",") if d.strip()]
+        memo[node] = reachable
+        return reachable
         
-        for dep in deps:
-            resolved_title = None
-            
-            # Match 1: Is it a fully qualified title?
-            if dep in title_to_record:
-                resolved_title = dep
-            # Match 2: Is it a 2-part qualified name (e.g. 'Theory.Lemma')?
-            elif dep in qual2_to_titles:
-                titles = qual2_to_titles[dep]
-                if len(titles) == 1:
-                    resolved_title = titles[0]
-                else:
-                    # Resolve to the one in the same session, if any
-                    for t in titles:
-                        if t.startswith(session + "."):
-                            resolved_title = t
-                            break
-                    if not resolved_title:
-                        resolved_title = titles[0]
-            # Match 3: Is it a base name?
-            elif dep in base_to_titles:
-                titles = base_to_titles[dep]
-                if len(titles) == 1:
-                    resolved_title = titles[0]
-                else:
-                    # Resolve to same theory first
-                    for t in titles:
-                        if t.startswith(theory + "."):
-                            resolved_title = t
-                            break
-                    # Resolve to same session next
-                    if not resolved_title:
-                        for t in titles:
-                            if t.startswith(session + "."):
-                                resolved_title = t
-                                break
-                    if not resolved_title:
-                        resolved_title = titles[0]
-                        
-            if resolved_title:
-                citation_counts[resolved_title] += 1
-                
-    return citation_counts
+    dependents_counts = {}
+    for node in all_titles:
+        dependents_counts[node] = len(dfs(node, set())) - 1  # Exclude self
+        
+    return dependents_counts
+

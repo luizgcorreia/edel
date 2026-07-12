@@ -31,8 +31,6 @@ REQUIRED_CODE_FILES = [
 REQUIRED_INDEX_FILES = [
     "metadata.parquet",
     "embeddings.npz",
-    "definitions_metadata.parquet",
-    "definitions_embeddings.npz",
 ]
 
 REQUIREMENTS_CONTENT = """mcp[cli]

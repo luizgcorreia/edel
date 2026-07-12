@@ -14,23 +14,15 @@ def compute_and_save_landscape_height(index_dir: str | Path) -> None:
     index_dir = Path(index_dir)
     
     metadata_path = index_dir / "metadata.parquet"
-    definitions_path = index_dir / "definitions_metadata.parquet"
-    
     if not metadata_path.exists():
-        print(f"[Landscape Height] Error: Lemma metadata not found at {metadata_path}")
+        print(f"[Landscape Height] Error: Metadata not found at {metadata_path}")
         return
         
     print(f"[Landscape Height] Loading metadata from {index_dir}...")
-    df_lemmas = pd.read_parquet(metadata_path)
+    df = pd.read_parquet(metadata_path)
     
-    df_defs = None
-    if definitions_path.exists():
-        df_defs = pd.read_parquet(definitions_path)
-        
     # 1. Build Whitelist & Name Maps
-    lemma_titles = set(df_lemmas["title"].tolist())
-    def_titles = set(df_defs["title"].tolist()) if df_defs is not None else set()
-    all_titles = lemma_titles | def_titles
+    all_titles = set(df["title"].tolist())
     
     # Map short names (e.g. "append_assoc") to list of fully qualified titles (e.g. ["HOL.List.append_assoc"])
     short_name_map: dict[str, list[str]] = {}
@@ -39,43 +31,40 @@ def compute_and_save_landscape_height(index_dir: str | Path) -> None:
         if short:
             short_name_map.setdefault(short, []).append(title)
             
-    # 2. Build Dependency Graph G (node -> set of dependencies)
-    # And Transpose Graph G^T (dependency -> set of direct dependents)
-    # Nodes in graph will be all titles
+    # 2. Build Transpose Graph G^T (dependency -> set of direct dependents)
     adj_transpose: dict[str, set[str]] = {title: set() for title in all_titles}
     
-    # A. Process Lemmas (via cited_deps)
-    for _, row in df_lemmas.iterrows():
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation"
+    }
+    
+    for _, row in df.iterrows():
         title = row["title"]
-        cited_str = row.get("cited_deps", "none")
-        if not cited_str or cited_str == "none":
-            continue
-            
-        cites = [c.strip() for c in cited_str.split(",") if c.strip()]
-        for cite in cites:
-            # Check exact match
-            if cite in all_titles:
-                adj_transpose[cite].add(title)
-            # Check short name match
-            elif cite in short_name_map:
-                for target_title in short_name_map[cite]:
-                    adj_transpose[target_title].add(title)
-                    
-    # B. Process Definitions (via dependents field)
-    if df_defs is not None:
-        for _, row in df_defs.iterrows():
-            def_title = row["title"]
+        keyword = row.get("keyword", "lemma")
+        
+        if keyword in DEF_KEYWORDS:
+            # Process definition dependents (via dependents field)
             dependents_str = row.get("dependents", "none")
-            if not dependents_str or dependents_str == "none":
-                continue
-                
-            deps = [d.strip() for d in dependents_str.split(",") if d.strip()]
-            for dep in deps:
-                if dep in all_titles:
-                    adj_transpose[def_title].add(dep)
-                elif dep in short_name_map:
-                    for target_title in short_name_map[dep]:
-                        adj_transpose[def_title].add(target_title)
+            if dependents_str and dependents_str != "none":
+                deps = [d.strip() for d in dependents_str.split(",") if d.strip()]
+                for dep in deps:
+                    if dep in all_titles:
+                        adj_transpose[title].add(dep)
+                    elif dep in short_name_map:
+                        for target_title in short_name_map[dep]:
+                            adj_transpose[title].add(target_title)
+        else:
+            # Process lemma dependencies (via cited_deps)
+            cited_str = row.get("cited_deps", "none")
+            if cited_str and cited_str != "none":
+                cites = [c.strip() for c in cited_str.split(",") if c.strip()]
+                for cite in cites:
+                    if cite in all_titles:
+                        adj_transpose[cite].add(title)
+                    elif cite in short_name_map:
+                        for target_title in short_name_map[cite]:
+                            adj_transpose[target_title].add(title)
 
     # 3. Compute Transitive Dependents Count using Cycle-Safe DFS
     memo: dict[str, set[str]] = {}
@@ -101,15 +90,10 @@ def compute_and_save_landscape_height(index_dir: str | Path) -> None:
         
     print(f"[Landscape Height] Computed transitive dependents for {len(all_titles)} nodes.")
     
-    # 4. Save counts back to dataframes
-    df_lemmas["dependents_count"] = df_lemmas["title"].map(dependents_counts).fillna(0).astype(int)
-    df_lemmas.to_parquet(metadata_path, index=False)
-    print(f"[Landscape Height] Updated lemma metadata with dependents_count.")
-    
-    if df_defs is not None:
-        df_defs["dependents_count"] = df_defs["title"].map(dependents_counts).fillna(0).astype(int)
-        df_defs.to_parquet(definitions_path, index=False)
-        print(f"[Landscape Height] Updated definitions metadata with dependents_count.")
+    # 4. Save counts back to dataframe
+    df["dependents_count"] = df["title"].map(dependents_counts).fillna(0).astype(int)
+    df.to_parquet(metadata_path, index=False)
+    print(f"[Landscape Height] Updated unified metadata with dependents_count.")
 
 
 def main():

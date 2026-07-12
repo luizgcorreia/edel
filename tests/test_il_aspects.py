@@ -34,11 +34,11 @@ def test_extract_aspects_basic():
 
     aspects = extract_aspects(lemma)
 
-    # problem: premises of the statement (none for unconditional)
-    assert aspects["aspect_statement"] == 'none'
+    # problem: premises of the statement (no split -> falls back to statement)
+    assert aspects["aspect_statement"] == '[] @ ys = ys'
 
-    # method: declarative skeleton (empty for simple proof)
-    assert aspects["aspect_strategy"] == ""
+    # method: declarative skeleton (tactic-only proof collapses M=F)
+    assert aspects["aspect_strategy"] == "by simp"
 
     # finding: tactics
     assert "by simp" in aspects["aspect_dependencies"]
@@ -65,18 +65,18 @@ def test_extract_aspects_complex():
 
     aspects = extract_aspects(lemma)
 
-    # problem: premises of statement (none for shows without assumptions)
-    assert aspects["aspect_statement"] == 'none'
+    # problem: premises of statement (splits on equality since both sides are complex)
+    assert aspects["aspect_statement"] == 'mset (xs @ ys)'
 
-    # method: declarative skeleton (empty as there are no declare statements)
-    assert aspects["aspect_strategy"] == ""
+    # method: declarative skeleton (tactic-only proof collapses M=F)
+    assert "apply (induction xs)" in aspects["aspect_strategy"]
 
     # finding: tactics
     assert "apply (induction xs)" in aspects["aspect_dependencies"]
     assert "by (metis lemma2)" in aspects["aspect_dependencies"]
 
-    # interpretation: conclusion
-    assert aspects["aspect_context"] == "mset (xs @ ys) = mset xs + mset ys"
+    # interpretation: conclusion (RHS of the split equality)
+    assert aspects["aspect_context"] == "mset xs + mset ys"
 
 
 # ---------------------------------------------------------------------------
@@ -93,17 +93,12 @@ def test_extract_aspects_definition():
 
     aspects = extract_aspects(defn)
 
-    # problem: premises (none)
-    assert aspects["aspect_statement"] == 'none'
-
-    # method: empty
-    assert aspects["aspect_strategy"] == ""
-
-    # finding: empty tactics
-    assert aspects["aspect_dependencies"] == ""
-
-    # interpretation: definition body (conclusion)
-    assert aspects["aspect_context"] == 'my_def x = x + 1'
+    # All aspects should equal the full definition statement (0-simplex)
+    stmt = 'definition my_def where "my_def x = x + 1"'
+    assert aspects["aspect_statement"] == stmt
+    assert aspects["aspect_strategy"] == stmt
+    assert aspects["aspect_dependencies"] == stmt
+    assert aspects["aspect_context"] == stmt
 
 
 # ---------------------------------------------------------------------------
@@ -119,10 +114,12 @@ def test_extract_aspects_inductive():
     }
     aspects = extract_aspects(defn)
 
-    assert aspects["aspect_strategy"] == ""
-    assert aspects["aspect_dependencies"] == ""
-    assert aspects["aspect_context"] == "nat ⇒ bool"
-    assert aspects["aspect_statement"] == "none"
+    # Treated as definition (0-simplex)
+    stmt = 'inductive even :: "nat ⇒ bool" where\n  zero: "even 0" |\n  step: "even n ⟹ even (Suc (Suc n))"'
+    assert aspects["aspect_strategy"] == stmt
+    assert aspects["aspect_dependencies"] == stmt
+    assert aspects["aspect_context"] == stmt
+    assert aspects["aspect_statement"] == stmt
 
 
 # ---------------------------------------------------------------------------

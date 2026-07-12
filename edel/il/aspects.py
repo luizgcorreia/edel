@@ -20,10 +20,6 @@ _TACTIC_KEYWORDS = {
 }
 
 # Keywords that introduce a cited identifier (dependency extraction).
-# We match each introducer keyword followed by any mix of identifiers,
-# brackets, and whitespace — terminated by a closing paren, semicolon, or
-# another tactic keyword.  Parenthesised forms like "by (metis a b)" are
-# handled by stripping punctuation from the captured text.
 _DEP_INTRODUCERS = re.compile(
     r'\b(?:using|unfolding|fact|rule|subst|metis|blast|insert)\s+'
     r'([\w\'.\[\] ,\-]+)',
@@ -79,8 +75,6 @@ def _extract_tactic_lines(proof: str) -> str:
         tokens = set(re.findall(r'[a-zA-Z_]+', stripped))
         if tokens & _TACTIC_KEYWORDS:
             tactic_lines.append(stripped)
-    # Fallback: if we somehow found nothing, return the full proof (short proofs
-    # may consist entirely of symbolic expressions like ‹...›)
     return "\n".join(tactic_lines) if tactic_lines else proof.strip()
 
 
@@ -91,15 +85,12 @@ def _extract_dependencies(proof: str) -> str:
 
     deps: set[str] = set()
 
-    # Patterns: using/unfolding/fact/rule/subst/metis/blast/insert X Y Z
     for m in _DEP_INTRODUCERS.finditer(proof):
-        # Strip surrounding punctuation (parens, brackets, etc.) before splitting
         raw = re.sub(r'[();\[\]]', ' ', m.group(1))
         for word in re.findall(r'[a-zA-Z][a-zA-Z0-9_\'.]+', raw):
             if word.lower() not in _DEP_EXCLUSIONS and len(word) > 2:
                 deps.add(word)
 
-    # simp add: / simp only: / simp del:
     for m in _SIMP_DEP_PATTERN.finditer(proof):
         raw = re.sub(r'[();\[\]]', ' ', m.group(1))
         for word in re.findall(r'[a-zA-Z][a-zA-Z0-9_\'.]+', raw):
@@ -109,24 +100,32 @@ def _extract_dependencies(proof: str) -> str:
     return ", ".join(sorted(deps)) if deps else "none"
 
 
+# ---------------------------------------------------------------------------
+# Statement parsing helpers — four-rule cascade
+# ---------------------------------------------------------------------------
+
 def _split_on_top_level_implies(prop: str) -> list[str]:
-    """Split a proposition string on top-level ==> or ⟹ operators, respecting parenthesis nesting."""
-    parts = []
-    current = []
+    """Split a proposition on top-level ==> or ⟹, respecting bracket nesting."""
+    parts: list[str] = []
+    current: list[str] = []
     depth = 0
     i = 0
     n = len(prop)
     while i < n:
         char = prop[i]
-        if char in "([{‹":
+        if char in "([{‹⟦":
             depth += 1
             current.append(char)
             i += 1
-        elif char in ")]}›":
+        elif char in ")]}›⟧":
             depth = max(0, depth - 1)
             current.append(char)
             i += 1
-        elif depth == 0 and (prop[i:i+3] == "⟹" or prop[i:i+3] == "==>"):
+        elif depth == 0 and prop[i] == "⟹":
+            parts.append("".join(current).strip())
+            current = []
+            i += 1
+        elif depth == 0 and prop[i:i+3] == "==>":
             parts.append("".join(current).strip())
             current = []
             i += 3
@@ -138,68 +137,226 @@ def _split_on_top_level_implies(prop: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _parse_premises_and_conclusion(statement: str) -> tuple[str, str]:
-    """Parse a lemma/theorem statement to extract its premises and conclusion."""
-    # Normalise whitespace
-    stmt = re.sub(r'\s+', ' ', statement).strip()
-    
-    # 1. Handle Isar assumes/shows form
-    if "shows" in stmt:
-        assumes_part = stmt[:stmt.find("shows")]
-        shows_part = stmt[stmt.find("shows") + len("shows"):]
-        
-        # Extract assumptions inside quotes
-        assumptions = re.findall(r'\bassumes\s+"([^"]+)"', assumes_part)
-        if not assumptions:
-            assumptions = re.findall(r'"([^"]+)"', assumes_part)
-            
-        conclusion_match = re.search(r'"([^"]+)"', shows_part)
-        conclusion = conclusion_match.group(1) if conclusion_match else shows_part.strip()
-        
-        premises = ", ".join(assumptions) if assumptions else "none"
-        return premises, conclusion
-        
-    # 2. Standard forms: lemma foo: "A ==> B" or lemma "A ==> B"
-    # Find content of outermost quotes
-    m = re.search(r'"([^"]+)"', stmt)
-    if not m:
-        # Fallback: if no quotes, strip keyword/name and parse
-        clean = re.sub(
-            r'^(?:lemma|theorem|corollary|proposition|schematic_goal)\s+'
-            r'(?:[a-zA-Z0-9_\'\.]+\s*(?:\[[^\]]*\])?\s*:)?\s*',
-            '',
-            stmt
-        )
-        prop = clean
-    else:
-        prop = m.group(1)
-        
-    parts = _split_on_top_level_implies(prop)
-    if len(parts) > 1:
-        premises = ", ".join(parts[:-1])
-        conclusion = parts[-1]
-    else:
-        premises = "none"
-        conclusion = parts[0]
-        
-    return premises, conclusion
+def _split_on_top_level_iff(prop: str) -> list[str]:
+    """Split on top-level ⟷ / <-> / ≡, respecting bracket nesting."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    i = 0
+    n = len(prop)
+    while i < n:
+        char = prop[i]
+        if char in "([{‹⟦":
+            depth += 1
+            current.append(char)
+            i += 1
+        elif char in ")]}›⟧":
+            depth = max(0, depth - 1)
+            current.append(char)
+            i += 1
+        elif depth == 0 and prop[i] in "⟷≡":
+            parts.append("".join(current).strip())
+            current = []
+            i += 1
+        elif depth == 0 and prop[i:i+3] == "<->":
+            parts.append("".join(current).strip())
+            current = []
+            i += 3
+        else:
+            current.append(char)
+            i += 1
+    if current:
+        parts.append("".join(current).strip())
+    return [p for p in parts if p]
 
+
+def _split_on_top_level_eq(prop: str) -> list[str]:
+    """Split on the first top-level ASCII =, excluding <=, >=, =>, ==, !=."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    i = 0
+    n = len(prop)
+    while i < n:
+        char = prop[i]
+        if char in "([{‹⟦":
+            depth += 1
+            current.append(char)
+            i += 1
+        elif char in ")]}›⟧":
+            depth = max(0, depth - 1)
+            current.append(char)
+            i += 1
+        elif depth == 0 and char == "=":
+            prev = prop[i - 1] if i > 0 else ""
+            nxt  = prop[i + 1] if i + 1 < n else ""
+            if prev not in "!<>=" and nxt not in "=>":
+                parts.append("".join(current).strip())
+                current = []
+                i += 1
+                continue
+            current.append(char)
+            i += 1
+        else:
+            current.append(char)
+            i += 1
+    if current:
+        parts.append("".join(current).strip())
+    return [p for p in parts if p]
+
+
+def _is_complex_expr(s: str) -> bool:
+    """Return True if the expression is complex (operators, quantifiers, or function apps).
+
+    Simple names/variables ("n", "x") return False.
+    Anything with spaces (function application) or symbolic operators returns True.
+    """
+    s = s.strip()
+    if " " in s:
+        return True
+    return bool(re.search(r"[∀∃∧∨¬⟹⟷≡≤≥≠∈⊆⊂∩∪⋃⋂+\-*/(){}⟦⟧|¦]", s))
+
+
+def _clean_bracket_premises(premises: str) -> str:
+    """Unwrap ⟦A; B; C⟧ or [| A; B; C |] bracket notation into a comma list."""
+    p = premises.strip()
+    if (p.startswith("⟦") and p.endswith("⟧")) or \
+       (p.startswith("[|") and p.endswith("|]")):
+        inner = p[1:-1] if p.startswith("⟦") else p[2:-2]
+        sub = [x.strip() for x in inner.split(";") if x.strip()]
+        return ", ".join(sub) if sub else "none"
+    return premises
+
+
+def _parse_obtains(stmt: str) -> tuple[str, str]:
+    """Parse Isar obtains-form: [assumes ...] obtains x y where "P x" "Q y"."""
+    obtains_idx = stmt.find("obtains")
+    before = stmt[:obtains_idx]
+    after  = stmt[obtains_idx + len("obtains"):]
+
+    assumptions = re.findall(r'\bassumes\s*["‹]([^"›]+)["›]', before)
+    if not assumptions:
+        assumptions = re.findall(r'["‹]([^"›]+)["›]', before)
+
+    where_idx     = after.find("where")
+    where_section = after[where_idx + len("where"):] if where_idx >= 0 else after
+    where_clauses = re.findall(r'["‹]([^"›]+)["›]', where_section)
+    interpretation = ", ".join(where_clauses) if where_clauses else stmt.strip()
+
+    if assumptions:
+        return ", ".join(assumptions), interpretation
+    # No external premises: fixed point
+    return interpretation, interpretation
+
+
+def _parse_premises_and_conclusion(statement: str) -> tuple[str, str]:
+    """Parse a lemma/theorem statement to extract premises and conclusion.
+
+    Four-rule cascade:
+      Rule 1  Conditional   ⟹ / ==> / assumes+shows  →  (premises, conclusion)
+      Rule 2  Equivalence   ⟷ / <-> / ≡ / complex =  →  (LHS, RHS)
+      Rule 3  Obtains       obtains … where …          →  (assumes, where-clauses)
+      Rule 4  Unconditional no detectable structure    →  (conclusion, conclusion)
+    """
+    stmt = re.sub(r"\s+", " ", statement).strip()
+
+    # ── Rule 3: obtains-form (check before 'shows'; assumes+obtains can coexist) ──
+    if "obtains" in stmt:
+        return _parse_obtains(stmt)
+
+    # ── Rule 1a: assumes / shows form ──────────────────────────────────────────
+    if "shows" in stmt:
+        shows_idx    = stmt.find("shows")
+        assumes_part = stmt[:shows_idx]
+        shows_part   = stmt[shows_idx + len("shows"):]
+
+        assumptions = re.findall(r'\bassumes\s*["‹]([^"›]+)["›]', assumes_part)
+        if not assumptions:
+            assumptions = re.findall(r'["‹]([^"›]+)["›]', assumes_part)
+
+        conclusion_match = re.search(r'["‹]([^"›]+)["›]', shows_part)
+        shows_content    = conclusion_match.group(1) if conclusion_match else shows_part.strip()
+
+        # Fix: split on ⟹ inside shows content (catches `shows "A ⟹ B"`)
+        impl_parts = _split_on_top_level_implies(shows_content)
+        if len(impl_parts) > 1:
+            inner_premises = ", ".join(impl_parts[:-1])
+            conclusion     = impl_parts[-1]
+            all_premises   = assumptions + [inner_premises] if assumptions else [inner_premises]
+            return ", ".join(all_premises), conclusion
+
+        if assumptions:
+            return ", ".join(assumptions), shows_content
+
+        # No premises found; fall through with shows_content as the prop
+        prop = shows_content
+
+    else:
+        # ── Rule 1b: standard quoted "A ⟹ B" form ─────────────────────────────
+        m = re.search(r'["‹]([^"›]+)["›]', stmt)
+        if not m:
+            prop = re.sub(
+                r'^(?:lemma|theorem|corollary|proposition|schematic_goal)\s+'
+                r'(?:[a-zA-Z0-9_\'\.]+\s*(?:\[[^\]]*\])?\s*:)?\s*',
+                '',
+                stmt,
+            )
+        else:
+            prop = m.group(1)
+
+        impl_parts = _split_on_top_level_implies(prop)
+        if len(impl_parts) > 1:
+            premises_part = _clean_bracket_premises(", ".join(impl_parts[:-1]))
+            return premises_part, impl_parts[-1]
+
+    # ── Rule 2a: strict iff (⟷ / <-> / ≡) ───────────────────────────────────
+    iff_parts = _split_on_top_level_iff(prop)
+    if len(iff_parts) == 2:
+        return iff_parts[0].strip(), iff_parts[1].strip()
+
+    # ── Rule 2b: equality as rewrite — only when both sides are complex ────────
+    eq_parts = _split_on_top_level_eq(prop)
+    if len(eq_parts) == 2 and _is_complex_expr(eq_parts[0]) and _is_complex_expr(eq_parts[1]):
+        return eq_parts[0].strip(), eq_parts[1].strip()
+
+    # ── Rule 4: truly unconditional — fixed point ──────────────────────────────
+    conclusion = prop.strip() or stmt
+    return conclusion, conclusion
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def extract_aspects(
     lemma: dict[str, Any],
-    theory_header: str = "",          # kept for backward compatibility; unused
+    theory_header: str = "",           # kept for backward compatibility; unused
     entry_metadata: dict[str, Any] | None = None,  # kept for backward compatibility; unused
     text_comments: list[str] | None = None,
 ) -> dict[str, str]:
     """Extract source-enriched aspects from a parsed lemma.
 
     Aspects:
-        aspect_statement    — Premises/hypotheses (or "none" if unconditional).
-        aspect_context      — Conclusion / consequent.
+        aspect_statement    — Premises/hypotheses (or conclusion for unconditional lemmas).
+        aspect_context      — Conclusion / consequent (or RHS for equivalences).
         aspect_strategy     — Proof skeleton (declarative have/show/also/case segments).
-        aspect_dependencies  — Operational tactics/automation (apply/by/using segments).
+        aspect_dependencies — Operational tactics/automation (apply/by/using segments).
     """
     statement = lemma.get("statement_text", "").strip()
+    
+    # ── Handle Definitions as degenerate 0-simplices ──────────────────────────
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation",
+    }
+    if lemma.get("keyword") in DEF_KEYWORDS:
+        return {
+            "aspect_statement": statement,
+            "aspect_context": statement,
+            "aspect_strategy": statement,
+            "aspect_dependencies": statement,
+        }
+
     proof = lemma.get("proof_text", "").strip()
     comments = text_comments or lemma.get("text_comments", [])
 
@@ -250,8 +407,29 @@ def extract_aspects(
                 comment_parts.append(cleaned)
 
     strategy_parts = cleaned_skeleton + comment_parts
-    aspect_strategy = "\n".join(strategy_parts)
-    aspect_dependencies = "\n".join(cleaned_tactics)
+    aspect_strategy    = "\n".join(strategy_parts)   # method  (M)
+    aspect_dependencies = "\n".join(cleaned_tactics)  # finding (F)
+
+    # ── Simplex collapse rules ────────────────────────────────────────────────
+    # The four aspects form a 3-simplex (tetrahedron) in embedding space.
+    # When aspects share text they share an embedding → the simplex degenerates.
+    # Degeneracy is intentional: it encodes proof structural simplicity.
+    #
+    #   Rule M1  tactic-only proof  → M = F   (M=F edge collapsed, 2-simplex)
+    #   Rule M2  skeleton-only proof → M = F  (M=F edge collapsed, 2-simplex)
+    #   Rule M3  no proof content    → M = F = I  (further collapse toward I)
+    #            combined with P = I (unconditional): P = M = F = I → 0-simplex
+    if aspect_strategy and not aspect_dependencies:
+        # Rule M2: skeleton exists but no tactics → finding mirrors method
+        aspect_dependencies = aspect_strategy
+    elif aspect_dependencies and not aspect_strategy:
+        # Rule M1: tactics exist but no skeleton → method mirrors finding
+        aspect_strategy = aspect_dependencies
+    elif not aspect_strategy and not aspect_dependencies:
+        # Rule M3: no proof content at all (sorry/oops/opaque/axiomatic)
+        # → both collapse to the conclusion; epistemic content preserved by location
+        aspect_strategy    = aspect_context
+        aspect_dependencies = aspect_context
 
     return {
         "aspect_statement": aspect_statement,
@@ -259,3 +437,56 @@ def extract_aspects(
         "aspect_strategy": aspect_strategy,
         "aspect_dependencies": aspect_dependencies,
     }
+
+
+def format_aspect_with_metadata(
+    theory: str,
+    lemma_title: str,
+    aspect: str,
+    aspect_text_dict: dict[str, str],
+) -> str:
+    """Format an aspect value using collapse-aware metadata prefixing.
+
+    Args:
+        theory: Name of the theory.
+        lemma_title: Title of the lemma (e.g. HOL.List.append_assoc or append_assoc).
+        aspect: The aspect key ("problem", "method", "finding", "interpretation").
+        aspect_text_dict: Dictionary containing the four raw aspect values.
+    """
+    lemma_name = lemma_title.split(".")[-1] if lemma_title else "unnamed"
+    
+    val = aspect_text_dict.get(aspect, "")
+    text = str(val).strip()
+    if not text or text == "none":
+        return ""
+        
+    p_text = aspect_text_dict.get("problem", "").strip()
+    m_text = aspect_text_dict.get("method", "").strip()
+    f_text = aspect_text_dict.get("finding", "").strip()
+    i_text = aspect_text_dict.get("interpretation", "").strip()
+    
+    # Apply Collapse-Aware Label Selection
+    # 1. 0-Simplex (all four aspects identical)
+    if p_text == m_text == f_text == i_text:
+        label = "Statement"
+    # 2. No-Proof Degenerate (M = F = I)
+    elif m_text == f_text == i_text and aspect in ["method", "finding", "interpretation"]:
+        label = "Statement"
+    # 3. 1-Simplex (P = I)
+    elif p_text == i_text and aspect in ["problem", "interpretation"]:
+        label = "Statement"
+    # 4. 2-Simplex (M = F)
+    elif m_text == f_text and aspect in ["method", "finding"]:
+        label = "Proof"
+    # 5. Non-degenerate distinct aspects
+    else:
+        label_map = {
+            "problem": "Premises",
+            "method": "Skeleton",
+            "finding": "Tactics",
+            "interpretation": "Conclusion"
+        }
+        label = label_map.get(aspect, "Content")
+        
+    return f"Theory: {theory} | Lemma: {lemma_name} | {label}:\n{text}"
+

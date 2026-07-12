@@ -33,7 +33,7 @@ class EphemeralReplClient:
         try:
             sock.connect((self.host, self.port))
             # Handshake / Auth
-            sock.sendall(f"AUTH {self.token}\n".encode())
+            sock.sendall(f"{self.token}\n".encode())
             resp = sock.recv(1024).decode()
             if not resp.startswith("OK"):
                 raise RuntimeError(f"Authentication failed: {resp}")

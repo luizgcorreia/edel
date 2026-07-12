@@ -97,7 +97,7 @@ For theories originating in the AFP, the entry name (e.g. `Multiset_Ordering_NPC
 
 ---
 
-## 3. Defining The Four Proof-Oriented Aspects (Choice B)
+## 3. Defining The Four Proof-Oriented Aspects
 
 Isabelle lemmas are embedded into four semantic aspects that form an **epistemic trajectory** through concept space. The four aspects represent the genuinely distinct discourse domains of mathematical proof reasoning — not as a chronological narrative of proof composition, but as the four independent dimensions of mathematical knowledge encoded in a theorem.
 
@@ -109,53 +109,222 @@ emb_P ──(D_pm)──► emb_M ──(D_mf)──► emb_F ──(D_fi)──
   └────────────────── D_pi (epistemic closure) ────────────┘
 ```
 
-The four aspects are extracted as follows:
+The four aspects form the **vertices of a 3-simplex** (tetrahedron) in embedding space. The shape and volume of this tetrahedron encode the structural complexity of the proof, and intentional degeneracies (when two or more aspects coincide) encode fundamental proof types. This is developed fully in Section 3.3.
 
-### 1. `problem` — Premises / Hypotheses (aspect='premises')
-* **Content**: The formal antecedents of the lemma — everything the prover must assume for the result to hold.
-* **Examples**:
-  * `lemma foo: "count A x = count B x ⟹ x ∈# A ⟹ A = B"` $\to$ `problem = "count A x = count B x, x ∈# A"`
-  * `theorem bar: assumes "P" and "Q" shows "R"` $\to$ `problem = "P, Q"`
-  * `lemma baz: "∀x. f x = g x"` (unconditional) $\to$ `problem = "none"`
-* **Extraction**: Parsed from the lemma's statement without REPL interaction. For the `⟹`-chain form, all but the last top-level conjunct are premises. For the Isar `assumes`/`shows` form, the `assumes` clauses are collected. Unconditional lemmas use the string `"none"` (which maps to a zero vector).
-* **Justification**: The premises define the *conditions* required to apply this lemma — the starting point of the theorem's epistemic content. Separating them from the conclusion is essential so that $D_{pi}$ measures the full implication as a directed vector rather than a narrowing within a compound embedding.
+---
 
-### 2. `method` — Proof Skeleton (aspect='skeleton')
-* **Content**: The **declarative** layer of the proof — the intermediate claims, equational chains, case splits, and variable introductions made explicit by the prover.
-* **Isar keywords that produce method segments**: `proof`, `qed`, `have`, `show`, `also`, `finally`, `next`, `case`, `assume`, `fix`, `obtain`, `define`, `let`.
-* **Example**:
-  ```isabelle
-  proof-
-    have "(A2 ∪# ((A1 ∪# (X -# c1)) -# c2)) = (A2 ∪# (A1 ∪# ((X -# c1) -# c2)))"
-    also have "... = (A1 ∪# ((A2 ∪# (X -# c2)) -# c1))"
-    finally show ?thesis
-  qed
-  ```
-* **Extraction**: The Isabelle REPL's `Ir.source_map` assigns a keyword to every proof segment. Segments whose keyword is in the skeleton set above are routed to `method`.
-* **Degenerate case**: One-liner proofs (`by simp`, `apply auto`) produce no skeleton segments. `method = ""` for these lemmas — which is semantically correct: a flat proof has no intermediate structure to record.
-* **Justification**: The proof skeleton is the *declarative map* of the proof — what the prover claims step-by-step, independent of how those claims are verified. It is drawn from a fundamentally different vocabulary (Isabelle mathematical propositions) than the tactic layer, ensuring $D_{mf}$ has genuine variance.
+### 3.1 Statement Parsing: Problem and Interpretation
 
-### 3. `finding` — Tactic Application (aspect='tactics')
-* **Content**: The **operational** layer of the proof — the specific tactics, automation invocations, fact citations, and chaining operations used to actually close each goal.
-* **Isar keywords that produce finding segments**: `apply`, `by`, `using`, `unfolding`, `from`, `with`, `then`, `hence`, `thus`, `note`, `done`, `sorry`, `oops`.
-* **Example**:
-  ```isabelle
-  using assms by auto
-  using assms by auto
-  by auto
-  ```
-* **Extraction**: Same `seg_map` keyword filter as method — segments with operational keywords are routed to `finding`.
-* **Degenerate case**: Definitions and axioms have no proof body, so `finding = ""`.
-* **Justification**: The tactic layer captures *how* the proof was mechanically realised. It occupies a distinct semantic space from both the skeleton (mathematical propositions) and the premises/conclusion (the theorem's content). The $D_{mf}$ operator measures how abstractly the automation relates to the claimed intermediate steps.
+The `problem` (premises) and `interpretation` (conclusion) aspects are parsed entirely from the lemma's declaration statement — no REPL interaction is required. The parser applies a **four-rule cascade** in priority order:
 
-### 4. `interpretation` — Conclusion (aspect='conclusion')
-* **Content**: The formal consequent of the lemma — the mathematical result that holds if all premises are satisfied.
-* **Examples**:
-  * `lemma "count A x = count B x ⟹ A = B"` $\to$ `interpretation = "A = B"`
-  * `theorem: assumes "P" shows "Q"` $\to$ `interpretation = "Q"`
-  * `lemma "∀x. f x = g x"` (unconditional) $\to$ `interpretation = "∀x. f x = g x"`
-* **Extraction**: Parsed from the statement without REPL interaction. For the `⟹`-chain form, the last top-level conjunct is the conclusion. For `assumes`/`shows`, the `shows` clause is taken. For unconditional lemmas, the entire proposition is the conclusion.
-* **Justification**: The conclusion is the *result* the theorem establishes — what the agent gains by successfully applying it. It is always non-empty and is semantically distinct from the premises for any non-trivial theorem.
+#### Rule S1 — `obtains`-form (Isar existential witnesses)
+
+Statements containing the `obtains` keyword follow Isabelle's constructive elimination syntax:
+```isabelle
+lemma foo: assumes "open S" obtains x where "x ∈ S" "0 < x"
+```
+- `problem` ← the `assumes` clauses before `obtains` (comma-joined)
+- `interpretation` ← the `where` clauses (comma-joined)
+- If no `assumes` clauses are present, this is a pure existence statement: `problem = interpretation` (fixed point — see Rule S4 below)
+
+This rule is checked *before* `shows` because `assumes` + `obtains` can coexist.
+
+#### Rule S1b — Conditional `assumes`/`shows` form
+
+The standard Isar structured proof statement:
+```isabelle
+lemma foo: assumes "A" and "B" shows "C"
+```
+- `problem` ← all `assumes` clauses, comma-joined
+- `interpretation` ← the `shows` clause
+
+**Critical fix**: if the `shows` content itself contains `⟹` (e.g. `shows "e > 0 ⟹ ∃d. 0 < d"`), the implication is split *inside* the shows content, and the inner premises are prepended to any outer `assumes` clauses:
+```isabelle
+lemma square_continuous: fixes e :: real shows "e > 0 ⟹ ∃d. 0 < d ∧ ..."
+  → problem = "e > 0", interpretation = "∃d. 0 < d ∧ ..."
+```
+
+#### Rule S1c — Standard quoted implication chain
+
+The most common form across HOL theories:
+```isabelle
+lemma metric_eq_thm: "x ∈ s ⟹ y ∈ s ⟹ x = y ⟷ (∀a∈s. dist x a = dist y a)"
+```
+- The statement content inside double quotes is split on top-level `⟹` or `==>`, respecting nesting of `()`, `[]`, `{}`, `⟦⟧`, `‹›`.
+- All parts except the last become `problem` (comma-joined).
+- The last part becomes `interpretation`.
+- Bracketed Isabelle premise lists `⟦A; B; C⟧` are automatically unwrapped into `"A, B, C"`.
+
+#### Rule S2a — Strict logical equivalence
+
+If no implication is found, the parser checks for top-level `⟷`, `<->`, or `≡`:
+```isabelle
+lemma comm_and: "(P ∧ Q) ⟷ (Q ∧ P)"
+  → problem = "(P ∧ Q)", interpretation = "(Q ∧ P)"
+```
+- `problem` ← LHS of the equivalence
+- `interpretation` ← RHS of the equivalence
+
+**Epistemic rationale**: an equivalence is a *bidirectional* implication, and `simp` uses it left-to-right as a rewrite rule. The LHS represents the "input pattern" (what you have); the RHS represents the "canonical form" (what you obtain). The displacement $D_{pi}$ encodes the semantic distance between two equivalent representations — a meaningful signal.
+
+#### Rule S2b — Equality as rewrite (heuristic)
+
+Many HOL lemmas use `=` for equational rewriting:
+```isabelle
+lemma ball_insert: "(∀x∈insert a B. P x) = (P a ∧ (∀x∈B. P x))"
+  → problem = "(∀x∈insert a B. P x)", interpretation = "(P a ∧ (∀x∈B. P x))"
+```
+Top-level `=` is treated as a rewrite split **only when both sides are complex expressions** — i.e., contain spaces, operators, quantifiers, or symbolic characters (`∀`, `∃`, `∧`, `∨`, `∈`, `(`, etc.). Simple variable bindings like `"n = card S"` (where `n` is a plain name) fall through to Rule S4 instead.
+
+This prevents over-splitting definitional assignments while correctly capturing equational rewrites.
+
+#### Rule S4 — Truly unconditional: fixed point
+
+If none of the above rules find a structural split, the statement is **genuinely unconditional** — it asserts something directly without any antecedent:
+```isabelle
+lemma dist_comm: "dist x y = dist y x"  -- (both sides simple? no: both complex → Rule S2b)
+lemma foo: "x = y"                      -- (both sides simple → Rule S4)
+  → problem = "x = y", interpretation = "x = y"   -- fixed point
+```
+- `problem = interpretation = conclusion`
+- **Geometric meaning**: the displacement $D_{pi} = \mathbf{0}$. The lemma is a **fixed point** in embedding space — its truth is self-contained, requiring no external premises. Unconditional HOL lemmas cluster by *what they assert*, not by any directional journey.
+
+---
+
+### 3.2 Proof Parsing: Method and Finding
+
+#### Segment Classification
+
+Each proof segment (as reported by `Ir.source_map`) is classified by its Isabelle keyword:
+
+| Aspect | Keyword set |
+|--------|-------------|
+| `method` (skeleton) | `proof`, `qed`, `have`, `show`, `also`, `finally`, `next`, `case`, `assume`, `fix`, `obtain`, `define`, `let`, `presume`, `suppose` |
+| `finding` (tactics) | `apply`, `by`, `using`, `unfolding`, `from`, `with`, `then`, `hence`, `thus`, `note`, `done`, `sorry`, `oops` |
+
+When `Ir.source_map` segments are not directly available (e.g., ingesting from static metadata), a fallback classifier splits `proof_text` line-by-line by keyword membership.
+
+#### Simplex Collapse Rules for Method and Finding
+
+After segment classification, three collapse rules ensure every aspect is always non-empty, and that the resulting geometry is **semantically meaningful** rather than a null-vector artefact:
+
+**Rule M1 — Tactic-only proof** (`method` empty, `finding` present):
+```isabelle
+lemma foo: "A ⟹ B" by simp
+  → method = finding = "by simp"
+```
+The proof has no declarative structure — it is a single operational step. Setting `method = finding` collapses the M–F edge of the tetrahedron: the proof's *strategy* and its *execution* are indistinguishable.
+
+**Rule M2 — Skeleton-only proof** (`finding` empty, `method` present):
+```isabelle
+lemma foo: "A ⟹ B"
+proof
+  show "B" using assms done
+qed
+  → finding = method = "proof\nshow B\nqed"
+```
+The proof has full Isar declarative structure but no separate tactic step. Setting `finding = method` applies the same M–F collapse from the other direction.
+
+**Rule M3 — No proof content** (both empty — `sorry`, `oops`, opaque, or axiomatic):
+```isabelle
+lemma foo: "A ⟹ B" sorry
+  → method = finding = interpretation
+```
+`sorry` and `oops` carry no structural information — they are epistemic voids. The proof content is collapsed to the conclusion (`interpretation`), preserving the lemma's semantic location in embedding space without introducing spurious signal. When this is combined with Rule S4 (unconditional, so `problem = interpretation` too), all four aspects coincide: a **0-simplex** (see Section 3.3).
+
+---
+
+### 3.3 The 3-Simplex Degeneracy Model
+
+The four aspects form the vertices of a tetrahedron in embedding space. When two aspects share the same text, their embeddings coincide, **reducing the simplex dimension**. This degeneracy is intentional and encodes the proof's structural type:
+
+```
+Full 3-simplex (tetrahedron):
+     P ───── I
+    / \     / \
+   M ─── F
+  All four vertices distinct.
+  → Rich Isar proof: premises, intermediate steps,
+    tactics, and conclusion are all semantically different.
+
+2-simplex (triangle, M=F edge collapsed):
+     P ───── I
+      \     /
+       M = F
+  Method and finding coincide.
+  → Tactic-only or skeleton-only proof.
+
+1-simplex (line, P=I and M=F):
+  P = I ────── M = F
+  Two pairs of vertices coincide.
+  → Unconditional lemma proved by a single tactic.
+    e.g. "dist x y = dist y x" by simp
+
+0-simplex (point, all coincide):
+  P = M = F = I
+  All four vertices at the same location.
+  → Axiomatic or truly trivial unconditional lemma
+    with no proof content.
+```
+
+**Validated distribution over 4706 HOL-Analysis lemmas:**
+
+| Simplex dimension | Count | % | Proof type |
+|---|---|---|---|
+| **3-simplex** (tetrahedron) | 1486 | 31.6% | Full structured Isar proofs |
+| **2-simplex** (triangle) | 2625 | 55.8% | Tactic-only or skeleton-only |
+| **1-simplex** (line) | 595 | 12.6% | Unconditional + proof content |
+| **0-simplex** (point) | 0 | 0.0% | Axiomatic (none in HOL-Analysis) |
+
+The **simplex volume** thus becomes a direct measure of proof structural richness. A large tetrahedron indicates a proof where premises, intermediate reasoning, tactic execution, and conclusion all occupy semantically distant regions — a genuine epistemic journey. A collapsed point indicates a self-evident or axiomatic truth whose location in embedding space is fully determined by its content alone.
+
+### Summary: Aspect Extraction for Each Proof Type
+
+| Proof type | problem (P) | method (M) | finding (F) | interpretation (I) |
+|---|---|---|---|---|
+| Conditional Isar+tactics | premises | skeleton | tactics | conclusion |
+| Conditional, tactic-only | premises | = tactics (M1) | tactics | conclusion |
+| Conditional, skeleton-only | premises | skeleton | = skeleton (M2) | conclusion |
+| Conditional, no proof | premises | = conclusion (M3) | = conclusion (M3) | conclusion |
+| Equivalence `A ⟷ B` | LHS (S2a) | … | … | RHS |
+| Equality rewrite (complex=) | LHS (S2b) | … | … | RHS |
+| Unconditional (fixed point) | = conclusion (S4) | … | … | conclusion |
+| Axiomatic unconditional | = conclusion | = conclusion | = conclusion | conclusion |
+
+---
+
+### 3.4 Aspect Deduplication Optimization
+
+Because the statement parsing rules (S-rules) and proof collapse rules (M-rules) frequently cause multiple aspects of a lemma (or across different lemmas in the database) to contain identical text values (e.g. `P=I` for unconditional, `M=F` for tactic-only, or `M=F=I` for no-proof), a **global deduplication optimization** is implemented in the embedding stage (`run_embedding_stage`):
+
+1. **Extraction**: Before calling the embedding API, all target text aspects across all rows and fields are collected into a set of unique non-empty strings.
+2. **Batching**: Only the unique set of strings is sent to the embedding provider (whether using the batch or sequential API).
+3. **Mapping**: On completion, the generated embedding vectors are mapped back to their respective cells in the DataFrame.
+
+**Efficiency Gain**:
+* **3-simplex (tetrahedron)**: Typically 4 API calls per lemma (or fewer if the tactics or statement segments are shared globally).
+* **2-simplex (triangle)**: Max 3 API calls per lemma (since $M=F$).
+* **1-simplex (line)**: Max 2 API calls per lemma (since $P=I$ and $M=F$).
+* **0-simplex (point)**: Exactly **1 API call** per lemma (since $P=M=F=I$).
+
+For the full AFP index, this reduces the total API call volume and costs by **35% to 50%**, while speeding up embedding generation proportionally.
+
+---
+
+### 3.5 Aspect Length & Embedding Stability
+
+Empirical evaluation of the aspect token lengths across HOL theories yields the following average distributions after resolving ingestion parser issues:
+* **`problem` (premises)**: ~7.12 tokens
+* **`interpretation` (conclusion)**: ~9.59 tokens
+* **`method` (skeleton)**: ~42.96 tokens
+* **`finding` (tactics)**: ~24.20 tokens
+
+Since premises (`problem`) and conclusions (`interpretation`) are typically short (often under 10 tokens), a critical design concern is whether they possess enough semantic entropy to produce stable, unique embeddings. 
+
+This is resolved by the combination of logical structure and the **metadata-anchoring prefix strategy**:
+1. **Semantic Density of Logic**: Unlike natural language, formal logic expressions have high entropy per token. A 3-token phrase in natural language is often noise, whereas in Isabelle, `xs ≠ []` (3 tokens) or `finite A` (2 tokens) represent precise, distinct mathematical constraints.
+2. **Context Anchoring via Prefixes**: By prefixing the metadata-anchored header (e.g. `Theory: HOL.List | Lemma: append_assoc | Premises:\n[text]`), the total input length increases to **17–25 tokens**. This provides a strong local reference point, grouping similar mathematical expressions inside their respective theory's vector subspace and preventing global vector collapse of simple statements (e.g. `x = y`).
+3. **Optimized Target Range**: 17–25 tokens is the empirical "sweet spot" for modern dense retrievers (such as `voyage-code-3`), ensuring stable cosine similarity rankings without diluting the precise terms of the logical statements.
 
 ---
 
@@ -175,11 +344,11 @@ This is the **implication vector** of the theorem — a geometric object represe
 * Two lemmas with the same conclusion but different premises: identical $\mathbf{emb}_{I}$, different $\mathbf{D}_{pi}$ directions — also correctly distinguishable.
 * A single full-statement embedding would conflate both cases.
 
-For **unconditional lemmas** (no premises, $\mathbf{emb}_{P} = \mathbf{0}$):
+For **unconditional lemmas** (no premises, Rule S4: $\mathbf{emb}_{P} = \mathbf{emb}_{I}$):
 
-$$\mathbf{D}_{pi} = \mathbf{emb}_{\text{conclusion}}$$
+$$\mathbf{D}_{pi} = \mathbf{emb}_{I} - \mathbf{emb}_{P} = \mathbf{0}$$
 
-The result holds without any epistemic precondition. The magnitude measures how "peripheral" or "specific" the conclusion is relative to the centroid of the embedding space.
+The displacement is the zero vector: the lemma is a **fixed point** — its truth is self-contained, requiring no external preconditions. The epistemic content is fully captured by the location of $\mathbf{emb}_{I}$ in concept space, not by any directional journey.
 
 ### Operator Semantics
 
@@ -237,12 +406,31 @@ where $C$ ranges over all candidate results retrieved in the search.
 
 ## 7. Extraction Summary
 
-| Aspect | Source | REPL Required? |
-|:-------|:-------|:---------------|
-| `problem` (Premises) | Parse `statement_text` for `⟹` antecedents or `assumes` clauses | No |
-| `method` (Skeleton) | `Ir.source_map` segments with keywords: `have`, `show`, `also`, `case`, `fix`, `obtain`, `proof`, `qed`, etc. | Yes (source map) |
-| `finding` (Tactics) | `Ir.source_map` segments with keywords: `apply`, `by`, `using`, `unfolding`, `from`, `then`, `hence`, etc. | Yes (source map) |
-| `interpretation` (Conclusion) | Parse `statement_text` for last `⟹` consequent or `shows` clause | No |
+| Aspect | Parsing rules applied | REPL required? |
+|:-------|:----------------------|:---------------|
+| `problem` | Rules S1→S1b→S1c→S2a→S2b→S4 on `statement_text` | No |
+| `method` | `Ir.source_map` skeleton keywords; collapse rules M1/M2/M3 | Yes (source map) |
+| `finding` | `Ir.source_map` tactic keywords; collapse rules M1/M2/M3 | Yes (source map) |
+| `interpretation` | Same cascade as `problem` — last consequent of the split | No |
+
+**Statement parsing rules (S-rules)** — applied in cascade order:
+
+| Rule | Trigger | `problem` | `interpretation` |
+|------|---------|-----------|------------------|
+| S1 | `obtains … where …` | `assumes` clauses | `where` clauses |
+| S1b | `assumes … shows …` | `assumes` clauses (+ inner `⟹`) | `shows` content |
+| S1c | Top-level `⟹` / `==>` in quotes | All antecedents | Last consequent |
+| S2a | Top-level `⟷` / `<->` / `≡` | LHS | RHS |
+| S2b | Top-level `=` with **both sides complex** | LHS | RHS |
+| S4 | None of the above | = conclusion (fixed point) | Conclusion |
+
+**Proof collapse rules (M-rules)** — applied after segment extraction:
+
+| Rule | Condition | Effect | Simplex |
+|------|-----------|--------|---------|
+| M1 | Tactics present, skeleton empty | `method = finding` | 2-simplex (M=F) |
+| M2 | Skeleton present, tactics empty | `finding = method` | 2-simplex (M=F) |
+| M3 | Both empty (sorry/opaque/axiomatic) | `method = finding = interpretation` | ≤1-simplex |
 
 **Metadata (stored but not embedded)**:
 * `statement_text` — full verbatim proposition for display in search results
@@ -260,7 +448,7 @@ The I/L server exposes six tools and one prompt to the agent. With Phase 2, the 
 | `search_lemmas` | `query` (str)<br>`aspect` (str)<br>`theory_filter` (str)<br>`max_results` (int)<br>`sort_by_significance` (bool)<br>`min_dependents` (int) | Lemma Space by aspect (`premises`, `skeleton`, `tactics`, `conclusion`, `all`). | **1 API call** (query embedding).<br>Cosine similarity: $O(N \cdot D)$ matrix multiply.<br>Re-ranking: $O(R)$ for $R$ hits (<1ms).<br>Sorting: $O(N \log N)$ (typically <5ms via NumPy). | Shared memory footprint: ~2.45 GB for full AFP index (150K lemmas at $D=1024$). |
 | `search_definitions` | `query` (str)<br>`theory_filter` (str)<br>`max_results` (int)<br>`sort_by_significance` (bool)<br>`min_dependents` (int) | Definition Space (semantic match on statement). | **1 API call** (query embedding).<br>Cosine similarity search on definition vectors. | Lightweight: ~300 MB for definitions index. |
 | `related_lemmas` | `lemma_name` (str)<br>`max_results` (int) | Lemma Space (queries statement index using reference vector). | **0 API calls** (retrieves cached vector).<br>Cosine similarity search.<br>Zero token cost and extremely fast. | Shared memory footprint. |
-| `store_lemma` | `name` (str)<br>`statement` (str)<br>`proof_text` (str)<br>`theory` (str)<br>`dependencies` (list) | Appends to live Lemma Space. | **4 API calls** (one embedding per aspect).<br>Aspect extraction: $O(\text{len}(\text{proof}))$.<br>Append: $O(1)$ operations. | Inserts one dictionary and 4 vectors ($4 \times 1024 \times 4$ bytes $\approx 16$ KB per lemma). |
+| `store_lemma` | `name` (str)<br>`statement` (str)<br>`proof_text` (str)<br>`theory` (str)<br>`dependencies` (list) | Appends to live Lemma Space. | **1 to 4 API calls** (due to deduplication optimization).<br>Aspect extraction: $O(\text{len}(\text{proof}))$.<br>Append: $O(1)$ operations. | Inserts one dictionary and 4 vectors ($4 \times 1024 \times 4$ bytes $\approx 16$ KB per lemma). |
 | `store_definition` | `name` (str)<br>`statement` (str)<br>`theory` (str)<br>`dependents` (list) | Appends to live Definition Space. | **1 API call** (definition statement embedding).<br>Append: $O(1)$ operations. | Inserts one dictionary and 1 vector (~4 KB). |
 | `session_lemmas` | *None* | Lists all session lemmas and definitions. | $O(L)$ where $L$ is number of stored session items. | Negligible. |
 | `persist_session_lemmas` | *None* | Saves live lemmas/definitions to static files on disk. | **0 API calls**.<br>Merges metadata list and vertically stacks NumPy embedding arrays. | Empties in-memory session index. Saves parquet/npz to disk. |
@@ -268,6 +456,46 @@ The I/L server exposes six tools and one prompt to the agent. With Phase 2, the 
 ### How the Agent Leverages Landscape Height
 * **Filtering Noise (`min_dependents`)**: Proof exploration often gets cluttered with hundreds of obscure, single-use helper lemmas. By setting `min_dependents = 2` (or higher), the agent can prune these from the search results, retrieving only lemmas that serve as dependencies for other proofs.
 * **Significance Prioritization (`sort_by_significance`)**: When seeking a general tool or high-level theorem to close a proof step, the agent can set `sort_by_significance = True`. This elevates widely used, foundational theorems (which have large transitive reachability counts) even if their raw cosine similarity is slightly lower than a highly specific, narrow helper lemma.
+
+### MCP Tool Markdown Return Formats
+
+Rather than returning raw JSON structures, the search and retrieval tools return structured Markdown text blocks. This optimizes the format for direct ingestion by Large Language Models (e.g. Claude Code) while conserving input tokens:
+
+#### 1. Lemma Search Results (`search_lemmas`, `related_lemmas`, `session_lemmas`)
+For each hit, the server returns the following markdown structure:
+```markdown
+### [index]. `[Lemma_Name]` (Score: [cosine_similarity])
+- **Premises**: `[problem_text]`
+- **Conclusion**: `[interpretation_text]`
+- **Skeleton**:
+\`\`\`isabelle
+[skeleton_proof_commands]
+\`\`\`
+- **Tactics**:
+\`\`\`isabelle
+[operational_tactics]
+\`\`\`
+- **Proof**:
+\`\`\`isabelle
+[verbatim_proof_source_code]
+\`\`\`
+- **Location**: [theory_name] ([file_path]:[line_number])
+- **Cited Dependencies**: `[list_of_cited_lemmas]`
+- **Landscape Dependents Count**: `[transitive_dependents_count]`
+```
+
+#### 2. Definition Search Results (`search_definitions`)
+Returns definitions in a simplified format appropriate for equational structures:
+```markdown
+### [index]. `[Definition_Name]` (Score: [cosine_similarity])
+- **Statement**: `[verbatim_definition_equation]`
+- **Location**: [theory_name] ([file_path]:[line_number])
+- **Used in Lemmas**: `[comma_separated_lemma_citations]`
+- **Landscape Dependents Count**: `[transitive_dependents_count]`
+```
+
+#### 3. Mutation Operations (`store_lemma`, `store_definition`, `persist_session_lemmas`)
+Return plain-text status sentences describing success or failure (e.g., `Successfully stored lemma "HOL-Library.Multiset.union_commute".`).
 
 ### Exposed MCP Prompt
 * `il_proof_strategy`: Explains the I/L (Isabelle/Landscape) structure, how to run discourse transitions (cross-space queries), how to query definitions semantically, how to utilize definition dependents to find usage examples, and how to use significance re-ranking parameters.

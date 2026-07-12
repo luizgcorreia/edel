@@ -61,6 +61,8 @@ def format_search_results(hits: list[dict]) -> str:
             lines.append(f"- **Skeleton**:\n```isabelle\n{meta['method']}\n```")
         if meta.get("finding"):
             lines.append(f"- **Tactics**:\n```isabelle\n{meta['finding']}\n```")
+        if meta.get("proof_text"):
+            lines.append(f"- **Proof**:\n```isabelle\n{meta['proof_text']}\n```")
         
         # Source location
         location = f"{meta.get('theory', '')}"
@@ -228,7 +230,7 @@ async def store_lemma(
     cited_deps: list[str] = [],
 ) -> str:
     """Parse and embed a new lemma, adding it to the runtime session index."""
-    from edel.il.aspects import extract_aspects
+    from edel.il.aspects import extract_aspects, format_aspect_with_metadata
     
     lemma_dict = {
         "statement_text": f'lemma {name}: "{statement}"',
@@ -248,10 +250,16 @@ async def store_lemma(
     client = get_embedding_client()
     embeddings_dict = {}
     
-    # Embed aspects
-    for aspect_name, text in aspect_text_dict.items():
-        if text.strip() and text != "none":
-            embeddings_dict[aspect_name] = client.generate_embedding(text)
+    # Embed aspects using collapse-aware metadata prefixing
+    for aspect_name in ["problem", "method", "finding", "interpretation"]:
+        formatted = format_aspect_with_metadata(
+            theory=theory,
+            lemma_title=name,
+            aspect=aspect_name,
+            aspect_text_dict=aspect_text_dict
+        )
+        if formatted:
+            embeddings_dict[aspect_name] = client.generate_embedding(formatted)
             
     # Set default zero embeddings for any empty aspects
     valid_emb = next((v for v in embeddings_dict.values() if v), None)
@@ -299,14 +307,13 @@ async def store_definition(
 @mcp.tool(description="Permanently persist all dynamically stored session lemmas and definitions to the on-disk static index.")
 async def persist_session_lemmas() -> str:
     """Merge the in-memory session index into the on-disk index."""
-    num_lemmas = len(index.live_metadata)
-    num_defs = len(index.live_definition_metadata)
-    if num_lemmas == 0 and num_defs == 0:
+    num_items = len(index.live_metadata)
+    if num_items == 0:
         return "No new session items to persist."
         
     try:
         index.persist_live_lemmas(INDEX_DIR)
-        return f"Successfully persisted {num_lemmas} session lemmas and {num_defs} session definitions to the static index at '{INDEX_DIR}'."
+        return f"Successfully persisted {num_items} session items to the static index at '{INDEX_DIR}'."
     except Exception as e:
         return f"Failed to persist session items: {str(e)}"
 
@@ -315,20 +322,28 @@ async def persist_session_lemmas() -> str:
 async def session_lemmas() -> str:
     """Return all session lemmas and definitions."""
     lines = []
-    if index.live_metadata:
+    DEF_KEYWORDS = {
+        "definition", "fun", "primrec", "function", "datatype", "type_synonym",
+        "inductive", "coinductive", "record", "abbreviation"
+    }
+    
+    live_lemmas = [m for m in index.live_metadata if m.get("keyword") not in DEF_KEYWORDS]
+    live_defs = [m for m in index.live_metadata if m.get("keyword") in DEF_KEYWORDS]
+    
+    if live_lemmas:
         lines.append("### Session Lemmas")
         lines.append("")
-        for i, meta in enumerate(index.live_metadata):
+        for i, meta in enumerate(live_lemmas):
             lines.append(f"{i+1}. `{meta['title']}`")
             if meta.get("problem") and meta["problem"] != "none":
                 lines.append(f"   - **Premises**: `{meta['problem']}`")
             lines.append(f"   - **Conclusion**: `{meta['interpretation']}`")
             lines.append("")
             
-    if index.live_definition_metadata:
+    if live_defs:
         lines.append("### Session Definitions")
         lines.append("")
-        for i, meta in enumerate(index.live_definition_metadata):
+        for i, meta in enumerate(live_defs):
             lines.append(f"{i+1}. `{meta['title']}`")
             lines.append(f"   - **Statement**: `{meta['problem']}`")
             lines.append("")

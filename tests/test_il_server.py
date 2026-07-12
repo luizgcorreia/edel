@@ -33,9 +33,6 @@ def mock_index_and_client(monkeypatch):
     idx.embeddings["method"] = np.array([[1.0, 0.0]], dtype=np.float32)
     idx.embeddings["finding"] = np.array([[1.0, 0.0]], dtype=np.float32)
     idx.embeddings["interpretation"] = np.array([[1.0, 0.0]], dtype=np.float32)
-
-    idx.definition_metadata = []
-    idx.definition_embeddings = None
     
     # Clean live index
     idx.live_metadata = []
@@ -45,8 +42,6 @@ def mock_index_and_client(monkeypatch):
         "finding": [],
         "interpretation": [],
     }
-    idx.live_definition_metadata = []
-    idx.live_definition_embeddings = []
     return idx, mock_client
 
 
@@ -61,17 +56,17 @@ async def test_search_lemmas(mock_index_and_client):
 @pytest.mark.anyio
 async def test_search_definitions(mock_index_and_client):
     idx, _ = mock_index_and_client
-    idx.definition_metadata = [{
+    idx.metadata.append({
         "title": "HOL.List.my_def",
         "problem": "my_def x = x + 1",
-        "method": "",
-        "finding": "",
-        "interpretation": "",
+        "method": "my_def x = x + 1",
+        "finding": "my_def x = x + 1",
+        "interpretation": "my_def x = x + 1",
         "theory": "HOL.List",
         "keyword": "definition",
         "dependents": "none"
-    }]
-    idx.definition_embeddings = np.array([[1.0, 0.0]], dtype=np.float32)
+    })
+    idx.embeddings["problem"] = np.array([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
     
     res = await il_server.search_definitions(query="my_def")
     assert "HOL.List.my_def" in res
@@ -152,13 +147,13 @@ async def test_persist_session_lemmas(mock_index_and_client, tmp_path, monkeypat
     
     # 3. Persist and check success
     res_persist = await il_server.persist_session_lemmas()
-    assert "Successfully persisted 1 session lemmas and 1 session definitions" in res_persist
+    assert "Successfully persisted 2 session items to the static index" in res_persist
     
     # Verify index files were created in temp dir
     assert (tmp_path / "rag_index_persisted" / "metadata.parquet").exists()
     assert (tmp_path / "rag_index_persisted" / "embeddings.npz").exists()
-    assert (tmp_path / "rag_index_persisted" / "definitions_metadata.parquet").exists()
-    assert (tmp_path / "rag_index_persisted" / "definitions_embeddings.npz").exists()
+    assert not (tmp_path / "rag_index_persisted" / "definitions_metadata.parquet").exists()
+    assert not (tmp_path / "rag_index_persisted" / "definitions_embeddings.npz").exists()
 
 
 @pytest.mark.anyio

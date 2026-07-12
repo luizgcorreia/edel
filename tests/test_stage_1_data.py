@@ -327,24 +327,26 @@ def test_afp_rag_provider(tmp_path):
             "problem": "lemma_a statement",
             "method": "lemma_a context",
             "finding": "lemma_a strategy",
-            "interpretation": "lemma_b", # lemma_a references lemma_b
+            "interpretation": "none",
             "theory": "Session1.Theory1",
             "file": "Theory1.thy",
             "line": 10,
             "proof_text": "by simp",
-            "statement_text": "lemma lemma_a"
+            "statement_text": "lemma lemma_a",
+            "cited_deps": "Session1.Theory1.lemma_b"
         },
         {
             "title": "Session1.Theory1.lemma_b",
             "problem": "lemma_b statement",
             "method": "lemma_b context",
             "finding": "lemma_b strategy",
-            "interpretation": "lemma_c", # lemma_b references lemma_c
+            "interpretation": "none",
             "theory": "Session1.Theory1",
             "file": "Theory1.thy",
             "line": 20,
             "proof_text": "by simp",
-            "statement_text": "lemma lemma_b"
+            "statement_text": "lemma lemma_b",
+            "cited_deps": "Session2.Theory2.lemma_c"
         },
         {
             "title": "Session2.Theory2.lemma_c",
@@ -356,7 +358,8 @@ def test_afp_rag_provider(tmp_path):
             "file": "Theory2.thy",
             "line": 30,
             "proof_text": "by simp",
-            "statement_text": "lemma lemma_c"
+            "statement_text": "lemma lemma_c",
+            "cited_deps": "none"
         }
     ]
     # Set dummy embeddings (dim=1536)
@@ -389,8 +392,9 @@ def test_afp_rag_provider(tmp_path):
     # Check citation counts (cited_by_count)
     # lemma_a is cited 0 times
     # lemma_b is cited 1 time (by lemma_a)
-    # lemma_c is cited 1 time (by lemma_b)
+    # lemma_c is cited 2 times (by lemma_b and transitively by lemma_a)
     citation_dict = dict(zip(df["title"], df["cited_by_count"]))
     assert citation_dict["Session1.Theory1.lemma_a"] == 0
     assert citation_dict["Session1.Theory1.lemma_b"] == 1
-    assert citation_dict["Session2.Theory2.lemma_c"] == 1
+    assert citation_dict["Session2.Theory2.lemma_c"] == 2
+

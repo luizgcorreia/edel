@@ -86,6 +86,7 @@ Depending on your goals, you can build the index for a specific session/theory (
    python AutoCorrode/ir/repl.py \
      --isabelle /path/to/Isabelle2025-2/bin/isabelle \
      --session HOL-Library \
+     --dir /path/to/edel/external/afp-2025-2/thys \
      --mcp
    ```
    *Take note of the TCP authentication token printed on startup (e.g. `IR_Repl.token: abc123xyz`).*

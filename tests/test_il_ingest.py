@@ -54,9 +54,10 @@ def test_ingest_session_lemmas(monkeypatch):
     # Check definition
     df_def = df[df["title"].str.contains("my_definition")]
     assert len(df_def) == 1
-    # finding is empty, but interpretation is statement body
-    assert df_def["finding"].iloc[0] == ""
-    assert df_def["interpretation"].iloc[0] == "my_definition x = x"
+    # Treated as 0-simplex, all aspects are equal to the definition statement
+    stmt = 'definition my_definition where "my_definition x = x"'
+    assert df_def["finding"].iloc[0] == stmt
+    assert df_def["interpretation"].iloc[0] == stmt
     # dependents holds dependents for definitions
     assert "MockSession.TestTheory.test_lemma" in df_def["dependents"].iloc[0]
     assert df_def["publication_year"].iloc[0] == 2024
@@ -64,12 +65,12 @@ def test_ingest_session_lemmas(monkeypatch):
     # Check lemma
     df_lemma = df[df["title"].str.contains("test_lemma")]
     assert len(df_lemma) == 1
-    # problem is premises (none for unconditional)
-    assert df_lemma["problem"].iloc[0] == "none"
+    # no split -> falls back to statement
+    assert df_lemma["problem"].iloc[0] == "my_definition A = A"
     # interpretation is conclusion
     assert df_lemma["interpretation"].iloc[0] == "my_definition A = A"
-    # method is skeleton (empty for simple proof)
-    assert df_lemma["method"].iloc[0] == ""
+    # method is skeleton (tactic-only proof collapses to tactics)
+    assert "by (simp add: my_definition_def)" in df_lemma["method"].iloc[0]
     # finding is tactics
     assert "by (simp add: my_definition_def)" in df_lemma["finding"].iloc[0]
     assert df_lemma["theory"].iloc[0] == "MockSession.TestTheory"

@@ -177,3 +177,43 @@ def test_df_to_dash_records():
     records = df_to_dash_records(df, max_rows=1)
     assert len(records) == 1
     assert records[0] == {"a": 1, "b": 2}
+
+
+def test_dashboard_table_helpers():
+    """Test the split_filter_part and parse_filter_query helpers used for the dynamic DataTable."""
+    from edel.dashboard.callbacks.experiments import split_filter_part, parse_filter_query
+    
+    # 1. Test split_filter_part
+    assert split_filter_part('{title} contains "HOL"') == ['{title}', '"HOL"', 'contains']
+    assert split_filter_part('{age} ge 18') == ['{age}', '18', '>=']
+    assert split_filter_part('{name} eq "John"') == ['{name}', '"John"', '==']
+    assert split_filter_part('{status} ne "failed"') == ['{status}', '"failed"', '!=']
+    
+    # 2. Test parse_filter_query
+    df = pd.DataFrame([
+        {"title": "HOL-Analysis.Connected", "age": 20, "name": "John"},
+        {"title": "HOL-Analysis.Compact", "age": 15, "name": "Jane"},
+        {"title": "Interval_Analysis.Interval", "age": 30, "name": "Bob"}
+    ])
+    
+    # Filter: title contains "analysis" (case-insensitive)
+    filtered = parse_filter_query('{title} contains "analysis"', df)
+    assert len(filtered) == 3
+    
+    # Filter: title contains "HOL"
+    filtered = parse_filter_query('{title} contains "HOL"', df)
+    assert len(filtered) == 2
+    
+    # Filter: age >= 18
+    filtered = parse_filter_query('{age} ge 18', df)
+    assert len(filtered) == 2
+    
+    # Filter: name eq "Jane"
+    filtered = parse_filter_query('{name} eq "Jane"', df)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]["name"] == "Jane"
+    
+    # Complex Filter: title contains "HOL" && age lt 18
+    filtered = parse_filter_query('{title} contains "HOL" && {age} lt 18', df)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]["name"] == "Jane"

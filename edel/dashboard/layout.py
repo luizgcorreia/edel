@@ -14,6 +14,7 @@ from edel.dashboard.components import (
     convergence_panel_layout,
     report_generator_panel_layout,
     robustness_panel_layout,
+    paper_figures_panel_layout,
 )
 
 def create_layout() -> html.Div:
@@ -49,7 +50,8 @@ def create_layout() -> html.Div:
                 dbc.Tab(convergence_panel_layout(), label="8. Convergence Analysis", tab_id="tab-convergence"),
                 dbc.Tab(report_generator_panel_layout(), label="9. Report Generator", tab_id="tab-report"),
                 dbc.Tab(robustness_panel_layout(), label="10. Robustness Tests", tab_id="tab-robustness"),
-            ], id="main-tabs", active_tab="tab-metrics"),
+                dbc.Tab(paper_figures_panel_layout(), label="11. Paper Figures", tab_id="tab-paper-figures"),
+            ], id="main-tabs", active_tab="tab-paper-figures"),
         ], fluid=True, className="px-4"),
         
         # Hidden div to pass base_path to callbacks if needed

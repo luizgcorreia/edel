@@ -407,7 +407,7 @@ def _build_trajectory_simplex_plot_3d(
                 eye=dict(x=1.8, y=1.8, z=1.2)
             )
         ),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
     )
     return fig
 

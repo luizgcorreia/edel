@@ -78,3 +78,51 @@ def test_ingest_session_lemmas(monkeypatch):
     assert df_lemma["publication_year"].iloc[0] == 2024
 
 
+def test_ephemeral_repl_client_robustness(monkeypatch):
+    import socket
+    
+    # Non-ASCII and potentially split UTF-8 strings
+    # We will simulate a split UTF-8 character (e.g. "α" which in UTF-8 is b'\xce\xb1')
+    # and some invalid UTF-8 bytes (e.g. b'\xff')
+    payload_part1 = b"Response with split alpha \xce"
+    payload_part2 = b"\xb1 and invalid byte \xff <<DONE>>"
+    
+    class MockSocket:
+        def __init__(self, *args, **kwargs):
+            self.connected = False
+            self.sent_data = []
+            self.recv_index = 0
+            
+        def connect(self, addr):
+            self.connected = True
+            
+        def sendall(self, data):
+            self.sent_data.append(data)
+            
+        def recv(self, limit):
+            # Handshake first
+            if self.recv_index == 0:
+                self.recv_index += 1
+                return b"OK"
+            elif self.recv_index == 1:
+                self.recv_index += 1
+                return payload_part1
+            elif self.recv_index == 2:
+                self.recv_index += 1
+                return payload_part2
+            return b""
+            
+        def close(self):
+            pass
+            
+    monkeypatch.setattr(socket, "socket", lambda *a, **kw: MockSocket())
+    
+    client = ingest.EphemeralReplClient(token="test-token")
+    result = client.send("some command")
+    
+    # The split alpha should be reconstructed: "α" (Unicode U+03B1)
+    # The invalid byte \xff should be replaced with the replacement character "\ufffd"
+    assert "Response with split alpha α and invalid byte \ufffd" in result
+
+
+

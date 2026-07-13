@@ -34,7 +34,8 @@ class EphemeralReplClient:
             sock.connect((self.host, self.port))
             # Handshake / Auth
             sock.sendall(f"{self.token}\n".encode())
-            resp = sock.recv(1024).decode()
+            resp_bytes = sock.recv(1024)
+            resp = resp_bytes.decode("utf-8", errors="replace")
             if not resp.startswith("OK"):
                 raise RuntimeError(f"Authentication failed: {resp}")
                 
@@ -44,14 +45,24 @@ class EphemeralReplClient:
             
             # Read response
             chunks = []
+            sentinel_bytes = SENTINEL.encode()
             while True:
-                chunk = sock.recv(4096).decode()
+                chunk = sock.recv(4096)
                 if not chunk:
                     break
                 chunks.append(chunk)
-                if SENTINEL in chunk:
+                
+                # Check for sentinel in the last accumulated bytes to handle boundary splitting
+                if len(chunks) >= 2:
+                    last_bytes = b"".join(chunks[-2:])
+                else:
+                    last_bytes = chunk
+                    
+                if sentinel_bytes in last_bytes:
                     break
-            text = "".join(chunks)
+                    
+            raw_bytes = b"".join(chunks)
+            text = raw_bytes.decode("utf-8", errors="replace")
             if SENTINEL in text:
                 raw = text[:text.index(SENTINEL)].strip()
                 # Strip control characters

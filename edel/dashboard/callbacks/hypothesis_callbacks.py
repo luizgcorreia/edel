@@ -25,8 +25,14 @@ def _load_features(exp_id: str, base_path: Path) -> dict | None:
         logger.warning(f"Error loading features for '{exp_id}': {e}")
         return None
 
+_MORAN_CACHE: dict[tuple[str, str], dict] = {}
+
 def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path: Path) -> dict | None:
     """Retrieve h3_moran features if cached, otherwise compute them on the fly."""
+    cache_key = (exp_id, str(base_path))
+    if cache_key in _MORAN_CACHE:
+        return _MORAN_CACHE[cache_key]
+        
     if feat and "h3_moran" in feat and "h3_gain_pvalue" in feat["h3_moran"]:
         # Convert all to numpy arrays if they are lists (from json/pickle loading)
         out = {}
@@ -35,33 +41,52 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
                 out[k] = np.array(v)
             else:
                 out[k] = v
+        _MORAN_CACHE[cache_key] = out
         return out
         
     # On-the-fly computation fallback
     try:
         from edel.experiments.runner import load_registry
-        from edel.io.artifact import load_artifact
+        from edel.io.artifact import load_artifact, make_stage_artifact
+        from edel.experiments.registry import get_experiment
         from sklearn.cluster import KMeans
         from sklearn.linear_model import Ridge
         from scipy.spatial.distance import cdist
         from edel.experiments.metrics.hypothesis_tests import load_embeddings_to_matrix, sk_normalize, compute_morans_i, compute_wasserstein
 
+        config = None
+        df = None
+        
         registry = load_registry(base_path)
         record = None
         for rec in registry:
             if rec["experiment_id"] == exp_id:
                 record = rec
                 break
-        if not record:
+                
+        if record:
+            config = record["config"]
+            df = load_artifact(record["artifact_refs"]["clustering"])
+        else:
+            try:
+                config = get_experiment(exp_id)
+                if config:
+                    try:
+                        art = make_stage_artifact(config, base_path, "clustering", "clustering")
+                        df = load_artifact(art)
+                    except Exception:
+                        art = make_stage_artifact(config, base_path, "dimensionality_reduction", "dr")
+                        df = load_artifact(art)
+            except Exception as e:
+                logger.warning(f"Could not load config or DR artifact for '{exp_id}': {e}")
+                
+        if config is None or df is None:
             return None
             
-        # Load clustering/embeddings DataFrame
-        df = load_artifact(record["artifact_refs"]["clustering"])
-        
-        dimensions = record["config"].get("embedding", {}).get("n_dimensions")
+        dimensions = config.get("embedding", {}).get("n_dimensions")
         if dimensions is None:
             from edel.pipeline.projection import detect_embedding_dimensions
-            dimensions = detect_embedding_dimensions(df, record["config"])
+            dimensions = detect_embedding_dimensions(df, config)
         
         # Norm and load matrices
         def load(aspect: str) -> np.ndarray:
@@ -201,7 +226,7 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
         shuf_gains = np.array(shuf_gains)
         h3_gain_pvalue = float((1 + np.sum(shuf_gains >= obs_gain)) / (B_h3 + 1))
 
-        return {
+        res = {
             "x_raw": x,
             "y_raw": y,
             "z_x": z_x,
@@ -212,7 +237,10 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
             "centroids_2d": centroids_2d,
             "moran_i": float(I_obs),
             "h3_gain_pvalue": h3_gain_pvalue,
+            "obs_gain": float(obs_gain),
         }
+        _MORAN_CACHE[cache_key] = res
+        return res
     except Exception as ex:
         logger.error(f"Failed to compute Moran features on the fly: {ex}", exc_info=True)
         return None

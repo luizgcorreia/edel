@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,6 +13,7 @@ import dash_bootstrap_components as dbc
 from edel.experiments.registry import get_experiment
 from edel.io.artifact import make_stage_artifact, load_artifact
 from edel.dashboard.callbacks.trajectory import _DF_CACHE, _load_dr_df
+from edel.analysis.trajectory import parse_embedding_vector
 from edel.dashboard.cache import get_results_df
 from edel.dashboard.callbacks.hypothesis_callbacks import (
     _load_features,
@@ -19,6 +21,91 @@ from edel.dashboard.callbacks.hypothesis_callbacks import (
 )
 
 logger = logging.getLogger(__name__)
+
+def _get_proj_cols(df: pd.DataFrame, aspect: str, method: str | None = None) -> tuple[str, str] | None:
+    """Resolve projection columns for a given aspect, trying method suffix first."""
+    if method:
+        col_x = f"proj_{aspect}_{method}_x"
+        col_y = f"proj_{aspect}_{method}_y"
+        if col_x in df.columns and col_y in df.columns:
+            return col_x, col_y
+            
+    col_x = f"proj_{aspect}_x"
+    col_y = f"proj_{aspect}_y"
+    if col_x in df.columns and col_y in df.columns:
+        return col_x, col_y
+        
+    # Search for matching projection columns pattern
+    prefix = f"proj_{aspect}_"
+    x_cols = [c for c in df.columns if c.startswith(prefix) and c.endswith("_x")]
+    if x_cols:
+        col_x = x_cols[0]
+        col_y = col_x[:-2] + "_y"
+        if col_y in df.columns:
+            return col_x, col_y
+            
+    return None
+
+
+def _build_intrinsic_simplex_coordinates(row: pd.Series, aspects: list[str]) -> tuple[np.ndarray, np.ndarray] | None:
+    """Embed one paper's four aspect vectors as a canonical 3D simplex.
+
+    Classical MDS exactly preserves the pairwise Euclidean distances of four
+    vectors in three dimensions.  The subsequent Gram--Schmidt orientation
+    makes the result stable for display: P is the origin, P→M is the first
+    axis, P/M/F span the first two axes, and I occupies positive axis three.
+    """
+    vectors = [parse_embedding_vector(row.get(f'{aspect}_embedding')) for aspect in aspects]
+    if any(vector is None for vector in vectors):
+        return None
+
+    matrix = np.vstack(vectors)
+    if matrix.ndim != 2 or not np.isfinite(matrix).all():
+        return None
+
+    distances = np.linalg.norm(matrix[:, None, :] - matrix[None, :, :], axis=2)
+    n_points = len(aspects)
+    centering = np.eye(n_points) - np.ones((n_points, n_points)) / n_points
+    gram = -0.5 * centering @ (distances ** 2) @ centering
+    eigenvalues, eigenvectors = np.linalg.eigh(gram)
+    order = np.argsort(eigenvalues)[::-1]
+    eigenvalues = np.clip(eigenvalues[order][:3], 0.0, None)
+    coordinates = eigenvectors[:, order][:, :3] * np.sqrt(eigenvalues)
+
+    # Canonical orientation, while retaining all distance information.
+    relative = coordinates - coordinates[0]
+    basis: list[np.ndarray] = []
+    tolerance = max(float(np.max(distances)), 1.0) * 1e-10
+    for vector in relative[1:]:
+        residual = vector.copy()
+        for axis in basis:
+            residual -= np.dot(residual, axis) * axis
+        norm = np.linalg.norm(residual)
+        if norm > tolerance:
+            basis.append(residual / norm)
+
+    oriented = np.zeros((n_points, 3))
+    for axis_index, axis in enumerate(basis):
+        oriented[:, axis_index] = relative @ axis
+
+    return oriented, distances
+
+
+def _inset_edge_segments(coordinates: np.ndarray, connections: list[tuple[int, int]], inset: float = 0.025) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    """Stop lines just inside vertices so 3D marker sprites remain unobscured."""
+    xs: list[float | None] = []
+    ys: list[float | None] = []
+    zs: list[float | None] = []
+    for start_index, end_index in connections:
+        start, end = coordinates[start_index], coordinates[end_index]
+        delta = end - start
+        line_start = start + inset * delta
+        line_end = end - inset * delta
+        xs.extend([line_start[0], line_end[0], None])
+        ys.extend([line_start[1], line_end[1], None])
+        zs.extend([line_start[2], line_end[2], None])
+    return xs, ys, zs
+
 
 def get_paper_colors(high_contrast: bool = False) -> dict[str, str]:
     if high_contrast:
@@ -150,8 +237,6 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str 
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
-    z_map = {'problem': 0, 'method': 1, 'finding': 2, 'interpretation': 3}
-    
     if df is None:
         fig.add_annotation(text='No data found for this experiment', showarrow=False)
         return fig, '', html.Div('Select experiment to load data.')
@@ -168,54 +253,40 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str 
         
     row = paper_row.iloc[0]
     title = row.get('title', 'Unknown Title')
-    
     aspects = ['problem', 'method', 'finding', 'interpretation']
-    vertex_xs = []
-    vertex_ys = []
-    vertex_zs = []
-    
-    for asp in aspects:
-        col_x = f"proj_{asp}_x"
-        col_y = f"proj_{asp}_y"
-        if col_x in df.columns and col_y in df.columns:
-            vertex_xs.append(float(row[col_x]))
-            vertex_ys.append(float(row[col_y]))
-            vertex_zs.append(z_map[asp])
-            
-    if len(vertex_xs) < 4:
-        fig.add_annotation(text='Discourse coordinates missing for paper.', showarrow=False)
-        return fig, '', html.Div('Coordinates missing.')
-        
-    # sequential trajectory
+    intrinsic = _build_intrinsic_simplex_coordinates(row, aspects)
+    if intrinsic is None:
+        fig.add_annotation(text='Aspect embeddings missing for intrinsic simplex.', showarrow=False)
+        return fig, '', html.Div('Aspect embeddings missing.')
+
+    coordinates, distances = intrinsic
+    vertex_xs, vertex_ys, vertex_zs = coordinates.T.tolist()
+
+    # Draw the real geometric edges, inset at their endpoints so Plotly's 3D
+    # line sprites do not paint over the vertex marker glyphs.
+    sequential_xs, sequential_ys, sequential_zs = _inset_edge_segments(
+        coordinates, [(0, 1), (1, 2), (2, 3)]
+    )
     fig.add_trace(go.Scatter3d(
-        x=vertex_xs, y=vertex_ys, z=vertex_zs,
+        x=sequential_xs, y=sequential_ys, z=sequential_zs,
         mode='lines',
         line=dict(color='gold', width=6),
         name='Sequential Trajectory',
         hoverinfo='skip'
     ))
-    
-    # cross-cutting simplex edges
-    cross_xs = []
-    cross_ys = []
-    cross_zs = []
-    connections = [('problem', 'finding'), ('problem', 'interpretation'), ('method', 'interpretation')]
-    for u, v in connections:
-        idx_u = aspects.index(u)
-        idx_v = aspects.index(v)
-        cross_xs.extend([vertex_xs[idx_u], vertex_xs[idx_v], None])
-        cross_ys.extend([vertex_ys[idx_u], vertex_ys[idx_v], None])
-        cross_zs.extend([vertex_zs[idx_u], vertex_zs[idx_v], None])
-        
+
+    cross_xs, cross_ys, cross_zs = _inset_edge_segments(
+        coordinates, [(0, 2), (0, 3), (1, 3)]
+    )
+
     fig.add_trace(go.Scatter3d(
         x=cross_xs, y=cross_ys, z=cross_zs,
         mode='lines',
-        line=dict(color='rgba(128,128,128,0.5)', width=3, dash='dash'),
+        line=dict(color='rgba(128,128,128,0.7)', width=3, dash='dash'),
         name='Simplex Edges',
         hoverinfo='skip'
     ))
-    
-    # vertices
+
     for idx_asp, asp in enumerate(aspects):
         fig.add_trace(go.Scatter3d(
             x=[vertex_xs[idx_asp]],
@@ -232,54 +303,54 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str 
             hovertemplate='<b>%{text}</b><extra></extra>'
         ))
         
-    # 3D planes representing subspaces
-    for idx_asp, asp in enumerate(aspects):
-        plane_z = z_map[asp]
-        plane_x = [min(vertex_xs) - 0.5, max(vertex_xs) + 0.5]
-        plane_y = [min(vertex_ys) - 0.5, max(vertex_ys) + 0.5]
-        
-        fig.add_trace(go.Surface(
-            x=plane_x,
-            y=plane_y,
-            z=[[plane_z, plane_z], [plane_z, plane_z]],
-            colorscale=[[0, colors[asp]], [1, colors[asp]]],
-            opacity=0.08,
-            showscale=False,
-            name=f"{asp.capitalize()} plane",
-            hoverinfo='skip'
-        ))
-        
-    # Vertex label in the background gets clipped by the 3D planes, let's fix it by disabling scene depth test
     fig.update_layout(
         title=f"Discourse Trajectory & Simplex (H1): {title}",
         margin=dict(l=0, r=0, t=40, b=0),
         scene=dict(
-            xaxis=dict(showgrid=True, title='Dim 1'),
-            yaxis=dict(showgrid=True, title='Dim 2'),
-            zaxis=dict(
-                tickvals=[0, 1, 2, 3],
-                ticktext=['Problem', 'Method', 'Finding', 'Interpretation'],
-                title=''
-            ),
+            xaxis=dict(showgrid=True, title='Intrinsic axis 1 (P→M)'),
+            yaxis=dict(showgrid=True, title='Intrinsic axis 2'),
+            zaxis=dict(showgrid=True, title='Intrinsic axis 3'),
+            aspectmode='data',
             camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
         ),
         legend=dict(orientation='h', yanchor='top', y=-0.15, xanchor='center', x=0.5)
     )
     
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
+
+    # The canonical construction puts Problem at the origin, which otherwise
+    # lies directly on Plotly's opaque scene walls.  Pad every axis equally
+    # (without altering any coordinates) and leave the gridlines visible while
+    # disabling those walls, so marker glyphs cannot be depth-clipped.
+    view_padding = max(float(np.max(distances)) * 0.08, 1e-6)
+    axis_ranges = [
+        [float(np.min(coordinates[:, axis])) - view_padding,
+         float(np.max(coordinates[:, axis])) + view_padding]
+        for axis in range(3)
+    ]
+    fig.update_scenes(
+        xaxis=dict(range=axis_ranges[0], showbackground=False),
+        yaxis=dict(range=axis_ranges[1], showbackground=False),
+        zaxis=dict(range=axis_ranges[2], showbackground=False),
+    )
     
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_"
-        f"{paper_id}.pdf}}\n\\caption{{Discourse trajectory simplex in the 3D projection space for the paper "
-        f"\\emph{{{title}}} ({paper_id}). Sequential transitions (solid gold line) link the four aspects (colored spheres) "
-        f"across their respective semantic projection planes, establishing the tetrahedral simplex topology.}}\n"
+        f"{paper_id}.pdf}}\n\\caption{{Intrinsic discourse simplex for the paper "
+        f"\\emph{{{title}}} ({paper_id}). The four aspect embeddings are positioned using their pairwise "
+        f"distances, preserving all six simplex edge lengths. Sequential transitions are solid gold; "
+        f"the remaining tetrahedron edges are dashed grey.}}\n"
         f"\\label{{fig:simplex_trajectory_{paper_id}}}\n\\end{{figure}}"
     )
     
+    edge_labels = [('P–M', 0, 1), ('P–F', 0, 2), ('P–I', 0, 3), ('M–F', 1, 2), ('M–I', 1, 3), ('F–I', 2, 3)]
+    simplex_volume = abs(np.linalg.det(coordinates[1:] - coordinates[0])) / 6.0
     stats_div = html.Div([
         html.H6('Simplex Geometry Statistics'),
         html.P(f"Paper Title: {title}", className='mb-2 small font-italic'),
-        html.P(f"Paper ID: {paper_id}", className='mb-1 text-muted small')
+        html.P(f"Paper ID: {paper_id}", className='mb-1 text-muted small'),
+        html.P(f"Intrinsic volume: {simplex_volume:.4g}", className='mb-1 small'),
+        html.P(' · '.join(f"{label}: {distances[i, j]:.4g}" for label, i, j in edge_labels), className='mb-1 small')
     ])
     
     return fig, caption, stats_div
@@ -357,10 +428,18 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
         
     aspects = ['problem', 'method', 'finding', 'interpretation']
     valid_aspects = []
+    
+    method = None
+    if exp_name:
+        try:
+            config = get_experiment(exp_name)
+            method = config.get("dimensionality_reduction", {}).get("method")
+        except Exception:
+            pass
+            
     for asp in aspects:
-        col_x = f"proj_{asp}_x"
-        col_y = f"proj_{asp}_y"
-        if col_x in df.columns and col_y in df.columns:
+        cols = _get_proj_cols(df, asp, method)
+        if cols:
             valid_aspects.append(asp)
             
     if not valid_aspects:
@@ -368,19 +447,20 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
         return fig, '', html.Div('Coordinates missing.')
         
     for asp in valid_aspects:
-        col_x = f"proj_{asp}_x"
-        col_y = f"proj_{asp}_y"
-        fig.add_trace(go.Scatter(
-            x=df[col_x],
-            y=df[col_y],
-            mode='markers',
-            marker=dict(
-                size=5,
-                color=colors[asp],
-                opacity=0.4
-            ),
-            name=asp.capitalize()
-        ))
+        cols = _get_proj_cols(df, asp, method)
+        if cols:
+            col_x, col_y = cols
+            fig.add_trace(go.Scatter(
+                x=df[col_x],
+                y=df[col_y],
+                mode='markers',
+                marker=dict(
+                    size=5,
+                    color=colors[asp],
+                    opacity=0.4
+                ),
+                name=asp.capitalize()
+            ))
         
     fig.update_layout(
         title=f"Aspect Separation Example Simplex Projection ({exp_name})",
@@ -516,14 +596,23 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
     
     src, dest = transition.split('_to_')
     
-    src_x_col = f"proj_{src}_x"
-    src_y_col = f"proj_{src}_y"
-    dest_x_col = f"proj_{dest}_x"
-    dest_y_col = f"proj_{dest}_y"
+    method = None
+    if exp_name:
+        try:
+            config = get_experiment(exp_name)
+            method = config.get("dimensionality_reduction", {}).get("method")
+        except Exception:
+            pass
+
+    src_cols = _get_proj_cols(df, src, method)
+    dest_cols = _get_proj_cols(df, dest, method)
     
-    if src_x_col not in df.columns or dest_x_col not in df.columns:
+    if not src_cols or not dest_cols:
         fig.add_annotation(text='Coordinates missing for this transition', showarrow=False)
         return fig, '', html.Div('Coordinates missing.')
+        
+    src_x_col, src_y_col = src_cols
+    dest_x_col, dest_y_col = dest_cols
         
     fig.add_trace(go.Scatter(
         x=df[src_x_col],
@@ -633,11 +722,19 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
     aspects = ['problem', 'method', 'finding', 'interpretation']
     
     # Draw reference target simplex
+    method = None
+    if exp_name:
+        try:
+            config = get_experiment(exp_name)
+            method = config.get("dimensionality_reduction", {}).get("method")
+        except Exception:
+            pass
+
     txs, tys, tzs = [], [], []
     for asp in aspects:
-        col_x = f"proj_{asp}_x"
-        col_y = f"proj_{asp}_y"
-        if col_x in df.columns:
+        cols = _get_proj_cols(df, asp, method)
+        if cols:
+            col_x, col_y = cols
             txs.append(float(row[col_x]))
             tys.append(float(row[col_y]))
             tzs.append(z_map[asp])
@@ -654,21 +751,26 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
         # Neighborhood of adjacent simplices (find nearest neighbors in problem space)
         px = txs[0]
         py = tys[0]
-        dists = np.sqrt((df['proj_problem_x'] - px)**2 + (df['proj_problem_y'] - py)**2)
-        neighbor_indices = dists.nsmallest(4).index
         
-        for n_idx in neighbor_indices:
-            n_row = df.loc[n_idx]
-            if n_row['id'] == paper_id:
-                continue
-                
-            nxs, nys, nzs = [], [], []
-            for asp in aspects:
-                col_x = f"proj_{asp}_x"
-                col_y = f"proj_{asp}_y"
-                nxs.append(float(n_row[col_x]))
-                nys.append(float(n_row[col_y]))
-                nzs.append(z_map[asp])
+        prob_cols = _get_proj_cols(df, 'problem', method)
+        if prob_cols:
+            prob_x_col, prob_y_col = prob_cols
+            dists = np.sqrt((df[prob_x_col] - px)**2 + (df[prob_y_col] - py)**2)
+            neighbor_indices = dists.nsmallest(4).index
+            
+            for n_idx in neighbor_indices:
+                n_row = df.loc[n_idx]
+                if n_row['id'] == paper_id:
+                    continue
+                    
+                nxs, nys, nzs = [], [], []
+                for asp in aspects:
+                    cols = _get_proj_cols(df, asp, method)
+                    if cols:
+                        col_x, col_y = cols
+                        nxs.append(float(n_row[col_x]))
+                        nys.append(float(n_row[col_y]))
+                        nzs.append(z_map[asp])
                 
             fig.add_trace(go.Scatter3d(
                 x=nxs, y=nys, z=nzs,
@@ -769,7 +871,8 @@ def _build_fig_h3_predictive_gain(results_df: pd.DataFrame, exp_name: str, font:
     
     return fig, caption, stats_div
 
-def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+    base_path = Path(base_path)
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -781,9 +884,14 @@ def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str, font: str, bas
         return fig, '', html.Div('Features data missing.')
         
     results_df = get_results_df(base_path)
-    row = results_df[results_df['experiment_id'] == exp_name].iloc[0].to_dict()
-    obs_gain = row.get('h3_predictive_gain', 0)
-    p_val = row.get('h3_gain_pvalue', 1.0)
+    matching_rows = results_df[results_df['experiment_id'] == exp_name]
+    if not matching_rows.empty:
+        row = matching_rows.iloc[0].to_dict()
+        obs_gain = row.get('h3_predictive_gain', 0.0)
+        p_val = row.get('h3_gain_pvalue', 1.0)
+    else:
+        obs_gain = moran.get('obs_gain', 0.0)
+        p_val = moran.get('h3_gain_pvalue', 1.0)
     
     shuf_gains = feat.get('h3_shuf_gains') if feat else None
     
@@ -852,7 +960,8 @@ def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str, font: str, bas
     
     return fig, caption, stats_div
 
-def _build_fig_h3_density_maps(exp_name: str, base_path: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+    base_path = Path(base_path)
     fig = go.Figure()
     
     feat = _load_features(exp_name, base_path)
@@ -949,7 +1058,8 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str, font: str, base_fo
     
     return fig, caption, stats_div
 
-def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+    base_path = Path(base_path)
     fig = go.Figure()
     
     feat = _load_features(exp_name, base_path)
@@ -998,7 +1108,8 @@ def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str, font: str, ba
     
     return fig, caption, stats_div
 
-def register_paper_figures_callbacks(app, base_path: str):
+def register_paper_figures_callbacks(app, base_path: str | Path):
+    base_path = Path(base_path)
     @app.callback(
         Output('paper-fig-paper-select', 'options'),
         Input('paper-fig-exp-select', 'value'),

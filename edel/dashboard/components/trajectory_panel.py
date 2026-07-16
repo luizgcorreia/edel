@@ -223,7 +223,7 @@ def trajectory_panel_layout() -> dbc.Container:
                     dbc.Col([
                         dbc.Card([
                             dbc.CardHeader([
-                                html.Span("3D Epistemic Simplex (Tetrahedron)"),
+                                html.Span("3D Plane-Projected Trajectory"),
                                 dbc.Button("⛶ Fullscreen", id="traj-plot-3d-fullscreen-btn", size="sm", color="link", className="float-end p-0 text-decoration-none text-info")
                             ]),
                             dbc.CardBody([
@@ -234,7 +234,7 @@ def trajectory_panel_layout() -> dbc.Container:
                                         "paper_bgcolor": "#1a1a2e",
                                         "plot_bgcolor": "#16213e",
                                         "annotations": [{
-                                            "text": "Run an analysis to see the 3D Simplex.",
+                                    "text": "Run an analysis to see the plane-projected trajectory.",
                                             "xref": "paper", "yref": "paper",
                                             "x": 0.5, "y": 0.5,
                                             "showarrow": False,
@@ -246,13 +246,30 @@ def trajectory_panel_layout() -> dbc.Container:
                                     config={"displayModeBar": True}
                                 ),
                                 html.Small(
-                                    "Tip: Click on a vertex (P, M, F, I) to inspect its discourse space & neighbors.",
+                                    "Plane-projected view: shows the trajectory path across discourse spaces.",
                                     className="text-muted mt-1"
                                 )
                             ])
                         ], id="traj-plot-3d-card", className="mb-3")
                     ], md=6)
                 ], className="mb-3"),
+
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.Span("Intrinsic Discourse Simplex (Embedding Distances)"),
+                        dbc.Button("⛶ Fullscreen", id="traj-intrinsic-plot-fullscreen-btn", size="sm", color="link", className="float-end p-0 text-decoration-none text-info")
+                    ]),
+                    dbc.CardBody([
+                        dcc.Graph(
+                            id="traj-intrinsic-plot",
+                            figure={"data": [], "layout": {"template": "plotly_dark", "annotations": [{"text": "Run an analysis to see the intrinsic simplex.", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}] }},
+                            responsive=True,
+                            style={"height": "520px"},
+                            config={"displayModeBar": True}
+                        ),
+                        html.Small("Click a target aspect to overlay the full, unnormalised intrinsic tetrahedra of its neighbours.", className="text-muted mt-1")
+                    ])
+                ], id="traj-intrinsic-plot-card", className="mb-3"),
 
                 # Selected Vertex Segment Text Display
                 dbc.Card([

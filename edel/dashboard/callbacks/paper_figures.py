@@ -13,7 +13,7 @@ import dash_bootstrap_components as dbc
 from edel.experiments.registry import get_experiment
 from edel.io.artifact import make_stage_artifact, load_artifact
 from edel.dashboard.callbacks.trajectory import _DF_CACHE, _load_dr_df
-from edel.analysis.trajectory import parse_embedding_vector
+from edel.dashboard.components.intrinsic_simplex import intrinsic_simplex_coordinates
 from edel.dashboard.cache import get_results_df
 from edel.dashboard.callbacks.hypothesis_callbacks import (
     _load_features,
@@ -21,6 +21,8 @@ from edel.dashboard.callbacks.hypothesis_callbacks import (
 )
 
 logger = logging.getLogger(__name__)
+
+_UNIFIED_PROJ_CACHE = {}
 
 def _get_proj_cols(df: pd.DataFrame, aspect: str, method: str | None = None) -> tuple[str, str] | None:
     """Resolve projection columns for a given aspect, trying method suffix first."""
@@ -55,40 +57,9 @@ def _build_intrinsic_simplex_coordinates(row: pd.Series, aspects: list[str]) -> 
     makes the result stable for display: P is the origin, P→M is the first
     axis, P/M/F span the first two axes, and I occupies positive axis three.
     """
-    vectors = [parse_embedding_vector(row.get(f'{aspect}_embedding')) for aspect in aspects]
-    if any(vector is None for vector in vectors):
-        return None
-
-    matrix = np.vstack(vectors)
-    if matrix.ndim != 2 or not np.isfinite(matrix).all():
-        return None
-
-    distances = np.linalg.norm(matrix[:, None, :] - matrix[None, :, :], axis=2)
-    n_points = len(aspects)
-    centering = np.eye(n_points) - np.ones((n_points, n_points)) / n_points
-    gram = -0.5 * centering @ (distances ** 2) @ centering
-    eigenvalues, eigenvectors = np.linalg.eigh(gram)
-    order = np.argsort(eigenvalues)[::-1]
-    eigenvalues = np.clip(eigenvalues[order][:3], 0.0, None)
-    coordinates = eigenvectors[:, order][:, :3] * np.sqrt(eigenvalues)
-
-    # Canonical orientation, while retaining all distance information.
-    relative = coordinates - coordinates[0]
-    basis: list[np.ndarray] = []
-    tolerance = max(float(np.max(distances)), 1.0) * 1e-10
-    for vector in relative[1:]:
-        residual = vector.copy()
-        for axis in basis:
-            residual -= np.dot(residual, axis) * axis
-        norm = np.linalg.norm(residual)
-        if norm > tolerance:
-            basis.append(residual / norm)
-
-    oriented = np.zeros((n_points, 3))
-    for axis_index, axis in enumerate(basis):
-        oriented[:, axis_index] = relative @ axis
-
-    return oriented, distances
+    if aspects != ['problem', 'method', 'finding', 'interpretation']:
+        raise ValueError('Intrinsic simplex requires the canonical PMFI aspect order.')
+    return intrinsic_simplex_coordinates(row)
 
 
 def _inset_edge_segments(coordinates: np.ndarray, connections: list[tuple[int, int]], inset: float = 0.025) -> tuple[list[float | None], list[float | None], list[float | None]]:
@@ -134,6 +105,23 @@ def get_paper_colors(high_contrast: bool = False) -> dict[str, str]:
             'obs': '#2c3e50',
             'shuf': '#b2bec3'
         }
+
+def _get_llm_axis_labels(exp_name: str, base_path: Path | None) -> tuple[str, str]:
+    x_label, y_label = "Dim 1", "Dim 2"
+    if exp_name and base_path:
+        try:
+            config = get_experiment(exp_name)
+            label_art = make_stage_artifact(config, base_path, "labeling", "labeled")
+            label_results = load_artifact(label_art)
+            if label_results:
+                axes_info = label_results.get("axes", [])
+                if len(axes_info) >= 1:
+                    x_label = axes_info[0].get("axis_label", x_label)
+                if len(axes_info) >= 2:
+                    y_label = axes_info[1].get("axis_label", y_label)
+        except Exception:
+            pass
+    return x_label, y_label
 
 def apply_paper_style(fig: go.Figure, font: str, show_grid: bool, style_options: list[str] | None, base_font_size: int):
     if style_options is None:
@@ -233,7 +221,7 @@ def apply_paper_style(fig: go.Figure, font: str, show_grid: bool, style_options:
     )
     return fig
 
-def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str | list[str] | None, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -241,91 +229,190 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str 
         fig.add_annotation(text='No data found for this experiment', showarrow=False)
         return fig, '', html.Div('Select experiment to load data.')
         
-    paper_row = df[df['id'] == paper_id] if paper_id else pd.DataFrame()
-    if paper_row.empty:
-        paper_row = df.head(1)
-        if not paper_row.empty:
-            paper_id = paper_row.iloc[0]['id']
+    if isinstance(paper_ids, str):
+        selected_ids = [paper_ids] if paper_ids else []
+    elif isinstance(paper_ids, list):
+        selected_ids = [pid for pid in paper_ids if pid]
+    else:
+        selected_ids = []
+        
+    if not selected_ids:
+        # Default to the first paper
+        if not df.empty:
+            selected_ids = [df.iloc[0]['id']]
             
-    if paper_row.empty:
-        fig.add_annotation(text='No papers available in this run.', showarrow=False)
+    if not selected_ids or df.empty:
+        fig.add_annotation(text='No papers available.', showarrow=False)
         return fig, '', html.Div('No paper data found.')
         
-    row = paper_row.iloc[0]
-    title = row.get('title', 'Unknown Title')
     aspects = ['problem', 'method', 'finding', 'interpretation']
-    intrinsic = _build_intrinsic_simplex_coordinates(row, aspects)
-    if intrinsic is None:
-        fig.add_annotation(text='Aspect embeddings missing for intrinsic simplex.', showarrow=False)
+    
+    # Collect all embedding vectors
+    vectors = []
+    valid_pids = []
+    from edel.analysis.trajectory import parse_embedding_vector
+    
+    for pid in selected_ids:
+        row_matches = df[df['id'] == pid]
+        if row_matches.empty:
+            continue
+        row = row_matches.iloc[0]
+        
+        p_vecs = []
+        for asp in aspects:
+            vec = parse_embedding_vector(row.get(f"{asp}_embedding"))
+            if vec is not None:
+                p_vecs.append(vec)
+                
+        if len(p_vecs) == 4:
+            vectors.extend(p_vecs)
+            valid_pids.append(pid)
+            
+    if not valid_pids:
+        fig.add_annotation(text='Aspect embeddings missing for selected papers.', showarrow=False)
         return fig, '', html.Div('Aspect embeddings missing.')
+        
+    # Joint Projection using PCA
+    import numpy as np
+    from sklearn.decomposition import PCA
+    
+    X = np.vstack(vectors)
+    if len(valid_pids) > 1 and X.shape[0] >= 3:
+        pca = PCA(n_components=3)
+        X_proj = pca.fit_transform(X)
+        # Shift so that the first paper's Problem aspect is at the origin
+        X_proj = X_proj - X_proj[0]
+    else:
+        # Fallback for single paper: use standard MDS coordinate orientation
+        X_proj = None
 
-    coordinates, distances = intrinsic
-    vertex_xs, vertex_ys, vertex_zs = coordinates.T.tolist()
+    coordinates_dict = {}
+    distances_dict = {}
+    titles_dict = {}
+    
+    for p_idx, pid in enumerate(valid_pids):
+        row = df[df['id'] == pid].iloc[0]
+        titles_dict[pid] = row.get('title', 'Unknown Title')
+        
+        # Calculate pairwise distances
+        vectors_p = [parse_embedding_vector(row.get(f"{asp}_embedding")) for asp in aspects]
+        matrix_p = np.vstack(vectors_p)
+        distances_dict[pid] = np.linalg.norm(matrix_p[:, None, :] - matrix_p[None, :, :], axis=2)
+        
+        if X_proj is not None:
+            coordinates_dict[pid] = X_proj[p_idx * 4 : (p_idx + 1) * 4]
+        else:
+            intrinsic = _build_intrinsic_simplex_coordinates(row, aspects)
+            if intrinsic is not None:
+                coordinates_dict[pid], _ = intrinsic
+            else:
+                # Fallback if Gram-Schmidt MDS fails
+                coordinates_dict[pid] = np.zeros((4, 3))
 
-    # Draw the real geometric edges, inset at their endpoints so Plotly's 3D
-    # line sprites do not paint over the vertex marker glyphs.
-    sequential_xs, sequential_ys, sequential_zs = _inset_edge_segments(
-        coordinates, [(0, 1), (1, 2), (2, 3)]
-    )
-    fig.add_trace(go.Scatter3d(
-        x=sequential_xs, y=sequential_ys, z=sequential_zs,
-        mode='lines',
-        line=dict(color='gold', width=6),
-        name='Sequential Trajectory',
-        hoverinfo='skip'
-    ))
+    tetra_colors = [
+        '#FFD700',  # Gold (matches original gold color!)
+        '#00BCD4',  # Cyan
+        '#E91E63',  # Deep Pink
+        '#FF6F61',  # Coral
+        '#4CAF50',  # Green
+        '#9C27B0',  # Purple
+        '#795548',  # Brown
+        '#607D8B',  # Slate Gray
+        '#1A237E',  # Midnight Navy
+        '#FF5722',  # Deep Orange
+    ]
 
-    cross_xs, cross_ys, cross_zs = _inset_edge_segments(
-        coordinates, [(0, 2), (0, 3), (1, 3)]
-    )
-
-    fig.add_trace(go.Scatter3d(
-        x=cross_xs, y=cross_ys, z=cross_zs,
-        mode='lines',
-        line=dict(color='rgba(128,128,128,0.7)', width=3, dash='dash'),
-        name='Simplex Edges',
-        hoverinfo='skip'
-    ))
-
-    for idx_asp, asp in enumerate(aspects):
+    for p_idx, pid in enumerate(valid_pids):
+        coords = coordinates_dict[pid]
+        title = titles_dict[pid]
+        short_title = (title[:25] + '...') if len(title) > 25 else title
+        
+        # Inset edges
+        sequential_xs, sequential_ys, sequential_zs = _inset_edge_segments(
+            coords, [(0, 1), (1, 2), (2, 3)]
+        )
+        cross_xs, cross_ys, cross_zs = _inset_edge_segments(
+            coords, [(0, 2), (0, 3), (1, 3)]
+        )
+        
+        if len(valid_pids) == 1:
+            color = 'gold'
+            line_width = 6
+            dash_color = 'rgba(128,128,128,0.7)'
+            show_legend = False
+        else:
+            color = tetra_colors[p_idx % len(tetra_colors)]
+            line_width = 4
+            dash_color = color
+            show_legend = True
+            
+        # Draw sequential trajectory
         fig.add_trace(go.Scatter3d(
-            x=[vertex_xs[idx_asp]],
-            y=[vertex_ys[idx_asp]],
-            z=[vertex_zs[idx_asp]],
-            mode='markers',
-            marker=dict(
-                size=12,
-                color=colors[asp],
-                line=dict(color='black', width=1)
-            ),
-            name=asp.capitalize(),
-            text=[f"{asp.capitalize()}"],
-            hovertemplate='<b>%{text}</b><extra></extra>'
+            x=sequential_xs, y=sequential_ys, z=sequential_zs,
+            mode='lines',
+            line=dict(color=color, width=line_width),
+            name=f"Trajectory: {short_title}" if show_legend else 'Sequential Trajectory',
+            legendgroup=f"paper_{pid}",
+            showlegend=show_legend,
+            hoverinfo='skip'
         ))
         
-    fig.update_layout(
-        title=f"Discourse Trajectory & Simplex (H1): {title}",
-        margin=dict(l=0, r=0, t=40, b=0),
-        scene=dict(
-            xaxis=dict(showgrid=True, title='Intrinsic axis 1 (P→M)'),
-            yaxis=dict(showgrid=True, title='Intrinsic axis 2'),
-            zaxis=dict(showgrid=True, title='Intrinsic axis 3'),
-            aspectmode='data',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
-        ),
-        legend=dict(orientation='h', yanchor='top', y=-0.15, xanchor='center', x=0.5)
-    )
+        # Draw simplex edges (dashed)
+        fig.add_trace(go.Scatter3d(
+            x=cross_xs, y=cross_ys, z=cross_zs,
+            mode='lines',
+            line=dict(color=dash_color, width=line_width/2.0, dash='dash'),
+            name=f"Simplex: {short_title}" if show_legend else 'Simplex Edges',
+            legendgroup=f"paper_{pid}",
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        # Draw aspect vertices
+        vertex_xs, vertex_ys, vertex_zs = coords.T.tolist()
+        if len(valid_pids) == 1:
+            for idx_asp, asp in enumerate(aspects):
+                fig.add_trace(go.Scatter3d(
+                    x=[vertex_xs[idx_asp]],
+                    y=[vertex_ys[idx_asp]],
+                    z=[vertex_zs[idx_asp]],
+                    mode='markers',
+                    marker=dict(
+                        size=12,
+                        color=colors[asp],
+                        line=dict(color='black', width=1)
+                    ),
+                    name=asp.capitalize(),
+                    text=[f"{asp.capitalize()}"],
+                    hovertemplate='<b>%{text}</b><extra></extra>'
+                ))
+        else:
+            fig.add_trace(go.Scatter3d(
+                x=vertex_xs,
+                y=vertex_ys,
+                z=vertex_zs,
+                mode='markers+text',
+                marker=dict(
+                    size=8,
+                    color=color,
+                    line=dict(color='black', width=0.5)
+                ),
+                text=[asp.capitalize()[0] for asp in aspects],
+                textposition="top center",
+                name=f"Aspects: {short_title}",
+                legendgroup=f"paper_{pid}",
+                showlegend=False,
+                hovertemplate='<b>%{text}</b><extra></extra>'
+            ))
+            
+    # Calculate limits across all coordinates
+    all_coords = np.vstack([coordinates_dict[pid] for pid in valid_pids])
+    all_distances = np.vstack([distances_dict[pid] for pid in valid_pids])
     
-    apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
-
-    # The canonical construction puts Problem at the origin, which otherwise
-    # lies directly on Plotly's opaque scene walls.  Pad every axis equally
-    # (without altering any coordinates) and leave the gridlines visible while
-    # disabling those walls, so marker glyphs cannot be depth-clipped.
-    view_padding = max(float(np.max(distances)) * 0.08, 1e-6)
+    view_padding = max(float(np.max(all_distances)) * 0.08, 1e-6)
     axis_ranges = [
-        [float(np.min(coordinates[:, axis])) - view_padding,
-         float(np.max(coordinates[:, axis])) + view_padding]
+        [float(np.min(all_coords[:, axis])) - view_padding,
+         float(np.max(all_coords[:, axis])) + view_padding]
         for axis in range(3)
     ]
     fig.update_scenes(
@@ -334,25 +421,64 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_id: str 
         zaxis=dict(range=axis_ranges[2], showbackground=False),
     )
     
-    caption = (
-        f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_"
-        f"{paper_id}.pdf}}\n\\caption{{Intrinsic discourse simplex for the paper "
-        f"\\emph{{{title}}} ({paper_id}). The four aspect embeddings are positioned using their pairwise "
-        f"distances, preserving all six simplex edge lengths. Sequential transitions are solid gold; "
-        f"the remaining tetrahedron edges are dashed grey.}}\n"
-        f"\\label{{fig:simplex_trajectory_{paper_id}}}\n\\end{{figure}}"
+    first_pid = valid_pids[0]
+    first_title = titles_dict[first_pid]
+    
+    x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
+    x_title = 'Intrinsic axis 1 (P→M)' if len(valid_pids) == 1 else x_llm
+    y_title = 'Intrinsic axis 2' if len(valid_pids) == 1 else y_llm
+    z_title = 'Intrinsic axis 3' if len(valid_pids) == 1 else 'Dim 3'
+    
+    fig.update_layout(
+        title=f"Discourse Trajectory & Simplex (H1): {first_title}" if len(valid_pids) == 1 else "Joint discourse Trajectory & Simplex projection (H1)",
+        margin=dict(l=0, r=0, t=40, b=0),
+        scene=dict(
+            xaxis=dict(showgrid=True, title=x_title),
+            yaxis=dict(showgrid=True, title=y_title),
+            zaxis=dict(showgrid=True, title=z_title),
+            aspectmode='data',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        legend=dict(orientation='h', yanchor='top', y=-0.15, xanchor='center', x=0.5)
     )
     
-    edge_labels = [('P–M', 0, 1), ('P–F', 0, 2), ('P–I', 0, 3), ('M–F', 1, 2), ('M–I', 1, 3), ('F–I', 2, 3)]
-    simplex_volume = abs(np.linalg.det(coordinates[1:] - coordinates[0])) / 6.0
-    stats_div = html.Div([
-        html.H6('Simplex Geometry Statistics'),
-        html.P(f"Paper Title: {title}", className='mb-2 small font-italic'),
-        html.P(f"Paper ID: {paper_id}", className='mb-1 text-muted small'),
-        html.P(f"Intrinsic volume: {simplex_volume:.4g}", className='mb-1 small'),
-        html.P(' · '.join(f"{label}: {distances[i, j]:.4g}" for label, i, j in edge_labels), className='mb-1 small')
-    ])
+    apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
     
+    if len(valid_pids) == 1:
+        caption = (
+            f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_"
+            f"{first_pid}.pdf}}\n\\caption{{Intrinsic discourse simplex for the paper "
+            f"\\emph{{{first_title}}} ({first_pid}). The four aspect embeddings are positioned using their pairwise "
+            f"distances, preserving all six simplex edge lengths. Sequential transitions are solid gold; "
+            f"the remaining tetrahedron edges are dashed grey.}}\n"
+            f"\\label{{fig:simplex_trajectory_{first_pid}}}\n\\end{{figure}}"
+        )
+        edge_labels = [('P–M', 0, 1), ('P–F', 0, 2), ('P–I', 0, 3), ('M–F', 1, 2), ('M–I', 1, 3), ('F–I', 2, 3)]
+        distances = distances_dict[first_pid]
+        simplex_volume = abs(np.linalg.det(coordinates_dict[first_pid][1:] - coordinates_dict[first_pid][0])) / 6.0
+        stats_div = html.Div([
+            html.H6('Simplex Geometry Statistics'),
+            html.P(f"Paper Title: {first_title}", className='mb-2 small font-italic'),
+            html.P(f"Paper ID: {first_pid}", className='mb-1 text-muted small'),
+            html.P(f"Intrinsic volume: {simplex_volume:.4g}", className='mb-1 small'),
+            html.P(' · '.join(f"{label}: {distances[i, j]:.4g}" for label, i, j in edge_labels), className='mb-1 small')
+        ])
+    else:
+        caption = (
+            f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_joint.pdf}}\n"
+            f"\\caption{{Joint 3D PCA projection of intrinsic discourse simplexes for multiple selected papers. "
+            f"Displacements between different papers' aspects are preserved. Each paper is rendered in a distinct color "
+            f"with vertex labels representing the aspects (P: Problem, M: Method, F: Finding, I: Interpretation).}}\n"
+            f"\\label{{fig:simplex_trajectory_joint}}\n\\end{{figure}}"
+        )
+        stats_div = html.Div([
+            html.H6('Joint Simplex Geometry Statistics'),
+            html.P(f"Total papers projected: {len(valid_pids)}", className='mb-2 small'),
+            html.Ul([
+                html.Li(f"{titles_dict[pid][:40]}... ({pid})") for pid in valid_pids
+            ], className='small text-muted')
+        ])
+        
     return fig, caption, stats_div
 
 def _build_fig_h1_energy_distance(results_df: pd.DataFrame, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
@@ -418,7 +544,7 @@ def _build_fig_h1_energy_distance(results_df: pd.DataFrame, font: str, base_font
     
     return fig, caption, stats_div
 
-def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str | list[str] | None, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -427,7 +553,6 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
         return fig, '', html.Div('Select experiment to load data.')
         
     aspects = ['problem', 'method', 'finding', 'interpretation']
-    valid_aspects = []
     
     method = None
     if exp_name:
@@ -437,35 +562,227 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
         except Exception:
             pass
             
-    for asp in aspects:
-        cols = _get_proj_cols(df, asp, method)
-        if cols:
-            valid_aspects.append(asp)
-            
+    # Try to compute stacked projection
+    has_embeddings = all(f"{asp}_embedding" in df.columns for asp in aspects)
+    coords = None
+    
+    if has_embeddings:
+        cache_key = (exp_name, len(df))
+        if cache_key in _UNIFIED_PROJ_CACHE:
+            coords = _UNIFIED_PROJ_CACHE[cache_key]
+        else:
+            try:
+                from edel.pipeline.projection import load_embeddings_to_matrix, detect_embedding_dimensions
+                from edel.experiments.metrics.embedding import apply_anisotropy_correction
+                from sklearn.preprocessing import normalize as sk_normalize
+                
+                config = get_experiment(exp_name)
+                dr_cfg = config.get("dimensionality_reduction", {})
+                method = dr_cfg.get("method", "umap")
+                remove_pc = dr_cfg.get("remove_top_pcs", 0)
+                anisotropy_method = dr_cfg.get("anisotropy_method", "pc_removal" if remove_pc > 0 else "none")
+                dimensions = detect_embedding_dimensions(df, config)
+                
+                N = len(df)
+                if N > 0:
+                    embs = {
+                        a: sk_normalize(load_embeddings_to_matrix(df, f"{a}_embedding", dimensions))
+                        for a in aspects
+                    }
+                    
+                    if anisotropy_method != "none":
+                        embs = apply_anisotropy_correction(embs, method=anisotropy_method, n_components=remove_pc)
+                        
+                    X = np.vstack([embs[a] for a in aspects])
+                    
+                    if method == "umap":
+                        import umap
+                        reducer = umap.UMAP(n_components=2, random_state=42)
+                        X_proj = reducer.fit_transform(X)
+                    else:
+                        from sklearn.decomposition import PCA
+                        pca = PCA(n_components=2)
+                        X_proj = pca.fit_transform(X)
+                        
+                    coords = {
+                        aspects[i]: X_proj[i * N : (i + 1) * N]
+                        for i in range(len(aspects))
+                    }
+                    _UNIFIED_PROJ_CACHE[cache_key] = coords
+            except Exception as e:
+                logger.error(f"Error computing unified stacked projection: {e}")
+                coords = None
+
+    valid_aspects = []
+    if coords is not None:
+        valid_aspects = aspects
+    else:
+        for asp in aspects:
+            cols = _get_proj_cols(df, asp, method)
+            if cols:
+                valid_aspects.append(asp)
+                
     if not valid_aspects:
         fig.add_annotation(text='No valid projection coordinates found.', showarrow=False)
         return fig, '', html.Div('Coordinates missing.')
         
+    # Plot all points per aspect
     for asp in valid_aspects:
-        cols = _get_proj_cols(df, asp, method)
-        if cols:
+        if coords is not None:
+            xs = coords[asp][:, 0]
+            ys = coords[asp][:, 1]
+        else:
+            cols = _get_proj_cols(df, asp, method)
+            if cols is None:
+                continue
             col_x, col_y = cols
-            fig.add_trace(go.Scatter(
-                x=df[col_x],
-                y=df[col_y],
-                mode='markers',
-                marker=dict(
-                    size=5,
-                    color=colors[asp],
-                    opacity=0.4
-                ),
-                name=asp.capitalize()
-            ))
+            xs = df[col_x]
+            ys = df[col_y]
+            
+        fig.add_trace(go.Scatter(
+            x=xs,
+            y=ys,
+            mode='markers',
+            marker=dict(
+                size=5,
+                color=colors[asp],
+                opacity=0.4
+            ),
+            name=asp.capitalize()
+        ))
         
+        # Add centroid (with background black cross for contrast)
+        centroid_x = np.mean(xs)
+        centroid_y = np.mean(ys)
+        fig.add_trace(go.Scatter(
+            x=[centroid_x],
+            y=[centroid_y],
+            mode='markers',
+            marker=dict(
+                size=18,
+                color='black',
+                symbol='x'
+            ),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        fig.add_trace(go.Scatter(
+            x=[centroid_x],
+            y=[centroid_y],
+            mode='markers',
+            marker=dict(
+                size=12,
+                color=colors[asp],
+                symbol='x'
+            ),
+            name=f"{asp.capitalize()} Centroid",
+            showlegend=False
+        ))
+        
+    # Draw connection lines (3-simplex edges) for selected/sampled papers
+    N = len(df)
+    if N > 0 and len(valid_aspects) == len(aspects):
+        # Resolve paper selection
+        if isinstance(paper_ids, str):
+            selected_ids = [paper_ids] if paper_ids else []
+        elif isinstance(paper_ids, list):
+            selected_ids = [pid for pid in paper_ids if pid]
+        else:
+            selected_ids = []
+            
+        if not selected_ids:
+            # Default to 3 random papers
+            rng = np.random.default_rng(42)
+            sample_indices = rng.choice(N, size=min(3, N), replace=False)
+            selected_ids = df['id'].iloc[sample_indices].tolist()
+            
+        # Distinct colors for selected tetrahedrons (non-clashing with aspect colors)
+        tetra_colors = [
+            '#008080',  # Teal
+            '#E91E63',  # Deep Pink
+            '#FF6F61',  # Coral / Salmon
+            '#4A148C',  # Dark Purple
+            '#795548',  # Brown
+            '#607D8B',  # Slate Gray
+            '#1A237E',  # Midnight Navy
+            '#00BCD4',  # Dark Cyan
+            '#8B0000',  # Dark Red
+            '#2E7D32',  # Forest Green
+        ]
+        
+        color_idx = 0
+        for pid in selected_ids:
+            pos_indices = np.where(df['id'] == pid)[0]
+            if len(pos_indices) == 0:
+                continue
+            pos_idx = pos_indices[0]
+            
+            pts_x = []
+            pts_y = []
+            for asp in aspects:
+                if coords is not None:
+                    pts_x.append(coords[asp][pos_idx, 0])
+                    pts_y.append(coords[asp][pos_idx, 1])
+                else:
+                    cols = _get_proj_cols(df, asp, method)
+                    if cols:
+                        col_x, col_y = cols
+                        pts_x.append(df[col_x].iloc[pos_idx])
+                        pts_y.append(df[col_y].iloc[pos_idx])
+            
+            if len(pts_x) == 4:
+                # Vertices of the tetrahedron (3-simplex)
+                # 6 edges: 0-1, 0-2, 0-3, 1-2, 1-3, 2-3
+                line_x = [
+                    pts_x[0], pts_x[1], None,
+                    pts_x[0], pts_x[2], None,
+                    pts_x[0], pts_x[3], None,
+                    pts_x[1], pts_x[2], None,
+                    pts_x[1], pts_x[3], None,
+                    pts_x[2], pts_x[3]
+                ]
+                line_y = [
+                    pts_y[0], pts_y[1], None,
+                    pts_y[0], pts_y[2], None,
+                    pts_y[0], pts_y[3], None,
+                    pts_y[1], pts_y[2], None,
+                    pts_y[1], pts_y[3], None,
+                    pts_y[2], pts_y[3]
+                ]
+                
+                title = df['title'].iloc[pos_idx]
+                short_title = (title[:25] + '...') if len(title) > 25 else title
+                color = tetra_colors[color_idx % len(tetra_colors)]
+                
+                # 1. Add edges trace
+                fig.add_trace(go.Scatter(
+                    x=line_x,
+                    y=line_y,
+                    mode='lines',
+                    line=dict(color=color, width=2.5, dash='dash'),
+                    name=f"Paper: {short_title}",
+                    legendgroup=f"paper_{pid}",
+                    showlegend=True,
+                    hoverinfo='skip'
+                ))
+                
+                # 2. Add vertices trace
+                fig.add_trace(go.Scatter(
+                    x=pts_x,
+                    y=pts_y,
+                    mode='markers',
+                    marker=dict(size=6, color=color, symbol='circle'),
+                    legendgroup=f"paper_{pid}",
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+                color_idx += 1
+        
+    x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
         title=f"Aspect Separation Example Simplex Projection ({exp_name})",
-        xaxis_title='Dim 1',
-        yaxis_title='Dim 2',
+        xaxis_title=x_llm,
+        yaxis_title=y_llm,
         legend=dict(
             orientation='h',
             yanchor='top',
@@ -480,7 +797,8 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.6\\textwidth]{{figures/aspect_separation_"
         f"{exp_name}.pdf}}\n\\caption{{2D projection of all text segments belonging to the four aspects for "
-        f"{exp_name}. The separation between aspect clusters highlights the distinct spatial layout of the discourse simplex.}}\n"
+        f"{exp_name}. The separation between aspect clusters highlights the distinct spatial layout of the discourse simplex. "
+        f"Each aspect's centroid is marked as a cross.}}\n"
         f"\\label{{fig:aspect_separation_{exp_name}}}\n\\end{{figure}}"
     )
     
@@ -495,20 +813,6 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, font: 
 def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
     fig = go.Figure()
     
-    ops = [
-        'p_to_m', 'p_to_f', 'p_to_i',
-        'm_to_p', 'm_to_f', 'm_to_i',
-        'f_to_p', 'f_to_m', 'f_to_i',
-        'i_to_p', 'i_to_m', 'i_to_f'
-    ]
-    
-    operators_display = [
-        'P → M', 'P → F', 'P → I',
-        'M → P', 'M → F', 'M → I',
-        'F → P', 'F → M', 'F → I',
-        'I → P', 'I → M', 'I → F'
-    ]
-    
     matching_runs = results_df[results_df['experiment_id'] == exp_name] if exp_name else results_df
     
     if matching_runs.empty:
@@ -516,28 +820,57 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
         return fig, '', html.Div('No data.')
         
     row = matching_runs.iloc[0].to_dict()
-    z_scores = []
     
-    for op in ops:
-        z_col = f"h2_z_{op}"
-        if z_col in row:
-            z_scores.append(float(row[z_col]))
-        else:
-            z_scores.append(0.0)
-            
-    z_matrix = np.array(z_scores).reshape(4, 3)
+    z_matrix = np.zeros((4, 4))
+    p_matrix = np.zeros((4, 4))
     
+    aspects = ['P', 'M', 'F', 'I']
     y_labels = ['Problem (P)', 'Method (M)', 'Finding (F)', 'Interpretation (I)']
-    x_labels = ['To Pos 1', 'To Pos 2', 'To Pos 3']
+    x_labels = ['Problem (P)', 'Method (M)', 'Finding (F)', 'Interpretation (I)']
     
+    for r_idx, src in enumerate(aspects):
+        for c_idx, dest in enumerate(aspects):
+            if src == dest:
+                z_matrix[r_idx, c_idx] = np.nan
+                p_matrix[r_idx, c_idx] = np.nan
+            else:
+                op = f"{src.lower()}{dest.lower()}"
+                z_col = f"h2_z_{op}"
+                p_col = f"h2_pvalue_{op}"
+                
+                z_matrix[r_idx, c_idx] = float(row.get(z_col, 0.0))
+                p_matrix[r_idx, c_idx] = float(row.get(p_col, 1.0))
+                
     text_matrix = []
-    for r_idx, src in enumerate(['P', 'M', 'F', 'I']):
+    hover_matrix = []
+    
+    for r_idx, src in enumerate(aspects):
         row_text = []
-        dests = [d for d in ['P', 'M', 'F', 'I'] if d != src]
-        for c_idx, dest in enumerate(dests):
-            val = z_matrix[r_idx, c_idx]
-            row_text.append(f"{src} → {dest}<br>z = {val:.2f}")
+        row_hover = []
+        for c_idx, dest in enumerate(aspects):
+            if src == dest:
+                row_text.append("—")
+                row_hover.append(f"Operator: {src} → {dest}<br>Self-transitions not defined")
+            else:
+                z_val = z_matrix[r_idx, c_idx]
+                p_val = p_matrix[r_idx, c_idx]
+                
+                stars = ""
+                if p_val < 0.001:
+                    stars = "***"
+                elif p_val < 0.01:
+                    stars = "**"
+                elif p_val < 0.05:
+                    stars = "*"
+                    
+                row_text.append(f"{z_val:.2f}{stars}")
+                row_hover.append(
+                    f"Operator: {src} → {dest}<br>"
+                    f"z-score: {z_val:.4f}<br>"
+                    f"p-value: {p_val:.4g}"
+                )
         text_matrix.append(row_text)
+        hover_matrix.append(row_hover)
         
     colorscale = 'RdBu_r' if 'high-contrast' in style_opts else 'RdBu'
     
@@ -546,14 +879,16 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
         x=x_labels,
         y=y_labels,
         text=text_matrix,
-        hovertemplate='%{text}<extra></extra>',
+        texttemplate="%{text}",
+        hovertext=hover_matrix,
+        hovertemplate='%{hovertext}<extra></extra>',
         colorscale=colorscale,
         zmid=0
     ))
     
     fig.update_layout(
         title=f"Heatmap of H2 Effect Sizes (z-scores): {exp_name}",
-        xaxis_title='Destination Aspect Offset',
+        xaxis_title='Destination Aspect',
         yaxis_title='Source Aspect'
     )
     
@@ -563,18 +898,28 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.75\\textwidth]{{figures/h2_heatmap_"
         f"{exp_name}.pdf}}\n\\caption{{Heatmap of H2 effect sizes ($z$-scores) for the twelve transition operators on "
         f"{exp_name}. Positive scores (blue) indicate transition likelihood significantly higher than chance, and negative "
-        f"scores (red) indicate suppressed transitions.}}\n\\label{{fig:h2_heatmap_{exp_name}}}\n\\end{{figure}}"
+        f"scores (red) indicate suppressed transitions. Self-transitions along the diagonal are undefined. "
+        f"Cells display the $z$-score with significance markers "
+        f"($^*p < 0.05$, $^{{**}}p < 0.01$, $^{{***}}p < 0.001$).}}\n\\label{{fig:h2_heatmap_{exp_name}}}\n\\end{{figure}}"
     )
     
+    sig_count_05 = np.sum(p_matrix[~np.isnan(p_matrix)] < 0.05)
+    sig_count_01 = np.sum(p_matrix[~np.isnan(p_matrix)] < 0.01)
+    
+    max_z = np.nanmax(z_matrix) if not np.isnan(z_matrix).all() else 0.0
+    min_z = np.nanmin(z_matrix) if not np.isnan(z_matrix).all() else 0.0
+    
     stats_div = html.Div([
-        html.H6('z-score stats'),
-        html.P(f"Max z-score: {np.max(z_matrix):.2f}", className='mb-1'),
-        html.P(f"Min z-score: {np.min(z_matrix):.2f}", className='mb-1 text-muted')
+        html.H6('Transition Significance Statistics'),
+        html.P(f"Max z-score: {max_z:.2f}", className='mb-1'),
+        html.P(f"Min z-score: {min_z:.2f}", className='mb-1'),
+        html.P(f"Significant transitions (p < 0.05): {sig_count_05} / 12", className='mb-1 text-muted'),
+        html.P(f"Highly significant (p < 0.01): {sig_count_01} / 12", className='mb-1 text-muted')
     ])
     
     return fig, caption, stats_div
 
-def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, transition: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, transition: str, k_neighbors: int, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -594,7 +939,21 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
         
     row = paper_row.iloc[0]
     
-    src, dest = transition.split('_to_')
+    aspect_map = {
+        'p': 'problem',
+        'm': 'method',
+        'f': 'finding',
+        'i': 'interpretation',
+        'problem': 'problem',
+        'method': 'method',
+        'finding': 'finding',
+        'interpretation': 'interpretation'
+    }
+    if '_to_' in transition:
+        src, dest = transition.split('_to_')
+    else:
+        src = aspect_map[transition[0]]
+        dest = aspect_map[transition[1]]
     
     method = None
     if exp_name:
@@ -637,8 +996,9 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
     
     # Neighborhood search on source space
     dists = np.sqrt((df[src_x_col] - px)**2 + (df[src_y_col] - py)**2)
-    neighborhood_indices = dists.nsmallest(6).index
-    neighbors_df = df.loc[neighborhood_indices]
+    neighbor_indices = dists.nsmallest(k_neighbors + 1).index
+    neighbors_df = df.loc[neighbor_indices]
+    neighbors_df = neighbors_df[neighbors_df['id'] != paper_id]
     
     fig.add_trace(go.Scatter(
         x=neighbors_df[src_x_col],
@@ -668,10 +1028,11 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
             showlegend=False
         ))
         
+    x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
         title=f"Transition Neighborhoods ({transition.upper()}) for {paper_id}",
-        xaxis_title=f"Dim 1 ({src.capitalize()} Space)",
-        yaxis_title=f"Dim 2 ({src.capitalize()} Space)",
+        xaxis_title=f"{x_llm} ({src.capitalize()} Space)",
+        yaxis_title=f"{y_llm} ({src.capitalize()} Space)",
         legend=dict(
             orientation='h',
             yanchor='top',
@@ -686,19 +1047,20 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.6\\textwidth]{{figures/neighborhoods_"
         f"{transition}_{paper_id}.pdf}}\n\\caption{{Representative example of a transition neighborhood "
-        f"({src.capitalize()} $\\rightarrow$ {dest.capitalize()}) centered around {paper_id} in {exp_name}. Orange paths connect source segments to their destinations under the transition operator.}}\n"
+        f"({src.capitalize()} $\\rightarrow$ {dest.capitalize()}) centered around {paper_id} in {exp_name} with {k_neighbors} neighbors. Orange paths connect source segments to their destinations under the transition operator.}}\n"
         f"\\label{{fig:neighborhoods_{transition}_{paper_id}}}\n\\end{{figure}}"
     )
     
     stats_div = html.Div([
-        html.H6('Transition Neighborhood stats'),
+        html.H6('Transition Neighborhood Statistics'),
         html.P(f"Source: {src.capitalize()} | Destination: {dest.capitalize()}", className='mb-1'),
-        html.P(f"Target point coords: ({px:.4f}, {py:.4f})", className='mb-1 text-muted')
+        html.P(f"Target point coords: ({px:.4f}, {py:.4f})", className='mb-1'),
+        html.P(f"Neighbors displayed: {len(neighbors_df)}", className='mb-1 text-muted')
     ])
     
     return fig, caption, stats_div
 
-def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, k_neighbors: int, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -721,7 +1083,6 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
     z_map = {'problem': 0, 'method': 1, 'finding': 2, 'interpretation': 3}
     aspects = ['problem', 'method', 'finding', 'interpretation']
     
-    # Draw reference target simplex
     method = None
     if exp_name:
         try:
@@ -739,13 +1100,14 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
             tys.append(float(row[col_y]))
             tzs.append(z_map[asp])
             
+    neighbor_indices = []
     if len(txs) == 4:
         fig.add_trace(go.Scatter3d(
             x=txs, y=tys, z=tzs,
             mode='lines+markers',
             line=dict(color='black', width=4),
             marker=dict(size=8, color='black'),
-            name='Target Simplex'
+            name='Target Trajectory'
         ))
         
         # Neighborhood of adjacent simplices (find nearest neighbors in problem space)
@@ -756,12 +1118,16 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
         if prob_cols:
             prob_x_col, prob_y_col = prob_cols
             dists = np.sqrt((df[prob_x_col] - px)**2 + (df[prob_y_col] - py)**2)
-            neighbor_indices = dists.nsmallest(4).index
+            neighbor_indices = dists.nsmallest(k_neighbors + 1).index
             
+            neighbor_count = 0
             for n_idx in neighbor_indices:
                 n_row = df.loc[n_idx]
                 if n_row['id'] == paper_id:
                     continue
+                if neighbor_count >= k_neighbors:
+                    break
+                neighbor_count += 1
                     
                 nxs, nys, nzs = [], [], []
                 for asp in aspects:
@@ -772,30 +1138,32 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
                         nys.append(float(n_row[col_y]))
                         nzs.append(z_map[asp])
                 
-            fig.add_trace(go.Scatter3d(
-                x=nxs, y=nys, z=nzs,
-                mode='lines+markers',
-                line=dict(color='gray', width=1.5, dash='dash'),
-                marker=dict(size=4, color='gray'),
-                showlegend=False
-            ))
-            
-            # Connect them via transition operators
-            for i in range(3):
-                fig.add_trace(go.Scatter3d(
-                    x=[txs[i], nxs[i+1]],
-                    y=[tys[i], nys[i+1]],
-                    z=[tzs[i], nzs[i+1]],
-                    mode='lines',
-                    line=dict(color='rgba(255,165,0,0.4)', width=2),
-                    showlegend=False
-                ))
+                if len(nxs) == 4:
+                    fig.add_trace(go.Scatter3d(
+                        x=nxs, y=nys, z=nzs,
+                        mode='lines+markers',
+                        line=dict(color='gray', width=1.5, dash='dash'),
+                        marker=dict(size=4, color='gray'),
+                        showlegend=False
+                    ))
+                    
+                    # Connect them via transition operators
+                    for i in range(3):
+                        fig.add_trace(go.Scatter3d(
+                            x=[txs[i], nxs[i+1]],
+                            y=[tys[i], nys[i+1]],
+                            z=[tzs[i], nzs[i+1]],
+                            mode='lines',
+                            line=dict(color='rgba(255,165,0,0.4)', width=2),
+                            showlegend=False
+                        ))
                 
+    x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
         title=f"3D Connected Discourse Simplices (H2): {paper_id}",
         scene=dict(
-            xaxis=dict(showgrid=True, title='Dim 1'),
-            yaxis=dict(showgrid=True, title='Dim 2'),
+            xaxis=dict(showgrid=True, title=x_llm),
+            yaxis=dict(showgrid=True, title=y_llm),
             zaxis=dict(
                 tickvals=[0, 1, 2, 3],
                 ticktext=['Problem', 'Method', 'Finding', 'Interpretation'],
@@ -817,14 +1185,15 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.75\\textwidth]{{figures/connected_simplices_"
         f"{paper_id}.pdf}}\n\\caption{{3D visualization showing discourse simplices connected through conditional transition operators for "
-        f"{paper_id} and its neighbors. Simplices are aligned along the vertical discourse progression axis, with transition paths highlighted in orange.}}\n"
+        f"{paper_id} and its {k_neighbors} nearest neighbors in the 2D projection space. Simplices are aligned along the vertical discourse progression axis, with transition paths highlighted in orange.}}\n"
         f"\\label{{fig:connected_simplices_{paper_id}}}\n\\end{{figure}}"
     )
     
+    actual_neighbor_count = max(0, len(neighbor_indices) - 1) if neighbor_indices is not None else 0
     stats_div = html.Div([
-        html.H6('Connected Simplices statistics'),
+        html.H6('Connected Simplices Statistics'),
         html.P(f"Target paper: {paper_id}", className='mb-1'),
-        html.P(f"Connected neighbors: {len(neighbor_indices)-1}", className='mb-1 text-muted')
+        html.P(f"Connected neighbors: {actual_neighbor_count} (using 2D projection distance)", className='mb-1 text-muted')
     ])
     
     return fig, caption, stats_div
@@ -1120,9 +1489,9 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             return []
         try:
             df = _load_dr_df(exp_name, base_path)
-            df_papers = df[['id', 'title']].dropna().head(100)
+            df_papers = df[['id', 'title']].dropna().head(500)
             return [
-                {'label': row['title'][:50] + '...', 'value': row['id']}
+                {'label': (row['title'][:70] + '...') if len(row['title']) > 70 else row['title'], 'value': row['id']}
                 for _, row in df_papers.iterrows()
             ]
         except Exception as e:
@@ -1133,26 +1502,47 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         [
             Output('paper-fig-paper-group', 'style'),
             Output('paper-fig-transition-group', 'style'),
-            Output('paper-fig-exp-group', 'style')
+            Output('paper-fig-exp-group', 'style'),
+            Output('paper-fig-paper-select', 'multi'),
+            Output('paper-fig-paper-select', 'value'),
+            Output('paper-fig-neighbors-group', 'style')
         ],
-        Input('paper-fig-select', 'value'),
+        [Input('paper-fig-select', 'value')],
+        [State('paper-fig-paper-select', 'value')],
         prevent_initial_call=False
     )
-    def toggle_selectors_visibility(fig_choice):
+    def toggle_selectors_visibility(fig_choice, current_paper_val):
         show_paper = {'display': 'none'}
         show_trans = {'display': 'none'}
         show_exp = {'display': 'block'}
+        show_neighbors = {'display': 'none'}
+        multi = False
+        val = current_paper_val
         
-        if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h2-neighborhoods', 'fig-h2-connected-3d'):
+        if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h2-neighborhoods', 'fig-h2-connected-3d', 'fig-h1-example-simplex'):
             show_paper = {'display': 'block'}
+            
+        if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h1-example-simplex'):
+            multi = True
+            if isinstance(current_paper_val, str):
+                val = [current_paper_val] if current_paper_val else []
+            elif current_paper_val is None:
+                val = []
+        else:
+            multi = False
+            if isinstance(current_paper_val, list):
+                val = current_paper_val[0] if current_paper_val else None
             
         if fig_choice == 'fig-h2-neighborhoods':
             show_trans = {'display': 'block'}
             
+        if fig_choice in ('fig-h2-neighborhoods', 'fig-h2-connected-3d'):
+            show_neighbors = {'display': 'block'}
+            
         if fig_choice == 'fig-h1-energy-distance':
             show_exp = {'display': 'none'}
             
-        return show_paper, show_trans, show_exp
+        return show_paper, show_trans, show_exp, multi, val, show_neighbors
 
     @app.callback(
         [
@@ -1166,15 +1556,19 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             Input('paper-fig-exp-select', 'value'),
             Input('paper-fig-paper-select', 'value'),
             Input('paper-fig-transition-select', 'value'),
+            Input('paper-fig-neighbors-slider', 'value'),
             Input('paper-fig-style-options', 'value'),
             Input('paper-fig-font-select', 'value'),
             Input('paper-fig-font-size', 'value')
         ],
         prevent_initial_call=False
     )
-    def generate_selected_figure(fig_choice, exp_name, paper_id, transition, style_opts, font, base_font_size):
+    def generate_selected_figure(fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size):
         if not style_opts:
             style_opts = []
+            
+        if k_neighbors is None:
+            k_neighbors = 4
             
         if fig_choice != 'fig-h1-energy-distance' and not exp_name:
             empty_fig = go.Figure()
@@ -1193,22 +1587,22 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         
         try:
             if fig_choice == 'fig-h1-trajectory-simplex':
-                fig, cap, stats = _build_fig_h1_simplex(df, exp_name, paper_id, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h1_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)
                 title_text = 'H1.1: Discourse Trajectory & 3D Simplex'
             elif fig_choice == 'fig-h1-energy-distance':
                 fig, cap, stats = _build_fig_h1_energy_distance(results_df, font, base_font_size, style_opts)
                 title_text = 'H1.2: Energy Distance Results (All Experiments)'
             elif fig_choice == 'fig-h1-example-simplex':
-                fig, cap, stats = _build_fig_h1_example_simplex(df, exp_name, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)
                 title_text = 'H1.3: Example Simplex Visualizations (Aspect Separation)'
             elif fig_choice == 'fig-h2-heatmap':
                 fig, cap, stats = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts)
                 title_text = 'H2.1: Transition Operators Heatmap (z-scores)'
             elif fig_choice == 'fig-h2-neighborhoods':
-                fig, cap, stats = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path)
                 title_text = f"H2.2: Transition Neighborhoods ({transition.upper()})"
             elif fig_choice == 'fig-h2-connected-3d':
-                fig, cap, stats = _build_fig_h2_connected_3d(df, exp_name, paper_id, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)
                 title_text = 'H2.3: 3D Connected Discourse Simplices'
             elif fig_choice == 'fig-h3-predictive-gain':
                 fig, cap, stats = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)
@@ -1272,6 +1666,7 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             State('paper-fig-exp-select', 'value'),
             State('paper-fig-paper-select', 'value'),
             State('paper-fig-transition-select', 'value'),
+            State('paper-fig-neighbors-slider', 'value'),
             State('paper-fig-style-options', 'value'),
             State('paper-fig-font-select', 'value'),
             State('paper-fig-font-size', 'value'),
@@ -1280,12 +1675,15 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         ],
         prevent_initial_call=True
     )
-    def download_figure_html(n_clicks, fig_choice, exp_name, paper_id, transition, style_opts, font, base_font_size, aspect_ratio, export_format):
+    def download_figure_html(n_clicks, fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size, aspect_ratio, export_format):
         if not n_clicks:
             raise PreventUpdate
             
         if not style_opts:
             style_opts = []
+            
+        if k_neighbors is None:
+            k_neighbors = 4
             
         df = None
         if exp_name:
@@ -1298,17 +1696,17 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         
         try:
             if fig_choice == 'fig-h1-trajectory-simplex':
-                fig = _build_fig_h1_simplex(df, exp_name, paper_id, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h1_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)[0]
             elif fig_choice == 'fig-h1-energy-distance':
                 fig = _build_fig_h1_energy_distance(results_df, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h1-example-simplex':
-                fig = _build_fig_h1_example_simplex(df, exp_name, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)[0]
             elif fig_choice == 'fig-h2-heatmap':
                 fig = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h2-neighborhoods':
-                fig = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path)[0]
             elif fig_choice == 'fig-h2-connected-3d':
-                fig = _build_fig_h2_connected_3d(df, exp_name, paper_id, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)[0]
             elif fig_choice == 'fig-h3-predictive-gain':
                 fig = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h3-wasserstein-null':

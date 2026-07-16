@@ -98,6 +98,20 @@ def paper_figures_panel_layout() -> dbc.Container:
                             ),
                         ], style={"display": "none"}),
 
+                        # Neighbors Selector (only for neighborhood/H2 plots)
+                        html.Div(id="paper-fig-neighbors-group", children=[
+                            html.Label("Number of Neighbors (k):", className="fw-bold"),
+                            dcc.Slider(
+                                id="paper-fig-neighbors-slider",
+                                min=1,
+                                max=10,
+                                step=1,
+                                value=4,
+                                marks={i: str(i) for i in range(1, 11)},
+                                className="mb-3"
+                            ),
+                        ], style={"display": "none"}),
+
                         html.Hr(),
 
                         # Paper Style Options

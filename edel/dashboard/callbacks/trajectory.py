@@ -18,6 +18,7 @@ import dash_bootstrap_components as dbc
 from edel.experiments.registry import get_experiment
 from edel.io.artifact import make_stage_artifact, load_artifact
 from edel.analysis.trajectory import analyze_trajectory, format_report, ASPECTS
+from edel.dashboard.components.intrinsic_simplex import build_intrinsic_simplex_figure
 
 logger = logging.getLogger(__name__)
 
@@ -282,25 +283,6 @@ def _build_trajectory_simplex_plot_3d(
         hoverinfo="skip"
     ))
 
-    # Draw cross-cutting simplex edges: P->F, P->I, M->I (dashed white)
-    cross_xs, cross_ys, cross_zs = [], [], []
-    connections = [("problem", "finding"), ("problem", "interpretation"), ("method", "interpretation")]
-    for u, v in connections:
-        if u in vertex_keys and v in vertex_keys:
-            idx_u = vertex_keys.index(u)
-            idx_v = vertex_keys.index(v)
-            cross_xs.extend([vertex_xs[idx_u], vertex_xs[idx_v], None])
-            cross_ys.extend([vertex_ys[idx_u], vertex_ys[idx_v], None])
-            cross_zs.extend([vertex_zs[idx_u], vertex_zs[idx_v], None])
-
-    fig.add_trace(go.Scatter3d(
-        x=cross_xs, y=cross_ys, z=cross_zs,
-        mode="lines",
-        line=dict(color="rgba(255, 255, 255, 0.4)", width=3, dash="dash"),
-        name="Simplex Structure",
-        hoverinfo="skip"
-    ))
-
     # Draw markers for vertices with custom labels and selection highlight
     marker_sizes = []
     marker_colors = []
@@ -331,61 +313,6 @@ def _build_trajectory_simplex_plot_3d(
         name="Spaces",
         hovertemplate="<b>%{text} Space</b><br>Click to inspect<extra></extra>"
     ))
-
-    # Overlay neighbors' trajectories across all four spaces (D(Y|x))
-    selected_asp_data = aspects_data.get(selected_vertex, {})
-    neighbors = selected_asp_data.get("neighbors", [])
-    
-    neighbor_colors = [
-        "rgba(255, 99, 71, 0.7)",   # Tomato
-        "rgba(30, 144, 255, 0.7)",  # DodgerBlue
-        "rgba(46, 139, 87, 0.7)",   # SeaGreen
-        "rgba(218, 112, 214, 0.7)", # Orchid
-        "rgba(255, 215, 0, 0.7)",   # Gold
-    ]
-
-    for idx_n, n in enumerate(neighbors):
-        if df is None:
-            continue
-        n_data = df[df["id"] == n["id"]]
-        if n_data.empty:
-            continue
-        n_row = n_data.iloc[0]
-
-        # Extract coordinates for each of the four spaces
-        n_xs, n_ys, n_zs, n_hovertexts = [], [], [], []
-        valid = True
-        for asp in ASPECTS:
-            asp_x_col = f"proj_{asp}_{method}_x"
-            asp_y_col = f"proj_{asp}_{method}_y"
-            if asp_x_col in df.columns and pd.notna(n_row.get(asp_x_col)):
-                n_xs.append(float(n_row[asp_x_col]))
-                n_ys.append(float(n_row[asp_y_col]))
-                n_zs.append(z_map[asp])
-                n_hovertexts.append(
-                    f"Neighbor {idx_n+1}: {n.get('title', 'Unknown')[:50]}...<br>"
-                    f"Discourse Space: {asp.capitalize()}<br>"
-                    f"Distance to target in {selected_vertex.capitalize()}: {n['distance']:.4f}"
-                )
-            else:
-                valid = False
-                break
-
-        if valid and len(n_xs) == 4:
-            # Consistent color for this neighbor
-            color = neighbor_colors[idx_n % len(neighbor_colors)]
-            
-            # Add line trace for the neighbor simplex trajectory
-            fig.add_trace(go.Scatter3d(
-                x=n_xs, y=n_ys, z=n_zs,
-                mode="lines+markers",
-                line=dict(color=color, width=2, dash="dash"),
-                marker=dict(size=4, symbol="diamond", color=color),
-                name=f"Neighbor: {n.get('title', 'Unknown')[:15]}...",
-                hovertemplate="%{text}<extra></extra>",
-                text=n_hovertexts,
-                legendgroup=f"neighbor_{idx_n}",
-            ))
 
     # 3D layout
     fig.update_layout(
@@ -607,11 +534,13 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
     # --- 3D Graph Click to select vertex ---
     @app.callback(
         Output("traj-selected-vertex", "data", allow_duplicate=True),
-        Input("traj-plot-3d", "clickData"),
+        [Input("traj-plot-3d", "clickData"),
+         Input("traj-intrinsic-plot", "clickData")],
         State("traj-selected-vertex", "data"),
         prevent_initial_call=True
     )
-    def select_vertex_from_click(click_data, current_vertex):
+    def select_vertex_from_click(plane_click_data, intrinsic_click_data, current_vertex):
+        click_data = intrinsic_click_data if callback_context.triggered_id == "traj-intrinsic-plot" else plane_click_data
         if not click_data:
             raise PreventUpdate
         try:
@@ -627,6 +556,7 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
     @app.callback(
         [Output("traj-plot", "figure"),
          Output("traj-plot-3d", "figure"),
+         Output("traj-intrinsic-plot", "figure"),
          Output("traj-selected-vertex-label", "children"),
          Output("traj-selected-segment-text", "children"),
          Output("traj-selected-vertex-container", "style"),
@@ -646,7 +576,7 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
                 "yaxis": {"visible": False}
             })
             return (
-                empty_fig, empty_fig, "Problem",
+                empty_fig, empty_fig, empty_fig, "Problem",
                 "Run an analysis to inspect trajectory.",
                 {"display": "none"},
                 html.P("Run an analysis to see results.", className="text-muted")
@@ -675,11 +605,22 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
         
         fig_2d = _build_trajectory_plot_2d(df, result, method)
         fig_3d = _build_trajectory_simplex_plot_3d(df, result, method, selected_vertex)
+        target_id = target.get("id")
+        target_rows = df[df["id"] == target_id] if df is not None and target_id else pd.DataFrame()
+        neighbor_rows = []
+        for neighbor in result.get("aspects", {}).get(selected_vertex, {}).get("neighbors", []):
+            matches = df[df["id"] == neighbor.get("id")] if df is not None else pd.DataFrame()
+            if not matches.empty:
+                neighbor_rows.append((matches.iloc[0], neighbor))
+        fig_intrinsic = build_intrinsic_simplex_figure(
+            target_rows.iloc[0] if not target_rows.empty else None, neighbor_rows, selected_vertex
+        )
         results_children = _build_neighborhood_results_html(df, result, selected_vertex)
 
         return (
             fig_2d,
             fig_3d,
+            fig_intrinsic,
             vertex_label,
             segment_text,
             {"display": "block"},
@@ -747,6 +688,19 @@ def register_trajectory_callbacks(app: Dash, base_path: Path) -> None:
             return "mb-3", {"height": "380px"}, "⛶ Fullscreen"
         else:
             return "fullscreen-graph", {"height": "calc(100vh - 80px)"}, "🗖 Exit Fullscreen"
+
+    @app.callback(
+        [Output("traj-intrinsic-plot-card", "className"),
+         Output("traj-intrinsic-plot", "style"),
+         Output("traj-intrinsic-plot-fullscreen-btn", "children")],
+        Input("traj-intrinsic-plot-fullscreen-btn", "n_clicks"),
+        State("traj-intrinsic-plot-card", "className"),
+        prevent_initial_call=True
+    )
+    def toggle_fullscreen_intrinsic(n_clicks, current_class):
+        if "fullscreen-graph" in (current_class or ""):
+            return "mb-3", {"height": "520px"}, "⛶ Fullscreen"
+        return "fullscreen-graph", {"height": "calc(100vh - 80px)"}, "🗖 Exit Fullscreen"
 
 
 def _build_metrics_table(result: dict) -> dbc.Table:

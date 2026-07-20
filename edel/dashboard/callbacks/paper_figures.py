@@ -2368,6 +2368,8 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             width, height = 1000, 750
         elif aspect_ratio == '16:9':
             width, height = 1600, 900
+        elif aspect_ratio == '32:9':
+            width, height = 2000, 562
         else:
             width, height = 1000, 1000
             

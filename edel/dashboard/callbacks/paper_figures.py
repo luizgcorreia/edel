@@ -372,7 +372,12 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
             surname = _extract_first_author_surname(row.get("authorships"))
             year = row.get("publication_year", "Unknown")
             full_title = row.get("title", "Unknown Title")
-            trace_name = f"{full_title} ({surname}, {year})"
+            # Wrap long titles so the legend entry breaks across multiple lines
+            # (Plotly honours HTML <br> in legend names)
+            import textwrap
+            _LEGEND_WRAP = 40
+            wrapped_title = "<br>".join(textwrap.wrap(full_title, _LEGEND_WRAP))
+            trace_name = f"{wrapped_title}<br><i>({surname}, {year})</i>"
             
         # Draw sequential trajectory
         fig.add_trace(go.Scatter3d(
@@ -462,9 +467,11 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
         y_title = 'Joint PCA Dim 2'
         z_title = 'Joint PCA Dim 3'
     
+    # Reserve enough right margin for the legend (approx 280 px for wrapped titles)
+    _legend_margin_r = 0 if hide_legend else 290
     fig.update_layout(
         title=f"Discourse Trajectory & Simplex (H1): {first_title}" if len(valid_pids) == 1 else "Joint discourse Trajectory & Simplex projection (H1)",
-        margin=dict(l=0, r=0 if hide_legend else 100, t=40, b=0),
+        margin=dict(l=0, r=_legend_margin_r, t=40, b=0),
         scene=dict(
             xaxis=dict(showgrid=True, title=x_title),
             yaxis=dict(showgrid=True, title=y_title),
@@ -473,7 +480,16 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
             camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
         ),
         showlegend=not hide_legend,
-        legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05)
+        legend=dict(
+            orientation='v',
+            yanchor='middle',
+            y=0.5,
+            xanchor='left',
+            x=1.02,
+            # Cap legend entry width so wrapped titles don't expand the box
+            entrywidth=260,
+            entrywidthmode='pixels',
+        )
     )
     
     if hide_legend:

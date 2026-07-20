@@ -141,6 +141,13 @@ def apply_paper_style(fig: go.Figure, font: str, show_grid: bool, style_options:
     font_size_ticks = max(8, base_font_size - 2)
     font_size_legend = max(8, base_font_size - 2)
     
+    legend_style = dict(
+        font=dict(family=font, size=font_size_legend, color='black'),
+        bordercolor='black',
+        borderwidth=0.8,
+        bgcolor='white'
+    )
+    
     fig.update_layout(
         template='plotly_white',
         font=dict(family=font, size=base_font_size, color='black'),
@@ -148,12 +155,8 @@ def apply_paper_style(fig: go.Figure, font: str, show_grid: bool, style_options:
         margin=dict(l=55, r=45, t=50, b=45),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        legend=dict(
-            font=dict(family=font, size=font_size_legend, color='black'),
-            bordercolor='black',
-            borderwidth=0.8,
-            bgcolor='white'
-        )
+        legend=legend_style,
+        legend2=legend_style
     )
     
     fig.update_xaxes(
@@ -322,6 +325,8 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
         '#FF5722',  # Deep Orange
     ]
 
+    hide_legend = 'vertex-labels' in style_opts
+
     for p_idx, pid in enumerate(valid_pids):
         coords = coordinates_dict[pid]
         title = titles_dict[pid]
@@ -353,7 +358,7 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
             line=dict(color=color, width=line_width),
             name=f"Trajectory: {short_title}" if show_legend else 'Sequential Trajectory',
             legendgroup=f"paper_{pid}",
-            showlegend=show_legend,
+            showlegend=show_legend and not hide_legend,
             hoverinfo='skip'
         ))
         
@@ -384,14 +389,15 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
                     ),
                     name=asp.capitalize(),
                     text=[f"{asp.capitalize()}"],
-                    hovertemplate='<b>%{text}</b><extra></extra>'
+                    hovertemplate='<b>%{text}</b><extra></extra>',
+                    showlegend=not hide_legend
                 ))
         else:
             fig.add_trace(go.Scatter3d(
                 x=vertex_xs,
                 y=vertex_ys,
                 z=vertex_zs,
-                mode='markers+text',
+                mode='markers' if hide_legend else 'markers+text',
                 marker=dict(
                     size=8,
                     color=color,
@@ -431,7 +437,7 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
     
     fig.update_layout(
         title=f"Discourse Trajectory & Simplex (H1): {first_title}" if len(valid_pids) == 1 else "Joint discourse Trajectory & Simplex projection (H1)",
-        margin=dict(l=0, r=0, t=40, b=0),
+        margin=dict(l=0, r=0 if hide_legend else 100, t=40, b=0),
         scene=dict(
             xaxis=dict(showgrid=True, title=x_title),
             yaxis=dict(showgrid=True, title=y_title),
@@ -439,16 +445,49 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
             aspectmode='data',
             camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
         ),
-        legend=dict(orientation='h', yanchor='top', y=-0.15, xanchor='center', x=0.5)
+        showlegend=not hide_legend,
+        legend=dict(orientation='v', yanchor='middle', y=0.5, xanchor='left', x=1.05)
     )
     
+    if hide_legend:
+        annotations = []
+        for pid in valid_pids:
+            coords = coordinates_dict[pid]
+            vertex_xs, vertex_ys, vertex_zs = coords.T.tolist()
+            for idx_asp, asp in enumerate(aspects):
+                label_text = asp.capitalize() if len(valid_pids) == 1 else asp.capitalize()[0]
+                annotations.append(dict(
+                    showarrow=False,
+                    x=vertex_xs[idx_asp],
+                    y=vertex_ys[idx_asp],
+                    z=vertex_zs[idx_asp],
+                    text=label_text,
+                    xanchor="center",
+                    yanchor="bottom",
+                    font=dict(
+                        color="black",
+                        size=base_font_size + (1 if len(valid_pids) == 1 else -1),
+                        family=font
+                    ),
+                    bgcolor="rgba(255, 255, 255, 0.85)",
+                    bordercolor="rgba(0, 0, 0, 0.6)",
+                    borderwidth=1,
+                    borderpad=3,
+                    yshift=10
+                ))
+        fig.update_layout(
+            scene=dict(
+                annotations=annotations
+            )
+        )
+        
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
     
     if len(valid_pids) == 1:
         caption = (
             f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_"
             f"{first_pid}.pdf}}\n\\caption{{Intrinsic discourse simplex for the paper "
-            f"\\emph{{{first_title}}} ({first_pid}). The four aspect embeddings are positioned using their pairwise "
+            f"\\emph{{{first_title}}}. The four aspect embeddings are positioned using their pairwise "
             f"distances, preserving all six simplex edge lengths. Sequential transitions are solid gold; "
             f"the remaining tetrahedron edges are dashed grey.}}\n"
             f"\\label{{fig:simplex_trajectory_{first_pid}}}\n\\end{{figure}}"
@@ -544,7 +583,8 @@ def _build_fig_h1_energy_distance(results_df: pd.DataFrame, font: str, base_font
     
     return fig, caption, stats_div
 
-def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str | list[str] | None, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str | list[str] | None, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None, custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -648,7 +688,8 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
                 color=colors[asp],
                 opacity=0.4
             ),
-            name=asp.capitalize()
+            name=asp.capitalize(),
+            legend='legend'
         ))
         
         # Add centroid (with background black cross for contrast)
@@ -679,6 +720,7 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
             showlegend=False
         ))
         
+    selected_ids = []
     # Draw connection lines (3-simplex edges) for selected/sampled papers
     N = len(df)
     if N > 0 and len(valid_aspects) == len(aspects):
@@ -687,14 +729,6 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
             selected_ids = [paper_ids] if paper_ids else []
         elif isinstance(paper_ids, list):
             selected_ids = [pid for pid in paper_ids if pid]
-        else:
-            selected_ids = []
-            
-        if not selected_ids:
-            # Default to 3 random papers
-            rng = np.random.default_rng(42)
-            sample_indices = rng.choice(N, size=min(3, N), replace=False)
-            selected_ids = df['id'].iloc[sample_indices].tolist()
             
         # Distinct colors for selected tetrahedrons (non-clashing with aspect colors)
         tetra_colors = [
@@ -751,7 +785,6 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
                 ]
                 
                 title = df['title'].iloc[pos_idx]
-                short_title = (title[:25] + '...') if len(title) > 25 else title
                 color = tetra_colors[color_idx % len(tetra_colors)]
                 
                 # 1. Add edges trace
@@ -760,10 +793,11 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
                     y=line_y,
                     mode='lines',
                     line=dict(color=color, width=2.5, dash='dash'),
-                    name=f"Paper: {short_title}",
+                    name=title,
                     legendgroup=f"paper_{pid}",
                     showlegend=True,
-                    hoverinfo='skip'
+                    hoverinfo='skip',
+                    legend='legend2'
                 ))
                 
                 # 2. Add vertices trace
@@ -774,30 +808,43 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
                     marker=dict(size=6, color=color, symbol='circle'),
                     legendgroup=f"paper_{pid}",
                     showlegend=False,
-                    hoverinfo='skip'
+                    hoverinfo='skip',
+                    legend='legend2'
                 ))
                 color_idx += 1
         
     x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
-        title=f"Aspect Separation Example Simplex Projection ({exp_name})",
+        title=f"Aspect Separation Example Simplex Projection ({display_name})",
         xaxis_title=x_llm,
         yaxis_title=y_llm,
         legend=dict(
-            orientation='h',
+            orientation='v',
+            yanchor='top',
+            y=1.0,
+            xanchor='left',
+            x=1.02
+        ),
+        legend2=dict(
+            orientation='v',
             yanchor='top',
             y=-0.15,
-            xanchor='center',
-            x=0.5
+            xanchor='left',
+            x=0.0
         )
     )
     
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
+    if selected_ids:
+        extra_b = 20 * len(selected_ids)
+        fig.update_layout(margin=dict(l=55, r=120, t=50, b=45 + extra_b))
+    else:
+        fig.update_layout(margin=dict(l=55, r=120, t=50, b=45))
     
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.6\\textwidth]{{figures/aspect_separation_"
         f"{exp_name}.pdf}}\n\\caption{{2D projection of all text segments belonging to the four aspects for "
-        f"{exp_name}. The separation between aspect clusters highlights the distinct spatial layout of the discourse simplex. "
+        f"{display_name}. The separation between aspect clusters highlights the distinct spatial layout of the discourse simplex. "
         f"Each aspect's centroid is marked as a cross.}}\n"
         f"\\label{{fig:aspect_separation_{exp_name}}}\n\\end{{figure}}"
     )
@@ -810,7 +857,8 @@ def _build_fig_h1_example_simplex(df: pd.DataFrame | None, exp_name: str, paper_
     
     return fig, caption, stats_div
 
-def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, base_font_size: int, style_opts: list[str], custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     fig = go.Figure()
     
     matching_runs = results_df[results_df['experiment_id'] == exp_name] if exp_name else results_df
@@ -887,7 +935,7 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
     ))
     
     fig.update_layout(
-        title=f"Heatmap of H2 Effect Sizes (z-scores): {exp_name}",
+        title=f"Heatmap of H2 Effect Sizes (z-scores): {display_name}",
         xaxis_title='Destination Aspect',
         yaxis_title='Source Aspect'
     )
@@ -897,7 +945,7 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.75\\textwidth]{{figures/h2_heatmap_"
         f"{exp_name}.pdf}}\n\\caption{{Heatmap of H2 effect sizes ($z$-scores) for the twelve transition operators on "
-        f"{exp_name}. Positive scores (blue) indicate transition likelihood significantly higher than chance, and negative "
+        f"{display_name}. Positive scores (blue) indicate transition likelihood significantly higher than chance, and negative "
         f"scores (red) indicate suppressed transitions. Self-transitions along the diagonal are undefined. "
         f"Cells display the $z$-score with significance markers "
         f"($^*p < 0.05$, $^{{**}}p < 0.01$, $^{{***}}p < 0.001$).}}\n\\label{{fig:h2_heatmap_{exp_name}}}\n\\end{{figure}}"
@@ -919,7 +967,8 @@ def _build_fig_h2_heatmap(results_df: pd.DataFrame, exp_name: str, font: str, ba
     
     return fig, caption, stats_div
 
-def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, transition: str, k_neighbors: int, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id: str | None, transition: str, k_neighbors: int, font: str, base_font_size: int, style_opts: list[str], base_path: Path | None = None, custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
     
@@ -938,6 +987,7 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
         return fig, '', html.Div('No papers.')
         
     row = paper_row.iloc[0]
+    paper_title = row.get('title', paper_id) if 'title' in row else paper_id
     
     aspect_map = {
         'p': 'problem',
@@ -1030,7 +1080,7 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
         
     x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
-        title=f"Transition Neighborhoods ({transition.upper()}) for {paper_id}",
+        title=f"Transition Neighborhoods ({transition.upper()}) for {paper_title}",
         xaxis_title=f"{x_llm} ({src.capitalize()} Space)",
         yaxis_title=f"{y_llm} ({src.capitalize()} Space)",
         legend=dict(
@@ -1047,13 +1097,14 @@ def _build_fig_h2_neighborhoods(df: pd.DataFrame | None, exp_name: str, paper_id
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.6\\textwidth]{{figures/neighborhoods_"
         f"{transition}_{paper_id}.pdf}}\n\\caption{{Representative example of a transition neighborhood "
-        f"({src.capitalize()} $\\rightarrow$ {dest.capitalize()}) centered around {paper_id} in {exp_name} with {k_neighbors} neighbors. Orange paths connect source segments to their destinations under the transition operator.}}\n"
+        f"({src.capitalize()} $\\rightarrow$ {dest.capitalize()}) centered around \\emph{{{paper_title}}} in {display_name} with {k_neighbors} neighbors. Orange paths connect source segments to their destinations under the transition operator.}}\n"
         f"\\label{{fig:neighborhoods_{transition}_{paper_id}}}\n\\end{{figure}}"
     )
     
     stats_div = html.Div([
         html.H6('Transition Neighborhood Statistics'),
         html.P(f"Source: {src.capitalize()} | Destination: {dest.capitalize()}", className='mb-1'),
+        html.P(f"Target paper: {paper_title}", className='mb-1'),
         html.P(f"Target point coords: ({px:.4f}, {py:.4f})", className='mb-1'),
         html.P(f"Neighbors displayed: {len(neighbors_df)}", className='mb-1 text-muted')
     ])
@@ -1079,6 +1130,7 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
         return fig, '', html.Div('No papers.')
         
     row = paper_row.iloc[0]
+    paper_title = row.get('title', paper_id) if 'title' in row else paper_id
     
     z_map = {'problem': 0, 'method': 1, 'finding': 2, 'interpretation': 3}
     aspects = ['problem', 'method', 'finding', 'interpretation']
@@ -1100,6 +1152,8 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
             tys.append(float(row[col_y]))
             tzs.append(z_map[asp])
             
+    all_x = list(txs)
+    all_y = list(tys)
     neighbor_indices = []
     if len(txs) == 4:
         fig.add_trace(go.Scatter3d(
@@ -1139,28 +1193,68 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
                         nzs.append(z_map[asp])
                 
                 if len(nxs) == 4:
+                    all_x.extend(nxs)
+                    all_y.extend(nys)
                     fig.add_trace(go.Scatter3d(
                         x=nxs, y=nys, z=nzs,
                         mode='lines+markers',
                         line=dict(color='gray', width=1.5, dash='dash'),
                         marker=dict(size=4, color='gray'),
-                        showlegend=False
+                        name='Neighbor Trajectory',
+                        legendgroup='neighbors',
+                        showlegend=(neighbor_count == 1)
                     ))
                     
                     # Connect them via transition operators
-                    for i in range(3):
-                        fig.add_trace(go.Scatter3d(
-                            x=[txs[i], nxs[i+1]],
-                            y=[tys[i], nys[i+1]],
-                            z=[tzs[i], nzs[i+1]],
-                            mode='lines',
-                            line=dict(color='rgba(255,165,0,0.4)', width=2),
-                            showlegend=False
-                        ))
+                    if 'hide-transitions' not in style_opts:
+                        for i in range(3):
+                            fig.add_trace(go.Scatter3d(
+                                x=[txs[i], nxs[i+1]],
+                                y=[tys[i], nys[i+1]],
+                                z=[tzs[i], nzs[i+1]],
+                                mode='lines',
+                                line=dict(color='rgba(255,165,0,0.4)', width=2),
+                                name='Transition Path',
+                                legendgroup='transitions',
+                                showlegend=(neighbor_count == 1 and i == 0)
+                            ))
+                            
+        # Draw aspect planes if requested
+        if 'show-planes' in style_opts and all_x and all_y:
+            min_x, max_x = min(all_x), max(all_x)
+            min_y, max_y = min(all_y), max(all_y)
+            pad_x = (max_x - min_x) * 0.15 if max_x > min_x else 0.15
+            pad_y = (max_y - min_y) * 0.15 if max_y > min_y else 0.15
+            x_range = [min_x - pad_x, max_x + pad_x]
+            y_range = [min_y - pad_y, max_y + pad_y]
+            
+            grid_x = np.linspace(x_range[0], x_range[1], 2)
+            grid_y = np.linspace(y_range[0], y_range[1], 2)
+            grid_x, grid_y = np.meshgrid(grid_x, grid_y)
+            
+            for asp in aspects:
+                z_val = z_map[asp]
+                grid_z = np.full_like(grid_x, z_val)
+                hex_color = colors[asp].lstrip('#')
+                r, g, b_val = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                rgba_color = f"rgba({r}, {g}, {b_val}, 0.2)"
+                
+                fig.add_trace(go.Surface(
+                    x=grid_x,
+                    y=grid_y,
+                    z=grid_z,
+                    colorscale=[[0, rgba_color], [1, rgba_color]],
+                    showscale=False,
+                    opacity=0.2,
+                    hoverinfo='skip',
+                    name='Aspect Planes',
+                    legendgroup='planes',
+                    showlegend=(z_val == 0)
+                ))
                 
     x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
     fig.update_layout(
-        title=f"3D Connected Discourse Simplices (H2): {paper_id}",
+        title=f"3D Connected Discourse Simplices (H2): {paper_title}",
         scene=dict(
             xaxis=dict(showgrid=True, title=x_llm),
             yaxis=dict(showgrid=True, title=y_llm),
@@ -1172,27 +1266,28 @@ def _build_fig_h2_connected_3d(df: pd.DataFrame | None, exp_name: str, paper_id:
             camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
         ),
         legend=dict(
-            orientation='h',
+            orientation='v',
             yanchor='top',
-            y=-0.15,
-            xanchor='center',
-            x=0.5
+            y=1.0,
+            xanchor='left',
+            x=1.02
         )
     )
     
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
+    fig.update_layout(margin=dict(l=55, r=120, t=50, b=45))
     
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.75\\textwidth]{{figures/connected_simplices_"
         f"{paper_id}.pdf}}\n\\caption{{3D visualization showing discourse simplices connected through conditional transition operators for "
-        f"{paper_id} and its {k_neighbors} nearest neighbors in the 2D projection space. Simplices are aligned along the vertical discourse progression axis, with transition paths highlighted in orange.}}\n"
+        f"\\emph{{{paper_title}}} and its {k_neighbors} nearest neighbors in the 2D projection space. Simplices are aligned along the vertical discourse progression axis, with transition paths highlighted in orange.}}\n"
         f"\\label{{fig:connected_simplices_{paper_id}}}\n\\end{{figure}}"
     )
     
     actual_neighbor_count = max(0, len(neighbor_indices) - 1) if neighbor_indices is not None else 0
     stats_div = html.Div([
         html.H6('Connected Simplices Statistics'),
-        html.P(f"Target paper: {paper_id}", className='mb-1'),
+        html.P(f"Target paper: {paper_title}", className='mb-1'),
         html.P(f"Connected neighbors: {actual_neighbor_count} (using 2D projection distance)", className='mb-1 text-muted')
     ])
     
@@ -1220,7 +1315,7 @@ def _build_fig_h3_predictive_gain(results_df: pd.DataFrame, exp_name: str, font:
     fig.update_layout(
         title='Predictive Gain Comparison (H3): EDEL vs Persistence Baselines',
         xaxis_title='Experiment ID',
-        yaxis_title='Predictive Gain ($W_{baseline} - W_{EDEL}$)'
+        yaxis_title='Predictive Gain (persistence - model)'
     )
     
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
@@ -1240,7 +1335,8 @@ def _build_fig_h3_predictive_gain(results_df: pd.DataFrame, exp_name: str, font:
     
     return fig, caption, stats_div
 
-def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str], custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     base_path = Path(base_path)
     colors = get_paper_colors('high-contrast' in style_opts)
     fig = go.Figure()
@@ -1303,8 +1399,8 @@ def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: s
     )
     
     fig.update_layout(
-        title=f"Wasserstein transport predictive gain null distribution: {exp_name}",
-        xaxis_title='Predictive Gain ($W_{baseline} - W_{EDEL}$)',
+        title=f"Wasserstein transport predictive gain null distribution: {display_name}",
+        xaxis_title='Predictive Gain (persistence - model)',
         yaxis_title='Permutation Count'
     )
     
@@ -1313,7 +1409,7 @@ def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: s
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.5\\textwidth]{{figures/wasserstein_null_"
         f"{exp_name}.pdf}}\n\\caption{{Permutation distribution of predictive gains ($W_{{baseline}} - W_{{EDEL}}$) under 100 temporal splits (gray histogram) for "
-        f"{exp_name}. The vertical line shows the observed gain on the real historical split, demonstrating significant forecasting power ($p = {p_val:.4g}$).}}\n"
+        f"{display_name}. The vertical line shows the observed gain on the real historical split, demonstrating significant forecasting power ($p = {p_val:.4g}$).}}\n"
         f"\\label{{fig:wasserstein_null_{exp_name}}}\n\\end{{figure}}"
     )
     
@@ -1329,14 +1425,83 @@ def _build_fig_h3_wasserstein_null(exp_name: str, base_path: str | Path, font: s
     
     return fig, caption, stats_div
 
-def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _get_h3_cluster_data(exp_name: str, base_path: Path, n_clusters: int = 10) -> tuple[pd.DataFrame | None, str | None, str | None, np.ndarray | None, list[np.ndarray | None] | None]:
+    """Helper to get 2D projection columns, KMeans labels, and convex hulls for clusters."""
+    try:
+        df = _load_dr_df(exp_name, base_path)
+    except Exception:
+        df = None
+        
+    if df is None:
+        return None, None, None, None, None
+        
+    proj_x_cols = [c for c in df.columns if c.startswith("proj_") and c.endswith("_x")]
+    if not proj_x_cols:
+        return df, None, None, None, None
+        
+    col_x = proj_x_cols[0]
+    col_y = col_x[:-2] + "_y"
+    if col_y not in df.columns:
+        return df, None, None, None, None
+        
+    # Fit KMeans on problem_embedding to match the H3 cluster definitions
+    try:
+        from sklearn.cluster import KMeans
+        from edel.experiments.metrics.hypothesis_tests import load_embeddings_to_matrix, sk_normalize
+        from edel.experiments.registry import get_experiment
+        from edel.experiments.runner import load_registry
+        
+        config = None
+        registry = load_registry(base_path)
+        for rec in registry:
+            if rec["experiment_id"] == exp_name:
+                config = rec.get("config")
+                break
+        if not config:
+            config = get_experiment(exp_name)
+            
+        dimensions = config.get("embedding", {}).get("n_dimensions")
+        if dimensions is None:
+            from edel.pipeline.projection import detect_embedding_dimensions
+            dimensions = detect_embedding_dimensions(df, config)
+            
+        mat = load_embeddings_to_matrix(df, "problem_embedding", dimensions)
+        mat -= mat.mean(axis=0)
+        emb_p = sk_normalize(mat)
+        
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
+        labels = kmeans.fit_predict(emb_p)
+        
+        from scipy.spatial import ConvexHull
+        hulls_2d = []
+        for c_idx in range(n_clusters):
+            mask = (labels == c_idx)
+            pts = df.loc[mask, [col_x, col_y]].dropna().values
+            if len(pts) >= 3:
+                try:
+                    hull = ConvexHull(pts)
+                    vertices = pts[hull.vertices]
+                    vertices = np.vstack([vertices, vertices[0]])
+                    hulls_2d.append(vertices)
+                except Exception:
+                    hulls_2d.append(None)
+            else:
+                hulls_2d.append(None)
+    except Exception as e:
+        logger.warning(f"Error computing cluster hulls in _get_h3_cluster_data: {e}")
+        return df, col_x, col_y, None, None
+        
+    return df, col_x, col_y, labels, hulls_2d
+
+def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str], custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     base_path = Path(base_path)
-    fig = go.Figure()
     
     feat = _load_features(exp_name, base_path)
     moran_feat = _get_or_compute_h3_moran_features(exp_name, feat, base_path)
     
     if not moran_feat:
+        fig = go.Figure()
         fig.add_annotation(text='Moran features not available for this run.', showarrow=False)
         return fig, '', html.Div('Data missing.')
         
@@ -1352,8 +1517,88 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
     )
     
     max_val = max(np.max(np.abs(x_pred)), np.max(np.abs(y_obs)), 1e-5)
-    colorscale = 'RdBu_r' if 'high-contrast' in style_opts else 'RdBu'
+    colorscale_name = 'RdBu_r' if 'high-contrast' in style_opts else 'RdBu'
     
+    # 1. Add background point cloud (all papers)
+    df, col_x, col_y, labels, hulls_2d = _get_h3_cluster_data(exp_name, base_path, n_clusters=len(x_pred))
+    
+    if df is not None and col_x and col_y:
+        # Sample up to 5000 papers for fast rendering and high visual quality
+        df_bg = df.sample(n=min(5000, len(df)), random_state=42)
+        
+        for col_idx in [1, 2]:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_bg[col_x],
+                    y=df_bg[col_y],
+                    mode='markers',
+                    marker=dict(
+                        size=3,
+                        color='rgba(210, 210, 210, 0.4)',
+                    ),
+                    name='Papers',
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=1, col=col_idx
+            )
+            
+    # 2. Add cluster convex hulls (semi-transparent filled regions)
+    if hulls_2d:
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+        
+        # Color mapping helper
+        def get_rgba(val):
+            try:
+                if hasattr(cm, 'colormaps'):
+                    cmap = cm.colormaps.get(colorscale_name, cm.get_cmap(colorscale_name))
+                else:
+                    cmap = cm.get_cmap(colorscale_name)
+            except Exception:
+                cmap = cm.get_cmap('RdBu')
+            norm = mcolors.Normalize(vmin=-max_val, vmax=max_val)
+            rgba = cmap(norm(val))
+            fill_color = f"rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 0.18)"
+            line_color = f"rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, 0.6)"
+            return fill_color, line_color
+            
+        for i, hull in enumerate(hulls_2d):
+            if hull is not None:
+                # Left plot (Predicted)
+                fill_p, line_p = get_rgba(x_pred[i])
+                fig.add_trace(
+                    go.Scatter(
+                        x=hull[:, 0],
+                        y=hull[:, 1],
+                        fill='toself',
+                        fillcolor=fill_p,
+                        line=dict(color=line_p, width=1.5, dash='dash'),
+                        mode='lines',
+                        name=f'Cluster {i} Pred',
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ),
+                    row=1, col=1
+                )
+                # Right plot (Observed)
+                fill_o, line_o = get_rgba(y_obs[i])
+                fig.add_trace(
+                    go.Scatter(
+                        x=hull[:, 0],
+                        y=hull[:, 1],
+                        fill='toself',
+                        fillcolor=fill_o,
+                        line=dict(color=line_o, width=1.5, dash='dash'),
+                        mode='lines',
+                        name=f'Cluster {i} Obs',
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ),
+                    row=1, col=2
+                )
+                
+    # 3. Add polished centroid markers in the foreground
     fig.add_trace(
         go.Scatter(
             x=coords[:, 0],
@@ -1361,15 +1606,15 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
             mode='markers+text',
             text=[f"C{i}" for i in range(len(x_pred))],
             textposition='top center',
-            textfont=dict(size=max(8, base_font_size - 2)),
+            textfont=dict(size=base_font_size - 1, family=font, color='black'),
             marker=dict(
-                size=14,
+                size=18,
                 color=x_pred,
-                colorscale=colorscale,
+                colorscale=colorscale_name,
                 cmin=-max_val,
                 cmax=max_val,
                 showscale=False,
-                line=dict(color='black', width=1.0)
+                line=dict(color='black', width=1.5)
             ),
             name='Predicted',
             showlegend=False
@@ -1384,16 +1629,21 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
             mode='markers+text',
             text=[f"C{i}" for i in range(len(y_obs))],
             textposition='top center',
-            textfont=dict(size=max(8, base_font_size - 2)),
+            textfont=dict(size=base_font_size - 1, family=font, color='black'),
             marker=dict(
-                size=14,
+                size=18,
                 color=y_obs,
-                colorscale=colorscale,
+                colorscale=colorscale_name,
                 cmin=-max_val,
                 cmax=max_val,
                 showscale=True,
-                colorbar=dict(title='Density change', thickness=15, len=0.8),
-                line=dict(color='black', width=1.0)
+                colorbar=dict(
+                    title=dict(text='Density change', font=dict(size=base_font_size, family=font)),
+                    thickness=15,
+                    len=0.8,
+                    tickfont=dict(size=base_font_size - 2, family=font)
+                ),
+                line=dict(color='black', width=1.5)
             ),
             name='Observed',
             showlegend=False
@@ -1402,7 +1652,7 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
     )
     
     fig.update_layout(
-        title=f"Predicted vs Observed Future Density Maps (Cluster Centroids): {exp_name}",
+        title=f"Predicted vs Observed Future Density Maps (Cluster Centroids): {display_name}",
         margin=dict(t=80, b=40)
     )
     
@@ -1414,7 +1664,7 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
     caption = (
         f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{{figures/density_maps_"
         f"{exp_name}.pdf}}\n\\caption{{Comparison of predicted (left) and observed (right) density changes across the 10 cluster centroids in the projection space for "
-        f"{exp_name}. Growth areas (blue) and shrinkage areas (red) are visually aligned, indicating high spatial predictive accuracy.}}\n"
+        f"{display_name}. Shaded regions represent cluster convex hulls colored by their density change. Growth areas (blue) and shrinkage areas (red) are visually aligned, indicating high spatial predictive accuracy.}}\n"
         f"\\label{{fig:density_maps_{exp_name}}}\n\\end{{figure}}"
     )
     
@@ -1427,7 +1677,8 @@ def _build_fig_h3_density_maps(exp_name: str, base_path: str | Path, font: str, 
     
     return fig, caption, stats_div
 
-def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str]) -> tuple[go.Figure, str, html.Div]:
+def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: str, base_font_size: int, style_opts: list[str], custom_exp_name: str | None = None) -> tuple[go.Figure, str, html.Div]:
+    display_name = custom_exp_name if custom_exp_name else exp_name
     base_path = Path(base_path)
     fig = go.Figure()
     
@@ -1439,7 +1690,7 @@ def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: 
         return fig, '', html.Div('Data missing.')
         
     from edel.dashboard.callbacks.hypothesis_callbacks import _build_moran_scatterplot
-    fig = _build_moran_scatterplot(moran_feat, f"Bivariate Moran Scatterplot: {exp_name}")
+    fig = _build_moran_scatterplot(moran_feat, f"Bivariate Moran Scatterplot: {display_name}")
     
     apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
     
@@ -1449,7 +1700,7 @@ def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: 
     caption = (
         f"\\begin{{figure}}[t]\n\\centering\n\\includegraphics[width=0.48\\textwidth]{{figures/moran_scatterplot_"
         f"{exp_name}.pdf}}\n\\caption{{Bivariate Moran scatterplot showing standardized predicted density change ($z_x$) versus the spatial lag of standardized observed density change ($W z_y$) across the cluster centroids for "
-        f"{exp_name}. The slope ($I = {moran_i:.4f}$, $p = {p_val:.4g}$) indicates significant spatial alignment.}}\n"
+        f"{display_name}. The slope ($I = {moran_i:.4f}$, $p = {p_val:.4g}$) indicates significant spatial alignment.}}\n"
         f"\\label{{fig:moran_scatterplot_{exp_name}}}\n\\end{{figure}}"
     )
     
@@ -1505,13 +1756,18 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             Output('paper-fig-exp-group', 'style'),
             Output('paper-fig-paper-select', 'multi'),
             Output('paper-fig-paper-select', 'value'),
-            Output('paper-fig-neighbors-group', 'style')
+            Output('paper-fig-neighbors-group', 'style'),
+            Output('paper-fig-style-options', 'options'),
+            Output('paper-fig-style-options', 'value')
         ],
         [Input('paper-fig-select', 'value')],
-        [State('paper-fig-paper-select', 'value')],
+        [
+            State('paper-fig-paper-select', 'value'),
+            State('paper-fig-style-options', 'value')
+        ],
         prevent_initial_call=False
     )
-    def toggle_selectors_visibility(fig_choice, current_paper_val):
+    def toggle_selectors_visibility(fig_choice, current_paper_val, current_style_opts):
         show_paper = {'display': 'none'}
         show_trans = {'display': 'none'}
         show_exp = {'display': 'block'}
@@ -1542,7 +1798,27 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         if fig_choice == 'fig-h1-energy-distance':
             show_exp = {'display': 'none'}
             
-        return show_paper, show_trans, show_exp, multi, val, show_neighbors
+        # Determine the dynamic style options
+        base_opts = [
+            {"label": "Apply Paper Style (Serif, White BG, Academic Ticks)", "value": "paper-style"},
+            {"label": "Show Gridlines", "value": "gridlines"},
+            {"label": "Colorblind-Friendly / High-Contrast Color Scheme", "value": "high-contrast"},
+        ]
+        
+        if fig_choice == 'fig-h1-trajectory-simplex':
+            options = base_opts + [{"label": "Display Vertex Labels (Hide Legend)", "value": "vertex-labels"}]
+        elif fig_choice == 'fig-h2-connected-3d':
+            options = base_opts + [
+                {"label": "Hide Transition Lines", "value": "hide-transitions"},
+                {"label": "Show Aspect Planes", "value": "show-planes"}
+            ]
+        else:
+            options = base_opts
+            
+        valid_vals = {opt['value'] for opt in options}
+        new_style_opts = [v for v in (current_style_opts or []) if v in valid_vals]
+        
+        return show_paper, show_trans, show_exp, multi, val, show_neighbors, options, new_style_opts
 
     @app.callback(
         [
@@ -1559,11 +1835,12 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             Input('paper-fig-neighbors-slider', 'value'),
             Input('paper-fig-style-options', 'value'),
             Input('paper-fig-font-select', 'value'),
-            Input('paper-fig-font-size', 'value')
+            Input('paper-fig-font-size', 'value'),
+            Input('paper-fig-custom-name', 'value')
         ],
         prevent_initial_call=False
     )
-    def generate_selected_figure(fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size):
+    def generate_selected_figure(fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size, custom_exp_name):
         if not style_opts:
             style_opts = []
             
@@ -1593,13 +1870,13 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
                 fig, cap, stats = _build_fig_h1_energy_distance(results_df, font, base_font_size, style_opts)
                 title_text = 'H1.2: Energy Distance Results (All Experiments)'
             elif fig_choice == 'fig-h1-example-simplex':
-                fig, cap, stats = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)
+                fig, cap, stats = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path, custom_exp_name)
                 title_text = 'H1.3: Example Simplex Visualizations (Aspect Separation)'
             elif fig_choice == 'fig-h2-heatmap':
-                fig, cap, stats = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts, custom_exp_name)
                 title_text = 'H2.1: Transition Operators Heatmap (z-scores)'
             elif fig_choice == 'fig-h2-neighborhoods':
-                fig, cap, stats = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path)
+                fig, cap, stats = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path, custom_exp_name)
                 title_text = f"H2.2: Transition Neighborhoods ({transition.upper()})"
             elif fig_choice == 'fig-h2-connected-3d':
                 fig, cap, stats = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)
@@ -1608,13 +1885,13 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
                 fig, cap, stats = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)
                 title_text = 'H3.1: Predictive Gain (EDEL vs Baseline)'
             elif fig_choice == 'fig-h3-wasserstein-null':
-                fig, cap, stats = _build_fig_h3_wasserstein_null(exp_name, base_path, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h3_wasserstein_null(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)
                 title_text = 'H3.2: Wasserstein Transport Null Distribution'
             elif fig_choice == 'fig-h3-density-maps':
-                fig, cap, stats = _build_fig_h3_density_maps(exp_name, base_path, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h3_density_maps(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)
                 title_text = 'H3.3: Predicted vs Observed Density Maps'
             elif fig_choice == 'fig-h3-moran-scatterplot':
-                fig, cap, stats = _build_fig_h3_moran_scatterplot(exp_name, base_path, font, base_font_size, style_opts)
+                fig, cap, stats = _build_fig_h3_moran_scatterplot(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)
                 title_text = 'H3.4: Bivariate Moran Scatterplot'
             else:
                 fig = go.Figure()
@@ -1671,11 +1948,12 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             State('paper-fig-font-select', 'value'),
             State('paper-fig-font-size', 'value'),
             State('paper-fig-aspect-ratio', 'value'),
-            State('paper-fig-export-format', 'value')
+            State('paper-fig-export-format', 'value'),
+            State('paper-fig-custom-name', 'value')
         ],
         prevent_initial_call=True
     )
-    def download_figure_html(n_clicks, fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size, aspect_ratio, export_format):
+    def download_figure_html(n_clicks, fig_choice, exp_name, paper_id, transition, k_neighbors, style_opts, font, base_font_size, aspect_ratio, export_format, custom_exp_name):
         if not n_clicks:
             raise PreventUpdate
             
@@ -1700,21 +1978,21 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             elif fig_choice == 'fig-h1-energy-distance':
                 fig = _build_fig_h1_energy_distance(results_df, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h1-example-simplex':
-                fig = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path)[0]
+                fig = _build_fig_h1_example_simplex(df, exp_name, paper_id, font, base_font_size, style_opts, base_path, custom_exp_name)[0]
             elif fig_choice == 'fig-h2-heatmap':
-                fig = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h2_heatmap(results_df, exp_name, font, base_font_size, style_opts, custom_exp_name)[0]
             elif fig_choice == 'fig-h2-neighborhoods':
-                fig = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path)[0]
+                fig = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path, custom_exp_name)[0]
             elif fig_choice == 'fig-h2-connected-3d':
                 fig = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)[0]
             elif fig_choice == 'fig-h3-predictive-gain':
                 fig = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h3-wasserstein-null':
-                fig = _build_fig_h3_wasserstein_null(exp_name, base_path, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h3_wasserstein_null(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)[0]
             elif fig_choice == 'fig-h3-density-maps':
-                fig = _build_fig_h3_density_maps(exp_name, base_path, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h3_density_maps(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)[0]
             elif fig_choice == 'fig-h3-moran-scatterplot':
-                fig = _build_fig_h3_moran_scatterplot(exp_name, base_path, font, base_font_size, style_opts)[0]
+                fig = _build_fig_h3_moran_scatterplot(exp_name, base_path, font, base_font_size, style_opts, custom_exp_name)[0]
             else:
                 fig = go.Figure()
                 fig.add_annotation(text='Figure builder not implemented yet.', showarrow=False)

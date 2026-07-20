@@ -61,6 +61,13 @@ def paper_figures_panel_layout() -> dbc.Container:
                                 clearable=False,
                                 className="mb-3"
                             ),
+                            html.Label("Custom Experiment Name (for print):", className="fw-bold"),
+                            dbc.Input(
+                                id="paper-fig-custom-name",
+                                type="text",
+                                placeholder="e.g. AFP Baseline (leave blank to use ID)",
+                                className="mb-3"
+                            ),
                         ]),
 
                         # Select Paper (only visible for certain figures)
@@ -123,6 +130,7 @@ def paper_figures_panel_layout() -> dbc.Container:
                                 {"label": "Apply Paper Style (Serif, White BG, Academic Ticks)", "value": "paper-style"},
                                 {"label": "Show Gridlines", "value": "gridlines"},
                                 {"label": "Colorblind-Friendly / High-Contrast Color Scheme", "value": "high-contrast"},
+                                {"label": "Display Vertex Labels (Hide Legend)", "value": "vertex-labels"},
                             ],
                             value=["paper-style", "gridlines"],
                             switch=True,

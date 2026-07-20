@@ -15,6 +15,7 @@ def paper_figures_panel_layout() -> dbc.Container:
         {"label": "H2.1: Transition Operators Heatmap (z-scores)", "value": "fig-h2-heatmap"},
         {"label": "H2.2: Representative Transition Neighborhoods", "value": "fig-h2-neighborhoods"},
         {"label": "H2.3: 3D Connected Simplices (Transitions)", "value": "fig-h2-connected-3d"},
+        {"label": "H2.4: Discourse Transition Space (PCA on Displacement Vectors)", "value": "fig-h2-transition-space"},
         {"label": "H3.1: Predictive Gain (EDEL vs Persistence)", "value": "fig-h3-predictive-gain"},
         {"label": "H3.2: Wasserstein Transport Null Distribution", "value": "fig-h3-wasserstein-null"},
         {"label": "H3.3: Predicted vs Observed Density Maps", "value": "fig-h3-density-maps"},

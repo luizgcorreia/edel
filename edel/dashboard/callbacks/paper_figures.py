@@ -23,6 +23,7 @@ from edel.dashboard.callbacks.hypothesis_callbacks import (
 logger = logging.getLogger(__name__)
 
 _UNIFIED_PROJ_CACHE = {}
+_TRANSITION_SPACE_CACHE = {}
 
 def _get_proj_cols(df: pd.DataFrame, aspect: str, method: str | None = None) -> tuple[str, str] | None:
     """Resolve projection columns for a given aspect, trying method suffix first."""
@@ -1756,6 +1757,271 @@ def _build_fig_h3_moran_scatterplot(exp_name: str, base_path: str | Path, font: 
     
     return fig, caption, stats_div
 
+def _build_fig_h2_transition_space(
+    df: pd.DataFrame | None,
+    exp_name: str,
+    paper_id: str | None,
+    font: str,
+    base_font_size: int,
+    style_opts: list[str],
+    base_path: Path | None = None,
+    custom_exp_name: str | None = None,
+) -> tuple[go.Figure, str, html.Div]:
+    """2-D PCA scatter of displacement vectors (P→M, M→F, F→I) with optional paper highlight."""
+    display_name = custom_exp_name if custom_exp_name else exp_name
+    fig = go.Figure()
+
+    if df is None or df.empty:
+        fig.add_annotation(text='No data loaded', showarrow=False)
+        return fig, '', html.Div('Select an experiment to load data.')
+
+    aspects = ['problem', 'method', 'finding', 'interpretation']
+    has_embeddings = all(f"{a}_embedding" in df.columns for a in aspects)
+    if not has_embeddings:
+        fig.add_annotation(text='Aspect embeddings missing — cannot compute displacement vectors.', showarrow=False)
+        return fig, '', html.Div('Embeddings missing.')
+
+    # ----------------------------------------------------------------
+    # Load + correct embeddings (cached per experiment)
+    # ----------------------------------------------------------------
+    cache_key = (exp_name, len(df))
+    cached = _TRANSITION_SPACE_CACHE.get(cache_key)
+
+    if cached is None:
+        try:
+            from edel.pipeline.projection import load_embeddings_to_matrix, detect_embedding_dimensions
+            from edel.experiments.metrics.embedding import apply_anisotropy_correction
+            from sklearn.decomposition import PCA
+
+            config = get_experiment(exp_name)
+            dr_cfg = config.get('dimensionality_reduction', {})
+            remove_pc = dr_cfg.get('remove_top_pcs', 0)
+            anisotropy_method = dr_cfg.get('anisotropy_method', 'pc_removal' if remove_pc > 0 else 'none')
+            dimensions = detect_embedding_dimensions(df, config)
+
+            embs = {a: load_embeddings_to_matrix(df, f"{a}_embedding", dimensions) for a in aspects}
+
+            if anisotropy_method != 'none':
+                embs = apply_anisotropy_correction(embs, method=anisotropy_method, n_components=remove_pc)
+
+            emb_p = embs['problem']
+            emb_m = embs['method']
+            emb_f = embs['finding']
+            emb_i = embs['interpretation']
+
+            pm = emb_m - emb_p
+            mf = emb_f - emb_m
+            fi = emb_i - emb_f
+
+            X = np.vstack([pm, mf, fi])
+            pca = PCA(n_components=2)
+            X_pca = pca.fit_transform(X)
+
+            n = len(df)
+            labels_arr = np.array(['P→M'] * n + ['M→F'] * n + ['F→I'] * n)
+
+            # Keep original (pre-trim) data for paper projection
+            cached = {
+                'X_pca': X_pca,
+                'labels_arr': labels_arr,
+                'pca': pca,
+                'n': n,
+                'pm': pm,
+                'mf': mf,
+                'fi': fi,
+                'explained': pca.explained_variance_ratio_,
+            }
+            _TRANSITION_SPACE_CACHE[cache_key] = cached
+        except Exception as e:
+            logger.error(f'Error computing transition space for {exp_name}: {e}', exc_info=True)
+            fig.add_annotation(text=f'Error computing displacement vectors: {e}', showarrow=False)
+            return fig, '', html.Div(f'Computation error: {e}')
+
+    X_pca = cached['X_pca'].copy()
+    labels_arr = cached['labels_arr'].copy()
+    pca_model = cached['pca']
+    n = cached['n']
+    explained = cached['explained']
+
+    # ----------------------------------------------------------------
+    # Outlier trimming (quantile=0.95)
+    # ----------------------------------------------------------------
+    if 'trim-outliers' in style_opts:
+        lower, upper = 2.5, 97.5  # symmetric 95% quantile
+        x_min, x_max = np.percentile(X_pca[:, 0], [lower, upper])
+        y_min, y_max = np.percentile(X_pca[:, 1], [lower, upper])
+        mask = (
+            (X_pca[:, 0] >= x_min) & (X_pca[:, 0] <= x_max) &
+            (X_pca[:, 1] >= y_min) & (X_pca[:, 1] <= y_max)
+        )
+        X_pca = X_pca[mask]
+        labels_arr = labels_arr[mask]
+
+    # ----------------------------------------------------------------
+    # Corpus scatter — one trace per transition type
+    # ----------------------------------------------------------------
+    # Palette matches viz.plot_epistemic_transition_space
+    is_hc = 'high-contrast' in style_opts
+    palette = {
+        'P→M': ('#1f77b4' if is_hc else '#3498DB'),
+        'M→F': ('#ff7f0e' if is_hc else '#E67E22'),
+        'F→I': ('#2ca02c' if is_hc else '#1ABC9C'),
+    }
+    marker_opacity = 0.45
+
+    for label, color in palette.items():
+        mask_l = labels_arr == label
+        if not mask_l.any():
+            continue
+        fig.add_trace(go.Scatter(
+            x=X_pca[mask_l, 0],
+            y=X_pca[mask_l, 1],
+            mode='markers',
+            marker=dict(size=5, color=color, opacity=marker_opacity),
+            name=label,
+            legendgroup='corpus',
+            hoverinfo='skip',
+        ))
+
+    # ----------------------------------------------------------------
+    # Centroids (use full unfiltered PCA for stable centroid positions)
+    # ----------------------------------------------------------------
+    X_full = cached['X_pca']
+    labels_full = cached['labels_arr']
+    for label, color in palette.items():
+        mask_l = labels_full == label
+        if not mask_l.any():
+            continue
+        cx, cy = X_full[mask_l, 0].mean(), X_full[mask_l, 1].mean()
+        # Background black X for contrast
+        fig.add_trace(go.Scatter(
+            x=[cx], y=[cy],
+            mode='markers',
+            marker=dict(size=20, color='black', symbol='x'),
+            showlegend=False, hoverinfo='skip',
+        ))
+        fig.add_trace(go.Scatter(
+            x=[cx], y=[cy],
+            mode='markers',
+            marker=dict(size=14, color=color, symbol='x'),
+            name=f'{label} centroid',
+            legendgroup='corpus',
+            showlegend=False,
+            hovertemplate=f'<b>{label} centroid</b><br>PC1: %{{x:.3f}}<br>PC2: %{{y:.3f}}<extra></extra>',
+        ))
+
+    # ----------------------------------------------------------------
+    # Representative paper highlight
+    # ----------------------------------------------------------------
+    selected_paper_title = None
+    if paper_id:
+        pos_mask = df['id'] == paper_id
+        if pos_mask.any():
+            pos_idx = np.where(pos_mask)[0][0]
+            paper_row = df.iloc[pos_idx]
+            selected_paper_title = paper_row.get('title', paper_id)
+
+            # Build "(Surname, YYYY)" attribution
+            surname = _extract_first_author_surname(paper_row.get('authorships'))
+            year = paper_row.get('publication_year', '')
+            paper_legend_label = f"{selected_paper_title} ({surname}, {year})"
+
+            # Project this paper's displacement vectors through the fitted PCA
+            pm_row = cached['pm'][pos_idx:pos_idx + 1]
+            mf_row = cached['mf'][pos_idx:pos_idx + 1]
+            fi_row = cached['fi'][pos_idx:pos_idx + 1]
+
+            paper_pts = pca_model.transform(np.vstack([pm_row, mf_row, fi_row]))
+
+            for t_idx, (t_label, color) in enumerate(palette.items()):
+                px_coord, py_coord = float(paper_pts[t_idx, 0]), float(paper_pts[t_idx, 1])
+                # Only the first trace appears in the legend; the other two are
+                # part of the same legendgroup and remain hidden from the legend.
+                fig.add_trace(go.Scatter(
+                    x=[px_coord], y=[py_coord],
+                    mode='markers',
+                    marker=dict(
+                        size=18,
+                        color=color,
+                        symbol='star',
+                        line=dict(color='black', width=1.5),
+                    ),
+                    name=paper_legend_label,
+                    legendgroup='paper',
+                    showlegend=(t_idx == 0),
+                    hovertemplate=(
+                        f'<b>{selected_paper_title}</b><br>'
+                        f'Transition: {t_label}<br>'
+                        f'PC1: {px_coord:.3f}<br>PC2: {py_coord:.3f}'
+                        '<extra></extra>'
+                    ),
+                ))
+
+    # ----------------------------------------------------------------
+    # Layout
+    # ----------------------------------------------------------------
+    pc1_pct = f'{explained[0]:.1%}'
+    pc2_pct = f'{explained[1]:.1%}'
+    trim_note = ' (95% quantile trim)' if 'trim-outliers' in style_opts else ''
+
+    fig.update_layout(
+        title=f'Discourse Transition Space — PCA on Displacement Vectors ({display_name}){trim_note}',
+        xaxis_title=f'PC 1 ({pc1_pct} var)',
+        yaxis_title=f'PC 2 ({pc2_pct} var)',
+        legend=dict(orientation='v', yanchor='top', y=1.0, xanchor='left', x=1.02),
+    )
+
+    apply_paper_style(fig, font, 'gridlines' in style_opts, style_opts, base_font_size)
+
+    # ----------------------------------------------------------------
+    # LaTeX caption
+    # ----------------------------------------------------------------
+    n_total = len(df)
+    paper_note = (
+        f' Stars indicate the three displacement vectors of the representative paper '
+        f'\\emph{{{selected_paper_title}}}.'
+        if selected_paper_title else ''
+    )
+    caption = (
+        f'\\begin{{figure}}[h]\n\\centering\n'
+        f'\\includegraphics[width=0.65\\textwidth]{{figures/transition_space_{exp_name}.pdf}}\n'
+        f'\\caption{{2D PCA projection of the three epistemic displacement vectors '
+        f'($\\vec{{v}}_{{PM}}$, $\\vec{{v}}_{{MF}}$, $\\vec{{v}}_{{FI}}$) for all $N={n_total:,}$ papers in '
+        f'{display_name}. Each point represents one transition; the three clusters demonstrate that '
+        f'the three discourse operators are geometrically distinct in the embedding space. '
+        f'Crosses mark cluster centroids.{paper_note}}}\n'
+        f'\\label{{fig:transition_space_{exp_name}}}\n\\end{{figure}}'
+    )
+
+    # ----------------------------------------------------------------
+    # Stats panel
+    # ----------------------------------------------------------------
+    stats_rows = [
+        html.Tr([html.Td('Total displacement vectors'), html.Td(f'{n_total * 3:,}')]),
+        html.Tr([html.Td('Papers (N)'), html.Td(f'{n_total:,}')]),
+        html.Tr([html.Td('PC 1 variance'), html.Td(pc1_pct)]),
+        html.Tr([html.Td('PC 2 variance'), html.Td(pc2_pct)]),
+    ]
+    if selected_paper_title:
+        stats_rows.append(html.Tr([html.Td('Highlighted paper'), html.Td(selected_paper_title[:60])]))
+
+    stats_div = html.Div([
+        html.H6('Transition Space Statistics'),
+        dbc.Table(
+            [html.Thead(html.Tr([html.Th('Metric'), html.Th('Value')])),
+             html.Tbody(stats_rows)],
+            bordered=True, size='sm', className='small'
+        ),
+        html.Small(
+            'Each point is one of 3N displacement vectors projected onto their first two principal components. '
+            'Cluster separation indicates that the three epistemic operators occupy distinct regions of embedding space.',
+            className='text-muted'
+        )
+    ])
+
+    return fig, caption, stats_div
+
+
 def register_paper_figures_callbacks(app, base_path: str | Path):
     base_path = Path(base_path)
     @app.callback(
@@ -1849,7 +2115,7 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
         multi = False
         val = current_paper_val
         
-        if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h2-neighborhoods', 'fig-h2-connected-3d', 'fig-h1-example-simplex'):
+        if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h2-neighborhoods', 'fig-h2-connected-3d', 'fig-h1-example-simplex', 'fig-h2-transition-space'):
             show_paper = {'display': 'block'}
             
         if fig_choice in ('fig-h1-trajectory-simplex', 'fig-h1-example-simplex'):
@@ -1886,6 +2152,8 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
                 {"label": "Hide Transition Lines", "value": "hide-transitions"},
                 {"label": "Show Aspect Planes", "value": "show-planes"}
             ]
+        elif fig_choice == 'fig-h2-transition-space':
+            options = base_opts + [{"label": "Trim Outliers (95% quantile)", "value": "trim-outliers"}]
         else:
             options = base_opts
             
@@ -1955,6 +2223,9 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             elif fig_choice == 'fig-h2-connected-3d':
                 fig, cap, stats = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)
                 title_text = 'H2.3: 3D Connected Discourse Simplices'
+            elif fig_choice == 'fig-h2-transition-space':
+                fig, cap, stats = _build_fig_h2_transition_space(df, exp_name, paper_id, font, base_font_size, style_opts, base_path, custom_exp_name)
+                title_text = 'H2.4: Discourse Transition Space (PCA on Displacement Vectors)'
             elif fig_choice == 'fig-h3-predictive-gain':
                 fig, cap, stats = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)
                 title_text = 'H3.1: Predictive Gain (EDEL vs Baseline)'
@@ -2059,6 +2330,8 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
                 fig = _build_fig_h2_neighborhoods(df, exp_name, paper_id, transition, k_neighbors, font, base_font_size, style_opts, base_path, custom_exp_name)[0]
             elif fig_choice == 'fig-h2-connected-3d':
                 fig = _build_fig_h2_connected_3d(df, exp_name, paper_id, k_neighbors, font, base_font_size, style_opts, base_path)[0]
+            elif fig_choice == 'fig-h2-transition-space':
+                fig = _build_fig_h2_transition_space(df, exp_name, paper_id, font, base_font_size, style_opts, base_path, custom_exp_name)[0]
             elif fig_choice == 'fig-h3-predictive-gain':
                 fig = _build_fig_h3_predictive_gain(results_df, exp_name, font, base_font_size, style_opts)[0]
             elif fig_choice == 'fig-h3-wasserstein-null':

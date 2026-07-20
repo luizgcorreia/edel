@@ -123,6 +123,22 @@ def _get_llm_axis_labels(exp_name: str, base_path: Path | None) -> tuple[str, st
             pass
     return x_label, y_label
 
+def _extract_first_author_surname(authorships_field) -> str:
+    from edel.dashboard.utils import parse_authorships
+    parsed = parse_authorships(authorships_field)
+    if not parsed:
+        return "Unknown"
+    first_author_name = parsed[0].get("name", "Unknown")
+    if not first_author_name or first_author_name == "Unknown":
+        return "Unknown"
+    if ',' in first_author_name:
+        return first_author_name.split(',')[0].strip()
+    else:
+        parts = first_author_name.split()
+        if parts:
+            return parts[-1].strip()
+    return "Unknown"
+
 def apply_paper_style(fig: go.Figure, font: str, show_grid: bool, style_options: list[str] | None, base_font_size: int):
     if style_options is None:
         style_options = []
@@ -328,6 +344,7 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
     hide_legend = 'vertex-labels' in style_opts
 
     for p_idx, pid in enumerate(valid_pids):
+        row = df[df['id'] == pid].iloc[0]
         coords = coordinates_dict[pid]
         title = titles_dict[pid]
         short_title = (title[:25] + '...') if len(title) > 25 else title
@@ -345,18 +362,23 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
             line_width = 6
             dash_color = 'rgba(128,128,128,0.7)'
             show_legend = False
+            trace_name = 'Sequential Trajectory'
         else:
             color = tetra_colors[p_idx % len(tetra_colors)]
             line_width = 4
             dash_color = color
             show_legend = True
+            surname = _extract_first_author_surname(row.get("authorships"))
+            year = row.get("publication_year", "Unknown")
+            full_title = row.get("title", "Unknown Title")
+            trace_name = f"{full_title} ({surname}, {year})"
             
         # Draw sequential trajectory
         fig.add_trace(go.Scatter3d(
             x=sequential_xs, y=sequential_ys, z=sequential_zs,
             mode='lines',
             line=dict(color=color, width=line_width),
-            name=f"Trajectory: {short_title}" if show_legend else 'Sequential Trajectory',
+            name=trace_name,
             legendgroup=f"paper_{pid}",
             showlegend=show_legend and not hide_legend,
             hoverinfo='skip'
@@ -430,10 +452,14 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
     first_pid = valid_pids[0]
     first_title = titles_dict[first_pid]
     
-    x_llm, y_llm = _get_llm_axis_labels(exp_name, base_path)
-    x_title = 'Intrinsic axis 1 (P→M)' if len(valid_pids) == 1 else x_llm
-    y_title = 'Intrinsic axis 2' if len(valid_pids) == 1 else y_llm
-    z_title = 'Intrinsic axis 3' if len(valid_pids) == 1 else 'Dim 3'
+    if len(valid_pids) == 1:
+        x_title = 'Intrinsic axis 1 (P→M)'
+        y_title = 'Intrinsic axis 2'
+        z_title = 'Intrinsic axis 3'
+    else:
+        x_title = 'Joint PCA Dim 1'
+        y_title = 'Joint PCA Dim 2'
+        z_title = 'Joint PCA Dim 3'
     
     fig.update_layout(
         title=f"Discourse Trajectory & Simplex (H1): {first_title}" if len(valid_pids) == 1 else "Joint discourse Trajectory & Simplex projection (H1)",
@@ -505,9 +531,11 @@ def _build_fig_h1_simplex(df: pd.DataFrame | None, exp_name: str, paper_ids: str
     else:
         caption = (
             f"\\begin{{figure}}[h]\n\\centering\n\\includegraphics[width=0.7\\textwidth]{{figures/simplex_trajectory_joint.pdf}}\n"
-            f"\\caption{{Joint 3D PCA projection of intrinsic discourse simplexes for multiple selected papers. "
-            f"Displacements between different papers' aspects are preserved. Each paper is rendered in a distinct color "
-            f"with vertex labels representing the aspects (P: Problem, M: Method, F: Finding, I: Interpretation).}}\n"
+            f"\\caption{{Joint 3D PCA projection of the discourse simplices for multiple selected papers. "
+            f"The high-dimensional aspect embeddings for all papers are jointly projected onto their first three principal components "
+            f"(Joint PCA Dim 1, 2, and 3) to preserve both the local simplex structures and the relative spatial displacement "
+            f"between different papers. Each paper's trajectory is colored distinctly, with vertices labeled by aspect: "
+            f"Problem (P), Method (M), Finding (F), and Interpretation (I).}}\n"
             f"\\label{{fig:simplex_trajectory_joint}}\n\\end{{figure}}"
         )
         stats_div = html.Div([

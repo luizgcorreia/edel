@@ -601,9 +601,18 @@ def hypothesis_metrics(artifacts: dict) -> dict:
         I_fut_b = emb_i[fut_idx_b]
         P_fut_b = emb_p[fut_idx_b]
         
-        reg_b = Ridge(alpha=1.0)
-        reg_b.fit(I_hist_b, P_hist_b)
-        P_pred_b = reg_b.predict(I_fut_b)
+        # Fast closed-form Ridge solver (dynamic primal vs. dual)
+        I_mean = I_hist_b.mean(axis=0)
+        P_mean = P_hist_b.mean(axis=0)
+        I_hist_c = I_hist_b - I_mean
+        P_hist_c = P_hist_b - P_mean
+        n_samples, n_features = I_hist_b.shape
+        if n_samples <= n_features:
+            A = np.linalg.solve(I_hist_c @ I_hist_c.T + np.eye(n_samples), P_hist_c)
+            P_pred_b = (I_fut_b - I_mean) @ I_hist_c.T @ A + P_mean
+        else:
+            A = np.linalg.solve(I_hist_c.T @ I_hist_c + np.eye(n_features), I_hist_c.T @ P_hist_c)
+            P_pred_b = (I_fut_b - I_mean) @ A + P_mean
         
         w_edel_b = compute_wasserstein(P_pred_b, P_fut_b, idx_X=sub_fut, idx_Y=sub_fut)
         w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b, idx_X=sub_hist, idx_Y=sub_fut)

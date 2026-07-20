@@ -25,6 +25,23 @@ def _load_features(exp_id: str, base_path: Path) -> dict | None:
         logger.warning(f"Error loading features for '{exp_id}': {e}")
         return None
 
+def _save_features(exp_id: str, feat_dict: dict, base_path: Path) -> None:
+    """Save/update cached features (distributions) on disk for a given experiment ID."""
+    features_dir = base_path / "experiments" / exp_id
+    features_dir.mkdir(parents=True, exist_ok=True)
+    features_path = features_dir / "features.pkl"
+    try:
+        existing = {}
+        if features_path.exists():
+            with open(features_path, "rb") as f:
+                existing = pickle.load(f)
+        existing.update(feat_dict)
+        with open(features_path, "wb") as f:
+            pickle.dump(existing, f)
+        logger.info(f"Successfully cached features to disk: {features_path}")
+    except Exception as e:
+        logger.warning(f"Error saving features to disk for '{exp_id}': {e}")
+
 _MORAN_CACHE: dict[tuple[str, str], dict] = {}
 
 def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path: Path) -> dict | None:
@@ -196,13 +213,19 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
         lag_z_y = w @ z_y
         lag_z_y_std = w @ z_y_std
 
-        # On-the-fly p-value computation
-        w_edel = compute_wasserstein(P_pred, P_fut)
-        w_baseline = compute_wasserstein(P_hist, P_fut)
+        # On-the-fly p-value computation with fixed subsample
+        h3_sub = 500
+        rng_sub = np.random.RandomState(42)
+        n_hist = hist_mask.sum()
+        n_pred = fut_mask.sum()
+        sub_hist = rng_sub.choice(n_hist, size=min(h3_sub, n_hist), replace=False)
+        sub_fut = rng_sub.choice(n_pred, size=min(h3_sub, n_pred), replace=False)
+
+        w_edel = compute_wasserstein(P_pred, P_fut, idx_X=sub_fut, idx_Y=sub_fut)
+        w_baseline = compute_wasserstein(P_hist, P_fut, idx_X=sub_hist, idx_Y=sub_fut)
         obs_gain = w_baseline - w_edel
 
-        n_hist = hist_mask.sum()
-        B_h3 = 100
+        B_h3 = 49
         rng = np.random.default_rng(42)
         shuf_gains = []
         for _ in range(B_h3):
@@ -215,12 +238,21 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
             I_fut_b = emb_i[fut_idx_b]
             P_fut_b = emb_p[fut_idx_b]
             
-            reg_b = Ridge(alpha=1.0)
-            reg_b.fit(I_hist_b, P_hist_b)
-            P_pred_b = reg_b.predict(I_fut_b)
+            # Fast closed-form Ridge solver (dynamic primal vs. dual)
+            I_mean = I_hist_b.mean(axis=0)
+            P_mean = P_hist_b.mean(axis=0)
+            I_hist_c = I_hist_b - I_mean
+            P_hist_c = P_hist_b - P_mean
+            n_samples, n_features = I_hist_b.shape
+            if n_samples <= n_features:
+                A = np.linalg.solve(I_hist_c @ I_hist_c.T + np.eye(n_samples), P_hist_c)
+                P_pred_b = (I_fut_b - I_mean) @ I_hist_c.T @ A + P_mean
+            else:
+                A = np.linalg.solve(I_hist_c.T @ I_hist_c + np.eye(n_features), I_hist_c.T @ P_hist_c)
+                P_pred_b = (I_fut_b - I_mean) @ A + P_mean
             
-            w_edel_b = compute_wasserstein(P_pred_b, P_fut_b)
-            w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b)
+            w_edel_b = compute_wasserstein(P_pred_b, P_fut_b, idx_X=sub_fut, idx_Y=sub_fut)
+            w_baseline_b = compute_wasserstein(P_hist_b, P_fut_b, idx_X=sub_hist, idx_Y=sub_fut)
             shuf_gains.append(w_baseline_b - w_edel_b)
             
         shuf_gains = np.array(shuf_gains)
@@ -240,6 +272,13 @@ def _get_or_compute_h3_moran_features(exp_id: str, feat: dict | None, base_path:
             "obs_gain": float(obs_gain),
         }
         _MORAN_CACHE[cache_key] = res
+        
+        # Save features back to disk to avoid recalculating next time
+        _save_features(exp_id, {
+            "h3_moran": res,
+            "h3_shuf_gains": shuf_gains.tolist()
+        }, base_path)
+        
         return res
     except Exception as ex:
         logger.error(f"Failed to compute Moran features on the fly: {ex}", exc_info=True)

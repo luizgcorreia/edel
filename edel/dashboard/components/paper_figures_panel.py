@@ -83,7 +83,28 @@ def paper_figures_panel_layout() -> dbc.Container:
                             html.Small(
                                 "Choose a specific paper from the dataset to visualize its trajectory/neighborhood.",
                                 className="text-muted d-block mb-3"
-                            )
+                            ),
+                            html.Div([
+                                html.Label("Select Top N Most Cited:", className="small fw-bold me-2"),
+                                dbc.Input(
+                                    id="paper-fig-top-n-input",
+                                    type="number",
+                                    value=5,
+                                    min=1,
+                                    max=100,
+                                    size="sm",
+                                    style={"width": "70px", "display": "inline-block", "verticalAlign": "middle"},
+                                    className="me-2"
+                                ),
+                                dbc.Button(
+                                    "Select",
+                                    id="paper-fig-btn-top-n",
+                                    color="secondary",
+                                    size="sm",
+                                    className="py-0 px-2",
+                                    style={"verticalAlign": "middle"}
+                                )
+                            ], className="mb-3", style={"display": "flex", "alignItems": "center"})
                         ], style={"display": "block"}),
 
                         # Transition Operator Selector (only for neighborhood/H2 plots)

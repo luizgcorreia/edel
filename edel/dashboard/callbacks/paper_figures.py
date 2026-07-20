@@ -1778,6 +1778,52 @@ def register_paper_figures_callbacks(app, base_path: str | Path):
             return []
 
     @app.callback(
+        Output('paper-fig-paper-select', 'value', allow_duplicate=True),
+        [
+            Input('paper-fig-btn-top-n', 'n_clicks'),
+            Input('paper-fig-top-n-input', 'value')
+        ],
+        [
+            State('paper-fig-exp-select', 'value'),
+            State('paper-fig-paper-select', 'multi')
+        ],
+        prevent_initial_call=True
+    )
+    def auto_select_top_n(n_clicks, n_val, exp_name, multi):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            raise PreventUpdate
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if trigger_id == 'paper-fig-btn-top-n' and not n_clicks:
+            raise PreventUpdate
+        if not exp_name or n_val is None or n_val < 1:
+            raise PreventUpdate
+            
+        try:
+            df = _load_dr_df(exp_name, base_path)
+            # Find the citation column. Most experiments have 'cited_by_count'
+            cite_col = None
+            for col in ['cited_by_count', 'citations', 'dependents_count']:
+                if col in df.columns:
+                    cite_col = col
+                    break
+            
+            if not cite_col:
+                logger.warning(f"No citation column found in dataset for {exp_name}")
+                return dash.no_update
+                
+            df_sorted = df.dropna(subset=['id', cite_col]).sort_values(by=cite_col, ascending=False)
+            top_papers = df_sorted.head(int(n_val))
+            
+            if multi:
+                return list(top_papers['id'].values)
+            else:
+                return top_papers['id'].values[0] if not top_papers.empty else None
+        except Exception as e:
+            logger.error(f"Error auto selecting top n papers: {e}")
+            return dash.no_update
+
+    @app.callback(
         [
             Output('paper-fig-paper-group', 'style'),
             Output('paper-fig-transition-group', 'style'),

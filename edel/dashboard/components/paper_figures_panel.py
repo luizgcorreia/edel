@@ -195,7 +195,7 @@ def paper_figures_panel_layout() -> dbc.Container:
                             options=[
                                 {"label": "Single Column (4:3)", "value": "4:3"},
                                 {"label": "Double Column (16:9)", "value": "16:9"},
-                                {"label": "Ultra-Wide Double Panel (32:9)", "value": "32:9"},
+                                {"label": "Wide Double Panel (7:3)", "value": "7:3"},
                                 {"label": "Square (1:1)", "value": "1:1"},
                             ],
                             value="4:3",
